@@ -1,6 +1,6 @@
 # Kaplan Solutions — Landing Page
 
-Premium-Website für **Kaplan Solutions** — Bauvermittlung aus Berlin (DACH).
+Premium-Website für **Kaplan Solutions** — Bauvermittlung aus Berlin.
 
 ## Lokal starten
 
