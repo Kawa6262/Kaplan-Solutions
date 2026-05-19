@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from flask import Flask, jsonify, render_template, request, send_from_directory
+from flask import Flask, abort, jsonify, render_template, request, send_from_directory
 
 from company_config import COMPANY, company_footer_text
 
@@ -24,7 +24,20 @@ BASE_DIR = Path(__file__).parent
 INBOX_DIR = BASE_DIR / "data" / "inbox"
 INBOX_DIR.mkdir(parents=True, exist_ok=True)
 
-app = Flask(__name__, static_folder=".", static_url_path="")
+# GitHub-Upload legt Dateien oft flach ins Repo-Root — beide Layouts unterstützen.
+if (BASE_DIR / "templates" / "impressum.html").is_file():
+    TEMPLATE_DIR = BASE_DIR / "templates"
+elif (BASE_DIR / "impressum.html").is_file():
+    TEMPLATE_DIR = BASE_DIR
+else:
+    TEMPLATE_DIR = BASE_DIR / "templates"
+
+app = Flask(
+    __name__,
+    static_folder=str(BASE_DIR),
+    static_url_path="",
+    template_folder=str(TEMPLATE_DIR),
+)
 
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "").strip()
 SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com").strip()
@@ -298,9 +311,35 @@ def validate_inquiry(data: dict) -> str | None:
     return None
 
 
+@app.route("/assets/<path:filename>")
+def serve_asset(filename):
+    nested = BASE_DIR / "assets" / filename
+    if nested.is_file():
+        return send_from_directory(BASE_DIR / "assets", filename)
+    flat = BASE_DIR / filename
+    if flat.is_file():
+        return send_from_directory(BASE_DIR, filename)
+    abort(404)
+
+
+@app.route("/data/references.json")
+def serve_references():
+    nested = BASE_DIR / "data" / "references.json"
+    flat = BASE_DIR / "references.json"
+    if nested.is_file():
+        return send_from_directory(
+            BASE_DIR / "data", "references.json", mimetype="application/json"
+        )
+    if flat.is_file():
+        return send_from_directory(
+            BASE_DIR, "references.json", mimetype="application/json"
+        )
+    abort(404)
+
+
 @app.route("/")
 def index():
-    return send_from_directory(".", "index.html")
+    return send_from_directory(BASE_DIR, "index.html")
 
 
 def legal_context(active: str) -> dict:
@@ -364,10 +403,13 @@ def contact():
 
     if not email_configured():
         notify_macos("Kaplan Solutions", f"Neue Anfrage gespeichert: {payload['name']}")
-        return jsonify({
-            "ok": False,
-            "error": "E-Mail ist noch nicht eingerichtet. Bitte setup_email.sh ausführen.",
-        }), 503
+        err = (
+            "E-Mail ist auf dem Server noch nicht eingerichtet. "
+            "Bitte SMTP-Zugangsdaten im Hosting-Dashboard (Render → Environment) eintragen."
+            if os.getenv("RENDER")
+            else "E-Mail ist noch nicht eingerichtet. Bitte setup_email.sh ausführen oder .env prüfen."
+        )
+        return jsonify({"ok": False, "error": err}), 503
 
     subject, text_body, html_body = build_email_bodies(payload, role_label, now)
 
