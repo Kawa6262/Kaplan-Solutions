@@ -1,0 +1,404 @@
+#!/usr/bin/env python3
+"""Kaplan Solutions — Website + Kontaktformular per E-Mail."""
+
+import json
+import os
+import re
+import smtplib
+import ssl
+import subprocess
+from datetime import datetime
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+from flask import Flask, jsonify, render_template, request, send_from_directory
+
+from company_config import COMPANY, company_footer_text
+
+BASE_DIR = Path(__file__).parent
+INBOX_DIR = BASE_DIR / "data" / "inbox"
+INBOX_DIR.mkdir(parents=True, exist_ok=True)
+
+app = Flask(__name__, static_folder=".", static_url_path="")
+
+ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "").strip()
+SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com").strip()
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER = os.getenv("SMTP_USER", "").strip()
+SMTP_PASS = os.getenv("SMTP_PASS", "").strip()
+FROM_EMAIL = os.getenv("FROM_EMAIL", SMTP_USER).strip()
+REPLY_EMAIL = os.getenv("REPLY_EMAIL", "kontakt@kaplan-solutions.de").strip()
+COMPANY_PHONE = os.getenv("COMPANY_PHONE", "+49 (0)40 123 456 789").strip()
+
+ROLE_LABELS = {
+    "bauherr": "Auftraggeber — sucht ein Bauunternehmen",
+    "unternehmen": "Auftragnehmer — sucht Aufträge / Netzwerk",
+}
+
+BAUHER_FIELDS = [
+    ("Projektart", "project"),
+    ("Standort", "location"),
+    ("Gewünschter Projektstart", "timeline"),
+    ("Budgetrahmen", "budget"),
+    ("Projektgröße", "project_size"),
+    ("Aktueller Stand", "project_status"),
+]
+
+UNTERNEHMEN_FIELDS = [
+    ("Firmenname", "company_name"),
+    ("Gewerke / Spezialisierung", "trades"),
+    ("Einsatzgebiet", "region"),
+    ("Verfügbare Kapazität", "capacity"),
+    ("Typischer Auftragsumfang", "order_scope"),
+    ("Freie Baukapazität", "team_capacity"),
+    ("Mitarbeiterzahl", "employees"),
+    ("Referenzprojekte", "references"),
+]
+
+
+def email_configured() -> bool:
+    return bool(ADMIN_EMAIL and SMTP_USER and SMTP_PASS)
+
+
+def is_valid_email(value: str) -> bool:
+    return bool(re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", value or ""))
+
+
+def save_inquiry(payload: dict) -> Path:
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe_name = re.sub(r"[^\w\-]", "_", payload.get("name", "anfrage"))[:40]
+    path = INBOX_DIR / f"{stamp}_{safe_name}.json"
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return path
+
+
+def notify_macos(title: str, message: str) -> None:
+    if os.getenv("RENDER") or os.getenv("PRODUCTION"):
+        return
+    try:
+        script = f'display notification "{message}" with title "{title}"'
+        subprocess.run(["osascript", "-e", script], check=False, timeout=3)
+    except Exception:
+        pass
+
+
+def _row(label: str, value: str) -> str:
+    v = (value or "").strip() or "—"
+    return f"<tr><td style=\"padding:8px 12px;background:#f5f5f5;font-weight:bold;width:180px\">{label}</td><td style=\"padding:8px 12px\">{v}</td></tr>"
+
+
+def build_email_bodies(data: dict, role_label: str, now: str):
+    name = data["name"]
+    email = data["email"]
+    subject = f"[Kaplan Solutions] Neue Anfrage — {name} ({role_label.split(' — ')[0]})"
+
+    rows_html = [
+        _row("Anfrageart", role_label),
+        _row("Name", name),
+        _row("E-Mail", f'<a href="mailto:{email}">{email}</a>'),
+        _row("Telefon", data.get("phone", "—")),
+        _row("Firma / Organisation", data.get("company", "—")),
+    ]
+
+    rows_text = [
+        f"Anfrageart:     {role_label}",
+        f"Name:           {name}",
+        f"E-Mail:         {email}",
+        f"Telefon:        {data.get('phone', '—')}",
+        f"Firma:          {data.get('company', '—')}",
+        "",
+    ]
+
+    if data["role"] == "bauherr":
+        section = "— PROJEKTDETAILS (Auftraggeber) —"
+        rows_text.append(section)
+        for label, key in BAUHER_FIELDS:
+            val = data.get(key, "—")
+            rows_text.append(f"{label + ':':<22} {val}")
+            rows_html.append(_row(label, val))
+    else:
+        section = "— UNTERNEHMENSDETAILS (Auftragnehmer) —"
+        rows_text.append(section)
+        for label, key in UNTERNEHMEN_FIELDS:
+            val = data.get(key, "—")
+            rows_text.append(f"{label + ':':<22} {val}")
+            rows_html.append(_row(label, val))
+
+    message = data.get("message", "")
+    rows_text.extend(["", "Zusätzliche Angaben:", message, "", "=" * 50, f"Eingegangen am: {now}", f"Antworten: {email}"])
+
+    text_body = "Neue Kontaktanfrage — Kaplan Solutions\n\n" + "\n".join(rows_text)
+
+    html_body = f"""<!DOCTYPE html>
+<html><body style="font-family:Arial,sans-serif;color:#222;line-height:1.6">
+<h2 style="color:#b87333">Neue Kontaktanfrage — Kaplan Solutions</h2>
+<table style="border-collapse:collapse;width:100%;max-width:600px">
+{''.join(rows_html)}
+</table>
+<h3 style="margin-top:24px;color:#b87333">Zusätzliche Angaben</h3>
+<p style="white-space:pre-wrap;background:#fafafa;padding:16px;border-left:3px solid #b87333">{message}</p>
+<p style="font-size:12px;color:#888">Eingegangen am {now}</p>
+</body></html>"""
+
+    return subject, text_body, html_body
+
+
+def send_email(to: str, subject: str, text_body: str, html_body: str, reply_to: str | None = None) -> None:
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = f"Kaplan Solutions <{FROM_EMAIL}>"
+    msg["To"] = to
+    if reply_to:
+        msg["Reply-To"] = reply_to
+    msg.attach(MIMEText(text_body, "plain", "utf-8"))
+    msg.attach(MIMEText(html_body, "html", "utf-8"))
+
+    context = ssl.create_default_context()
+    with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15) as server:
+        server.ehlo()
+        server.starttls(context=context)
+        server.ehlo()
+        server.login(SMTP_USER, SMTP_PASS)
+        server.sendmail(FROM_EMAIL, [to], msg.as_string())
+
+
+def send_admin_email(subject: str, text_body: str, html_body: str, reply_to: str) -> None:
+    send_email(ADMIN_EMAIL, subject, text_body, html_body, reply_to=reply_to)
+
+
+def build_customer_confirmation(data: dict, role_label: str, now: str) -> tuple[str, str, str]:
+    name = data["name"]
+    subject = "Ihre Anfrage bei Kaplan Solutions — Eingang bestätigt"
+
+    summary_lines = [f"Anfrageart: {role_label}"]
+    if data["role"] == "bauherr":
+        if data.get("project"):
+            summary_lines.append(f"Projektart: {data['project']}")
+        if data.get("location"):
+            summary_lines.append(f"Standort: {data['location']}")
+        if data.get("timeline"):
+            summary_lines.append(f"Geplanter Start: {data['timeline']}")
+    else:
+        company = data.get("company_name") or data.get("company")
+        if company and company != "—":
+            summary_lines.append(f"Unternehmen: {company}")
+        if data.get("trades"):
+            summary_lines.append(f"Gewerke: {data['trades']}")
+        if data.get("region"):
+            summary_lines.append(f"Einsatzgebiet: {data['region']}")
+
+    summary_text = "\n".join(f"  • {line}" for line in summary_lines)
+
+    text_body = f"""Sehr geehrte/r {name},
+
+vielen Dank für Ihre Anfrage bei Kaplan Solutions.
+
+Wir bestätigen den Eingang Ihrer Nachricht am {now}. Ihre Angaben wurden an unser Team weitergeleitet. Ein fachkundiger Ansprechpartner meldet sich in der Regel innerhalb von 24 Stunden persönlich bei Ihnen.
+
+Ihre Angaben im Überblick:
+{summary_text}
+
+Bei Rückfragen erreichen Sie uns unter:
+E-Mail: {REPLY_EMAIL}
+Telefon: {COMPANY_PHONE}
+
+Mit freundlichen Grüßen
+
+{company_footer_text()}
+www.kaplan-solutions.de
+
+—
+Diese E-Mail wurde automatisch erstellt. Bitte antworten Sie nicht direkt auf diese Nachricht.
+Für Rückfragen nutzen Sie: {REPLY_EMAIL}
+"""
+
+    summary_html = "".join(f"<li style=\"margin-bottom:6px\">{line}</li>" for line in summary_lines)
+
+    html_body = f"""<!DOCTYPE html>
+<html lang="de">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f0f0f0;font-family:Georgia,'Times New Roman',serif">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f0f0f0;padding:32px 16px">
+<tr><td align="center">
+<table role="presentation" width="600" cellspacing="0" cellpadding="0" style="max-width:600px;width:100%;background:#0a0a0a;color:#f5f5f5">
+
+<tr><td style="padding:40px 40px 24px;border-bottom:1px solid #262626">
+  <p style="margin:0;font-family:Arial,sans-serif;font-size:11px;letter-spacing:0.35em;text-transform:uppercase;color:#b87333">Kaplan Solutions</p>
+  <p style="margin:8px 0 0;font-family:Georgia,serif;font-size:22px;font-weight:400;color:#f5f5f5">Eingang Ihrer Anfrage bestätigt</p>
+</td></tr>
+
+<tr><td style="padding:32px 40px;font-family:Arial,sans-serif;font-size:15px;line-height:1.75;color:#d4d4d4">
+  <p style="margin:0 0 20px;color:#f5f5f5">Sehr geehrte/r {name},</p>
+  <p style="margin:0 0 20px">vielen Dank für Ihr Vertrauen in <strong style="color:#f5f5f5">Kaplan Solutions</strong>. Wir bestätigen hiermit den Eingang Ihrer Anfrage am <strong style="color:#b87333">{now}</strong>.</p>
+  <p style="margin:0 0 28px">Ihre Angaben wurden an unser Team weitergeleitet. Ein fachkundiger Ansprechpartner wird sich <strong style="color:#f5f5f5">zeitnah — in der Regel innerhalb von 24 Stunden</strong> — persönlich bei Ihnen melden.</p>
+
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#141414;border:1px solid #262626;margin-bottom:28px">
+  <tr><td style="padding:20px 24px">
+    <p style="margin:0 0 12px;font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#b87333">Ihre Angaben im Überblick</p>
+    <ul style="margin:0;padding-left:18px;color:#a3a3a3;font-size:14px;line-height:1.6">{summary_html}</ul>
+  </td></tr>
+  </table>
+
+  <p style="margin:0 0 8px;font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#737373">Kontakt</p>
+  <p style="margin:0;font-size:14px;color:#a3a3a3">
+    E-Mail: <a href="mailto:{REPLY_EMAIL}" style="color:#b87333;text-decoration:none">{REPLY_EMAIL}</a><br>
+    Telefon: <span style="color:#f5f5f5">{COMPANY_PHONE}</span>
+  </p>
+</td></tr>
+
+<tr><td style="padding:24px 40px 40px;border-top:1px solid #262626;font-family:Arial,sans-serif;font-size:13px;color:#737373;line-height:1.6">
+  <p style="margin:0 0 4px;color:#a3a3a3">Mit freundlichen Grüßen</p>
+  <p style="margin:0 0 8px;font-family:Georgia,serif;font-size:16px;color:#f5f5f5">{COMPANY["brand"]}</p>
+  <p style="margin:0;font-size:12px">{company_footer_text().replace(chr(10), "<br>")}</p>
+  <p style="margin:20px 0 0;font-size:11px;color:#525252">Diese Nachricht wurde automatisch erstellt. Für Rückfragen wenden Sie sich bitte an {REPLY_EMAIL}.</p>
+</td></tr>
+
+</table>
+</td></tr>
+</table>
+</body>
+</html>"""
+
+    return subject, text_body, html_body
+
+
+def send_customer_confirmation(data: dict, role_label: str, now: str) -> None:
+    subject, text_body, html_body = build_customer_confirmation(data, role_label, now)
+    send_email(data["email"], subject, text_body, html_body, reply_to=REPLY_EMAIL)
+
+
+def validate_inquiry(data: dict) -> str | None:
+    role = (data.get("role") or "").strip()
+    if role not in ROLE_LABELS:
+        return "Bitte wählen Sie eine Anfrageart."
+    if not (data.get("name") or "").strip():
+        return "Bitte geben Sie Ihren Namen an."
+    if not is_valid_email((data.get("email") or "").strip()):
+        return "Bitte geben Sie eine gültige E-Mail an."
+    if not (data.get("message") or "").strip():
+        return "Bitte ergänzen Sie die zusätzlichen Angaben."
+    if not data.get("privacy_consent"):
+        return "Bitte bestätigen Sie die Datenschutzerklärung."
+
+    if role == "bauherr":
+        for label, key in BAUHER_FIELDS:
+            if not (data.get(key) or "").strip():
+                return f"Bitte ausfüllen: {label}"
+    else:
+        for label, key in UNTERNEHMEN_FIELDS:
+            if key == "employees" or key == "references":
+                continue
+            if not (data.get(key) or "").strip():
+                return f"Bitte ausfüllen: {label}"
+    return None
+
+
+@app.route("/")
+def index():
+    return send_from_directory(".", "index.html")
+
+
+def legal_context(active: str) -> dict:
+    return {
+        "c": COMPANY,
+        "active": active,
+        "updated": "19. Mai 2026",
+        "year": datetime.now().year,
+    }
+
+
+@app.route("/impressum")
+def impressum():
+    return render_template("impressum.html", **legal_context("impressum"))
+
+
+@app.route("/datenschutz")
+def datenschutz():
+    return render_template("datenschutz.html", **legal_context("datenschutz"))
+
+
+@app.route("/agb")
+def agb():
+    return render_template("agb.html", **legal_context("agb"))
+
+
+@app.post("/api/contact")
+def contact():
+    data = request.get_json(silent=True) or {}
+
+    err = validate_inquiry(data)
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
+
+    role = data["role"].strip()
+    role_label = ROLE_LABELS[role]
+    now = datetime.now().strftime("%d.%m.%Y %H:%M")
+
+    payload = {
+        "timestamp": now,
+        "role": role,
+        "role_label": role_label,
+        "name": data.get("name", "").strip(),
+        "email": data.get("email", "").strip(),
+        "phone": data.get("phone", "").strip() or "—",
+        "company": data.get("company", "").strip() or "—",
+        "message": data.get("message", "").strip(),
+        "privacy_consent": bool(data.get("privacy_consent")),
+    }
+
+    if role == "bauherr":
+        for _, key in BAUHER_FIELDS:
+            payload[key] = (data.get(key) or "").strip()
+        payload["project"] = payload.get("project", "")
+    else:
+        for _, key in UNTERNEHMEN_FIELDS:
+            payload[key] = (data.get(key) or "").strip() or "—"
+        payload["project"] = payload.get("trades", "")
+
+    save_inquiry(payload)
+
+    if not email_configured():
+        notify_macos("Kaplan Solutions", f"Neue Anfrage gespeichert: {payload['name']}")
+        return jsonify({
+            "ok": False,
+            "error": "E-Mail ist noch nicht eingerichtet. Bitte setup_email.sh ausführen.",
+        }), 503
+
+    subject, text_body, html_body = build_email_bodies(payload, role_label, now)
+
+    log_line = f"{datetime.now().isoformat()} | OK | {payload['name']} | {payload['email']}\n"
+    try:
+        send_admin_email(subject, text_body, html_body, payload["email"])
+        send_customer_confirmation(payload, role_label, now)
+        (BASE_DIR / "data" / "contact.log").open("a", encoding="utf-8").write(
+            log_line.replace("| OK |", "| OK + Bestätigung |")
+        )
+    except smtplib.SMTPAuthenticationError:
+        notify_macos("Kaplan Solutions", f"Anfrage von {payload['name']} — Gmail-Login fehlgeschlagen")
+        return jsonify({
+            "ok": False,
+            "error": "Gmail-Anmeldung fehlgeschlagen. App-Passwort in .env prüfen.",
+        }), 500
+    except Exception:
+        return jsonify({
+            "ok": False,
+            "error": "E-Mail konnte nicht gesendet werden. Anfrage wurde lokal gespeichert.",
+        }), 500
+
+    notify_macos("Kaplan Solutions", f"Neue Anfrage von {payload['name']}")
+    return jsonify({"ok": True, "message": "Anfrage wurde gesendet."})
+
+
+if __name__ == "__main__":
+    port = int(os.getenv("PORT", "8080"))
+    if not email_configured():
+        print("\n  ⚠  E-Mail: Bitte einmal ausführen →  ./setup_email.sh\n")
+    else:
+        print(f"\n  ✓  Anfragen per E-Mail an: {ADMIN_EMAIL}\n")
+        print(f"  ✓  Backup-Ordner: {INBOX_DIR}\n")
+    app.run(host="0.0.0.0", port=port, debug=False)
