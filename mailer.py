@@ -101,16 +101,123 @@ def send_email(
         send_smtp(to, subject, text_body, html_body, reply_to=reply_to)
 
 
+def _friendly_error(exc: Exception) -> str:
+    msg = str(exc)
+    if uses_resend():
+        if "401" in msg or "403" in msg or "invalid" in msg.lower():
+            return (
+                "Resend-API-Key ungültig oder abgelaufen. "
+                "In Render → Environment neuen Key von resend.com eintragen."
+            )
+        if "only send" in msg.lower() or "testing" in msg.lower():
+            return (
+                "Resend-Test: Mit onboarding@resend.dev geht die Mail nur an Ihre "
+                "bei Resend registrierte Gmail. Im Formular dieselbe Adresse nutzen."
+            )
+        return f"Resend-Fehler: {msg[:200]}"
+    return "E-Mail konnte nicht gesendet werden. Anfrage wurde lokal gespeichert."
+
+
 def install(server: types.ModuleType) -> None:
     """Ersetzt E-Mail-Funktionen in server.py (ohne server.py auf GitHub zu tauschen)."""
 
     def send_admin_email(subject, text_body, html_body, reply_to: str) -> None:
         send_email(ADMIN_EMAIL, subject, text_body, html_body, reply_to=reply_to)
 
+    original_confirmation = server.send_customer_confirmation
+
+    def send_customer_confirmation_safe(data, role_label, now) -> None:
+        try:
+            original_confirmation(data, role_label, now)
+        except Exception as exc:
+            print(f"[mailer] Bestätigungs-Mail optional — übersprungen: {exc}", flush=True)
+
     server.send_email = send_email
     server.send_admin_email = send_admin_email
+    server.send_customer_confirmation = send_customer_confirmation_safe
     server.email_configured = email_configured
     server.uses_resend = uses_resend
 
+    def contact_patched():
+        from flask import jsonify, request
+
+        data = request.get_json(silent=True) or {}
+        err = server.validate_inquiry(data)
+        if err:
+            return jsonify({"ok": False, "error": err}), 400
+
+        role = data["role"].strip()
+        role_label = server.ROLE_LABELS[role]
+        now = server.datetime.now().strftime("%d.%m.%Y %H:%M")
+
+        payload = {
+            "timestamp": now,
+            "role": role,
+            "role_label": role_label,
+            "name": data.get("name", "").strip(),
+            "email": data.get("email", "").strip(),
+            "phone": data.get("phone", "").strip() or "—",
+            "company": data.get("company", "").strip() or "—",
+            "message": data.get("message", "").strip(),
+            "privacy_consent": bool(data.get("privacy_consent")),
+        }
+
+        if role == "bauherr":
+            for _, key in server.BAUHER_FIELDS:
+                payload[key] = (data.get(key) or "").strip()
+            payload["project"] = payload.get("project", "")
+        else:
+            for _, key in server.UNTERNEHMEN_FIELDS:
+                payload[key] = (data.get(key) or "").strip() or "—"
+            payload["project"] = payload.get("trades", "")
+
+        server.save_inquiry(payload)
+
+        if not email_configured():
+            err_msg = (
+                "E-Mail ist auf dem Server noch nicht eingerichtet. "
+                "Bitte RESEND_API_KEY und ADMIN_EMAIL in Render → Environment eintragen."
+                if os.getenv("RENDER")
+                else "E-Mail ist noch nicht eingerichtet."
+            )
+            return jsonify({"ok": False, "error": err_msg}), 503
+
+        subject, text_body, html_body = server.build_email_bodies(
+            payload, role_label, now
+        )
+        log_line = (
+            f"{server.datetime.now().isoformat()} | OK | {payload['name']} | {payload['email']}\n"
+        )
+
+        try:
+            send_admin_email(subject, text_body, html_body, payload["email"])
+        except smtplib.SMTPAuthenticationError:
+            return jsonify({
+                "ok": False,
+                "error": "Gmail-Anmeldung fehlgeschlagen. App-Passwort prüfen.",
+            }), 500
+        except Exception as exc:
+            print(f"[mailer] Admin-Mail fehlgeschlagen: {exc}", flush=True)
+            return jsonify({"ok": False, "error": _friendly_error(exc)}), 500
+
+        send_customer_confirmation_safe(payload, role_label, now)
+        try:
+            (server.BASE_DIR / "data" / "contact.log").open("a", encoding="utf-8").write(
+                log_line
+            )
+        except Exception:
+            pass
+
+        server.notify_macos("Kaplan Solutions", f"Neue Anfrage von {payload['name']}")
+        return jsonify({"ok": True, "message": "Anfrage wurde gesendet."})
+
+    contact_patched.__name__ = "contact"
+    server.contact = contact_patched
+    server.app.view_functions["contact"] = contact_patched
+
     mode = "Resend" if uses_resend() else "SMTP"
-    print(f"[mailer] E-Mail-Modus: {mode} → {ADMIN_EMAIL or '(ADMIN_EMAIL fehlt)'}", flush=True)
+    key_hint = "gesetzt" if RESEND_API_KEY else "FEHLT"
+    print(
+        f"[mailer] E-Mail-Modus: {mode} | ADMIN={ADMIN_EMAIL or 'FEHLT'} | API-Key={key_hint}",
+        flush=True,
+    )
