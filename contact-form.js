@@ -1,13 +1,15 @@
 /**
- * Kaplan Solutions — Kontaktformular (eine Datei, keine Abhängigkeiten)
- * Rollenwahl, FormSubmit, professionelle E-Mails
+ * Kaplan Solutions — Kontaktformular
+ *
+ * Sicherheitsnetz-Prinzip (Formular funktioniert IMMER):
+ *   1. Versuch: Server /api/contact (Resend)  → professionelle HTML-Mails
+ *   2. Notfall: FormSubmit                     → Mail kommt trotzdem an
  */
 (function () {
     'use strict';
 
     const NOTIFY_EMAIL = 'Kawa.f.Kaplan@gmail.com';
     const BRAND = 'Kaplan Solutions';
-    const GOLD = '#b87333';
     const REPLY_EMAIL = 'Kawa.f.Kaplan@gmail.com';
     const PHONE = '+49 159 01309199';
 
@@ -53,82 +55,6 @@
 
     function roleBadge(role) {
         return role === 'unternehmen' ? 'AUFTRAGNEHMER' : 'AUFTRAGGEBER';
-    }
-
-    /** FormSubmit: saubere Felder (kein HTML — sonst sieht man Code in der Mail) */
-    function buildAdminFormSubmitBody(payload, role) {
-        const ts = nowDe();
-        const label = ROLE_LABELS[role] || role;
-        const badge = roleBadge(role);
-        const fields = role === 'bauherr' ? BAUHER_FIELDS : UNTERNEHMEN_FIELDS;
-
-        const body = {
-            _subject: `[LEAD · ${badge}] ${payload.name} — ${BRAND}`,
-            _template: 'box',
-            _replyto: payload.email,
-            _captcha: 'false',
-            name: payload.name,
-            email: payload.email,
-            phone: val(payload.phone),
-            Anfrageart: label,
-            Eingegangen: ts,
-            'Firma / Organisation': val(payload.company),
-        };
-
-        fields.forEach(([lbl, key]) => {
-            body[lbl] = val(payload[key]);
-        });
-
-        body['Zusätzliche Angaben'] = val(payload.message);
-        return body;
-    }
-
-    function buildCustomerPlainText(payload, role) {
-        const ts = nowDe();
-        const label = ROLE_LABELS[role] || role;
-        const lines = [
-            '════════════════════════════════════════',
-            '          KAPLAN SOLUTIONS',
-            '     Eingang Ihrer Anfrage bestätigt',
-            '════════════════════════════════════════',
-            '',
-            `Sehr geehrte/r ${payload.name},`,
-            '',
-            'vielen Dank für Ihre Anfrage bei Kaplan Solutions.',
-            '',
-            `Wir bestätigen den Eingang am ${ts}.`,
-            'Ein Ansprechpartner meldet sich in der Regel',
-            'innerhalb von 24 Stunden persönlich bei Ihnen.',
-            '',
-            '── Ihre Angaben ──',
-            `Anfrageart: ${label}`,
-        ];
-
-        if (role === 'bauherr') {
-            if (payload.project) lines.push(`Projektart: ${payload.project}`);
-            if (payload.location) lines.push(`Standort: ${payload.location}`);
-        } else {
-            if (payload.company_name) lines.push(`Unternehmen: ${payload.company_name}`);
-            if (payload.trades) lines.push(`Gewerke: ${payload.trades}`);
-        }
-
-        lines.push(
-            '',
-            '── Kontakt ──',
-            `E-Mail: ${REPLY_EMAIL}`,
-            `Telefon: ${PHONE}`,
-            '',
-            'Mit freundlichen Grüßen',
-            'Kaplan Solutions',
-            'https://kaplan-solutions.onrender.com',
-            '',
-            '(Automatische Bestätigung — bitte nicht direkt auf diese Mail antworten.)'
-        );
-
-        return {
-            subject: `Ihre Anfrage bei ${BRAND} — Eingang bestätigt`,
-            text: lines.join('\n'),
-        };
     }
 
     const form = document.getElementById('contactForm');
@@ -214,6 +140,22 @@
         };
     }
 
+    /* ---------- Weg 1: Server (Resend) — schöne HTML-Mails ---------- */
+    async function sendViaServer(payload) {
+        try {
+            const res = await fetch('/api/contact', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            const data = await res.json().catch(() => ({}));
+            return Boolean(res.ok && data.ok);
+        } catch {
+            return false;
+        }
+    }
+
+    /* ---------- Weg 2: FormSubmit — Notfall, kommt immer an ---------- */
     async function postFormSubmit(body) {
         const res = await fetch(
             `https://formsubmit.co/ajax/${encodeURIComponent(NOTIFY_EMAIL)}`,
@@ -234,50 +176,84 @@
         }
     }
 
-    async function sendViaServer(payload, role) {
-        const res = await fetch('/api/contact', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-            body: JSON.stringify({ ...payload, role }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (res.ok && data.ok) return true;
-        return false;
-    }
-
-    async function sendConfirmationViaServer(payload, role) {
-        const res = await fetch('/api/send-confirmation', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-            body: JSON.stringify({ ...payload, role }),
-        });
-        return res.ok;
-    }
-
-    async function sendAdminLead(payload, role) {
-        await postFormSubmit(buildAdminFormSubmitBody(payload, role));
-    }
-
-    async function sendCustomerConfirmation(payload, role) {
-        const mail = buildCustomerPlainText(payload, role);
-        if (await sendConfirmationViaServer(payload, role)) return;
-
-        await postFormSubmit({
-            _subject: mail.subject,
+    function buildAdminFields(payload, role) {
+        const fields = role === 'bauherr' ? BAUHER_FIELDS : UNTERNEHMEN_FIELDS;
+        const body = {
+            _subject: `[LEAD · ${roleBadge(role)}] ${payload.name} — ${BRAND}`,
             _template: 'box',
-            _cc: payload.email,
+            _replyto: payload.email,
             _captcha: 'false',
-            name: BRAND,
-            email: NOTIFY_EMAIL,
-            message: mail.text,
-            Hinweis: 'Automatische Bestätigung für den Kunden',
+            name: payload.name,
+            email: payload.email,
+            phone: val(payload.phone),
+            Anfrageart: ROLE_LABELS[role] || role,
+            Eingegangen: nowDe(),
+            'Firma / Organisation': val(payload.company),
+        };
+        fields.forEach(([lbl, key]) => {
+            body[lbl] = val(payload[key]);
         });
+        body['Zusätzliche Angaben'] = val(payload.message);
+        return body;
     }
 
+    function buildCustomerText(payload, role) {
+        const label = ROLE_LABELS[role] || role;
+        const lines = [
+            `Sehr geehrte/r ${payload.name},`,
+            '',
+            'vielen Dank für Ihre Anfrage bei Kaplan Solutions.',
+            `Wir bestätigen den Eingang am ${nowDe()}.`,
+            'Ein Ansprechpartner meldet sich in der Regel innerhalb von 24 Stunden persönlich bei Ihnen.',
+            '',
+            '— Ihre Angaben —',
+            `Anfrageart: ${label}`,
+        ];
+        if (role === 'bauherr') {
+            if (payload.project) lines.push(`Projektart: ${payload.project}`);
+            if (payload.location) lines.push(`Standort: ${payload.location}`);
+        } else {
+            if (payload.company_name) lines.push(`Unternehmen: ${payload.company_name}`);
+            if (payload.trades) lines.push(`Gewerke: ${payload.trades}`);
+        }
+        lines.push(
+            '',
+            '— Kontakt —',
+            `E-Mail: ${REPLY_EMAIL}`,
+            `Telefon: ${PHONE}`,
+            '',
+            'Mit freundlichen Grüßen',
+            'Kaplan Solutions'
+        );
+        return {
+            subject: `Ihre Anfrage bei ${BRAND} — Eingang bestätigt`,
+            text: lines.join('\n'),
+        };
+    }
+
+    async function sendViaFormSubmit(payload, role) {
+        await postFormSubmit(buildAdminFields(payload, role));
+        try {
+            const c = buildCustomerText(payload, role);
+            await postFormSubmit({
+                _subject: c.subject,
+                _template: 'box',
+                _cc: payload.email,
+                _captcha: 'false',
+                name: BRAND,
+                email: NOTIFY_EMAIL,
+                message: c.text,
+                Hinweis: 'Automatische Bestätigung für den Kunden',
+            });
+        } catch (err) {
+            console.warn('Kunden-Bestätigung (Notfall):', err);
+        }
+    }
+
+    /* ---------- Versand mit Sicherheitsnetz ---------- */
     async function sendInquiry(payload, role) {
-        if (await sendViaServer(payload, role)) return;
-        await sendAdminLead(payload, role);
-        await sendCustomerConfirmation(payload, role);
+        if (await sendViaServer(payload)) return;
+        await sendViaFormSubmit(payload, role);
     }
 
     form.addEventListener(
@@ -339,7 +315,9 @@
                 if (formSuccess) formSuccess.hidden = false;
             } catch (err) {
                 if (formError) {
-                    formError.textContent = err.message || 'Fehler beim Senden.';
+                    formError.textContent =
+                        err.message ||
+                        'Anfrage konnte nicht gesendet werden. Bitte rufen Sie uns an: ' + PHONE;
                     formError.hidden = false;
                 }
             } finally {
@@ -351,4 +329,11 @@
         },
         true
     );
+
+    form.querySelectorAll('input, textarea, select').forEach((field) => {
+        field.addEventListener('input', () => {
+            field.style.borderColor = '';
+            if (formError) formError.hidden = true;
+        });
+    });
 })();

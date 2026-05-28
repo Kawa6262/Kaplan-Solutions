@@ -45,7 +45,7 @@ SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 SMTP_USER = os.getenv("SMTP_USER", "").strip()
 SMTP_PASS = os.getenv("SMTP_PASS", "").strip()
 FROM_EMAIL = os.getenv("FROM_EMAIL", SMTP_USER).strip()
-REPLY_EMAIL = os.getenv("REPLY_EMAIL", "kontakt@kaplan-solutions.de").strip()
+REPLY_EMAIL = os.getenv("REPLY_EMAIL", "Kawa.f.Kaplan@gmail.com").strip()
 COMPANY_PHONE = os.getenv("COMPANY_PHONE", "+49 159 01309199").strip()
 SITE_URL = os.getenv("SITE_URL", "https://kaplan-solutions.onrender.com").strip().rstrip("/")
 EMAIL_LOGO_URL = os.getenv("EMAIL_LOGO_URL", f"{SITE_URL}/email-logo.png")
@@ -102,34 +102,58 @@ def notify_macos(title: str, message: str) -> None:
         pass
 
 
-def _row(label: str, value: str) -> str:
-    v = (value or "").strip() or "—"
-    safe = (
-        str(v)
+GOLD = "#b87333"
+TEXT = "#1a1a1a"
+MUTED = "#666666"
+
+
+def _safe(s: str) -> str:
+    return (
+        str(s or "")
         .replace("&", "&amp;")
         .replace("<", "&lt;")
         .replace(">", "&gt;")
     )
+
+
+def _row(label: str, value: str) -> str:
+    v = _safe((value or "").strip() or "—")
     return (
-        f'<tr><td style="padding:10px 14px;background:#141414;color:#737373;'
-        f'font-family:Arial,sans-serif;font-size:11px;letter-spacing:0.1em;'
-        f'text-transform:uppercase;width:38%;border-bottom:1px solid #262626">{label}</td>'
-        f'<td style="padding:10px 14px;background:#0a0a0a;color:#f5f5f5;'
-        f'font-family:Arial,sans-serif;font-size:14px;border-bottom:1px solid #262626">{safe}</td></tr>'
+        f'<tr><td style="padding:12px 16px;background:#fafafa;color:#888888;'
+        f'font-family:Arial,Helvetica,sans-serif;font-size:11px;letter-spacing:0.08em;'
+        f'text-transform:uppercase;width:40%;border-bottom:1px solid #eeeeee;vertical-align:top">{label}</td>'
+        f'<td style="padding:12px 16px;color:{TEXT};font-family:Arial,Helvetica,sans-serif;'
+        f'font-size:15px;line-height:1.5;border-bottom:1px solid #eeeeee;vertical-align:top">{v}</td></tr>'
     )
 
 
-def _email_header_html(title: str, subtitle: str = "") -> str:
-    sub = (
-        f'<p style="margin:8px 0 0;font-family:Arial,sans-serif;font-size:12px;color:#737373">{subtitle}</p>'
-        if subtitle
-        else ""
-    )
-    return f"""<tr><td style="padding:32px 36px 24px;border-bottom:1px solid #262626;text-align:center">
-  <img src="{EMAIL_LOGO_URL}" alt="Kaplan Solutions" width="280" height="50"
-       style="display:block;margin:0 auto 16px;max-width:100%;height:auto;border:0" />
-  <p style="margin:0;font-family:Georgia,'Times New Roman',serif;font-size:22px;color:#f5f5f5;font-weight:400">{title}</p>
-  {sub}
+def _email_wrap(inner_html: str) -> str:
+    return f"""<!DOCTYPE html>
+<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f0f0f0">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f0f0f0;padding:32px 16px">
+<tr><td align="center">
+<table role="presentation" width="600" cellspacing="0" cellpadding="0" style="max-width:600px;width:100%;background:#ffffff">
+{inner_html}
+</table>
+</td></tr>
+</table>
+</body></html>"""
+
+
+def _email_brand_header(title: str) -> str:
+    return f"""<tr><td style="padding:40px 40px 24px;border-bottom:1px solid #e8e8e8">
+  <p style="margin:0 0 16px;font-family:Arial,Helvetica,sans-serif;font-size:11px;letter-spacing:0.35em;text-transform:uppercase;color:{GOLD}">Kaplan Solutions</p>
+  <p style="margin:0;font-family:Georgia,'Times New Roman',serif;font-size:26px;font-weight:400;color:{TEXT};line-height:1.35">{_safe(title)}</p>
+</td></tr>"""
+
+
+def _email_footer_html() -> str:
+    footer = _safe(company_footer_text()).replace("\n", "<br>")
+    return f"""<tr><td style="padding:24px 40px 40px;border-top:1px solid #e8e8e8;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#888888;line-height:1.65">
+  <p style="margin:0 0 4px;color:#666666">Mit freundlichen Grüßen</p>
+  <p style="margin:0 0 12px;font-family:Georgia,'Times New Roman',serif;font-size:17px;color:{TEXT}">{_safe(COMPANY["brand"])}</p>
+  <p style="margin:0;font-size:12px;color:#999999">{footer}</p>
 </td></tr>"""
 
 
@@ -190,32 +214,27 @@ def build_email_bodies(data: dict, role_label: str, now: str):
 
     text_body = "\n".join(rows_text)
 
-    html_body = f"""<!DOCTYPE html>
-<html lang="de"><head><meta charset="utf-8"></head>
-<body style="margin:0;padding:0;background:#f0f0f0">
-<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f0f0f0;padding:28px 12px">
-<tr><td align="center">
-<table role="presentation" width="600" cellspacing="0" cellpadding="0" style="max-width:600px;width:100%;background:#0a0a0a">
-{_email_header_html("Neue Lead-Anfrage", now)}
-<tr><td style="padding:8px 36px 16px;text-align:center">
-  <span style="display:inline-block;padding:6px 14px;border:1px solid #b87333;color:#b87333;font-family:Arial,sans-serif;font-size:10px;letter-spacing:0.2em">{badge}</span>
+    safe_message = _safe(message)
+    inner = f"""{_email_brand_header("Neue Lead-Anfrage")}
+<tr><td style="padding:8px 40px 20px">
+  <span style="display:inline-block;padding:6px 14px;border:1px solid {GOLD};color:{GOLD};font-family:Arial,Helvetica,sans-serif;font-size:10px;letter-spacing:0.2em">{badge}</span>
+  <span style="margin-left:12px;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#999999">{_safe(now)}</span>
 </td></tr>
-<tr><td style="padding:0 36px 28px">
-<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border:1px solid #262626">
+<tr><td style="padding:0 40px 28px">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border:1px solid #eeeeee">
 {''.join(rows_html)}
 </table>
 </td></tr>
-<tr><td style="padding:0 36px 32px">
-  <p style="margin:0 0 10px;font-family:Arial,sans-serif;font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#b87333">Nachricht</p>
-  <p style="margin:0;padding:16px 18px;background:#141414;border-left:3px solid #b87333;color:#d4d4d4;font-family:Arial,sans-serif;font-size:14px;line-height:1.65;white-space:pre-wrap">{message}</p>
+<tr><td style="padding:0 40px 28px">
+  <p style="margin:0 0 12px;font-family:Arial,Helvetica,sans-serif;font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:{GOLD}">Nachricht</p>
+  <p style="margin:0;padding:16px 20px;background:#f7f7f7;border-left:3px solid {GOLD};color:{MUTED};font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.65;white-space:pre-wrap">{safe_message}</p>
 </td></tr>
-<tr><td style="padding:20px 36px 32px;border-top:1px solid #262626;font-family:Arial,sans-serif;font-size:12px;color:#737373;text-align:center">
-  <a href="mailto:{email}" style="color:#b87333;text-decoration:none">Direkt antworten: {email}</a>
+<tr><td style="padding:0 40px 32px;font-family:Arial,Helvetica,sans-serif;font-size:14px;text-align:center">
+  <a href="mailto:{_safe(email)}" style="color:{GOLD};text-decoration:none">Direkt antworten: {_safe(email)}</a>
 </td></tr>
-</table>
-</td></tr>
-</table>
-</body></html>"""
+{_email_footer_html()}"""
+
+    html_body = _email_wrap(inner)
 
     return subject, text_body, html_body
 
@@ -289,49 +308,35 @@ Diese E-Mail wurde automatisch erstellt. Bitte antworten Sie nicht direkt auf di
 Für Rückfragen nutzen Sie: {REPLY_EMAIL}
 """
 
-    summary_html = "".join(f"<li style=\"margin-bottom:6px\">{line}</li>" for line in summary_lines)
+    summary_html = "".join(
+        f'<li style="margin-bottom:8px;color:{MUTED}">{_safe(line)}</li>' for line in summary_lines
+    )
 
-    html_body = f"""<!DOCTYPE html>
-<html lang="de">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#f0f0f0;font-family:Georgia,'Times New Roman',serif">
-<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f0f0f0;padding:32px 16px">
-<tr><td align="center">
-<table role="presentation" width="600" cellspacing="0" cellpadding="0" style="max-width:600px;width:100%;background:#0a0a0a;color:#f5f5f5">
+    inner = f"""{_email_brand_header("Eingang Ihrer Anfrage bestätigt")}
+<tr><td style="padding:32px 40px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.75;color:{MUTED}">
+  <p style="margin:0 0 20px;color:{TEXT}">Sehr geehrte/r {_safe(name)},</p>
+  <p style="margin:0 0 20px">vielen Dank für Ihr Vertrauen in <strong style="color:{TEXT}">Kaplan Solutions</strong>. Wir bestätigen hiermit den Eingang Ihrer Anfrage am <strong style="color:{GOLD}">{_safe(now)}</strong>.</p>
+  <p style="margin:0 0 28px">Ihre Angaben wurden an unser Team weitergeleitet. Ein fachkundiger Ansprechpartner wird sich <strong style="color:{TEXT}">zeitnah — in der Regel innerhalb von 24 Stunden</strong> — persönlich bei Ihnen melden.</p>
 
-{_email_header_html("Eingang Ihrer Anfrage bestätigt", now)}
-
-<tr><td style="padding:32px 40px;font-family:Arial,sans-serif;font-size:15px;line-height:1.75;color:#d4d4d4">
-  <p style="margin:0 0 20px;color:#f5f5f5">Sehr geehrte/r {name},</p>
-  <p style="margin:0 0 20px">vielen Dank für Ihr Vertrauen in <strong style="color:#f5f5f5">Kaplan Solutions</strong>. Wir bestätigen hiermit den Eingang Ihrer Anfrage am <strong style="color:#b87333">{now}</strong>.</p>
-  <p style="margin:0 0 28px">Ihre Angaben wurden an unser Team weitergeleitet. Ein fachkundiger Ansprechpartner wird sich <strong style="color:#f5f5f5">zeitnah — in der Regel innerhalb von 24 Stunden</strong> — persönlich bei Ihnen melden.</p>
-
-  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#141414;border:1px solid #262626;margin-bottom:28px">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f7f7f7;border:1px solid #ebebeb;margin-bottom:28px">
   <tr><td style="padding:20px 24px">
-    <p style="margin:0 0 12px;font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#b87333">Ihre Angaben im Überblick</p>
-    <ul style="margin:0;padding-left:18px;color:#a3a3a3;font-size:14px;line-height:1.6">{summary_html}</ul>
+    <p style="margin:0 0 12px;font-family:Arial,Helvetica,sans-serif;font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:{GOLD}">Ihre Angaben im Überblick</p>
+    <ul style="margin:0;padding-left:18px;font-size:14px;line-height:1.65">{summary_html}</ul>
   </td></tr>
   </table>
 
-  <p style="margin:0 0 8px;font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#737373">Kontakt</p>
-  <p style="margin:0;font-size:14px;color:#a3a3a3">
-    E-Mail: <a href="mailto:{REPLY_EMAIL}" style="color:#b87333;text-decoration:none">{REPLY_EMAIL}</a><br>
-    Telefon: <span style="color:#f5f5f5">{COMPANY_PHONE}</span>
+  <p style="margin:0 0 8px;font-family:Arial,Helvetica,sans-serif;font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#999999">Kontakt</p>
+  <p style="margin:0;font-size:14px;color:{MUTED}">
+    E-Mail: <a href="mailto:{_safe(REPLY_EMAIL)}" style="color:{GOLD};text-decoration:none">{_safe(REPLY_EMAIL)}</a><br>
+    Telefon: <span style="color:{TEXT}">{_safe(COMPANY_PHONE)}</span>
   </p>
 </td></tr>
-
-<tr><td style="padding:24px 40px 40px;border-top:1px solid #262626;font-family:Arial,sans-serif;font-size:13px;color:#737373;line-height:1.6">
-  <p style="margin:0 0 4px;color:#a3a3a3">Mit freundlichen Grüßen</p>
-  <p style="margin:0 0 8px;font-family:Georgia,serif;font-size:16px;color:#f5f5f5">{COMPANY["brand"]}</p>
-  <p style="margin:0;font-size:12px">{company_footer_text().replace(chr(10), "<br>")}</p>
-  <p style="margin:20px 0 0;font-size:11px;color:#525252">Diese Nachricht wurde automatisch erstellt. Für Rückfragen wenden Sie sich bitte an {REPLY_EMAIL}.</p>
+<tr><td style="padding:0 40px 24px;font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#aaaaaa;line-height:1.5">
+  Diese Nachricht wurde automatisch erstellt. Für Rückfragen: <a href="mailto:{_safe(REPLY_EMAIL)}" style="color:{GOLD};text-decoration:none">{_safe(REPLY_EMAIL)}</a>
 </td></tr>
+{_email_footer_html()}"""
 
-</table>
-</td></tr>
-</table>
-</body>
-</html>"""
+    html_body = _email_wrap(inner)
 
     return subject, text_body, html_body
 
