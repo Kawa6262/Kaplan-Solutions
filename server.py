@@ -265,6 +265,9 @@ def _send_resend(to: str, subject: str, text_body: str, html_body: str, reply_to
         headers={
             "Authorization": f"Bearer {RESEND_API_KEY}",
             "Content-Type": "application/json",
+            # Cloudflare vor api.resend.com blockt 'Python-urllib' (Error 1010).
+            "User-Agent": "Mozilla/5.0 (compatible; KaplanSolutions/1.0; +https://kaplan-solutions.onrender.com)",
+            "Accept": "application/json",
         },
         method="POST",
     )
