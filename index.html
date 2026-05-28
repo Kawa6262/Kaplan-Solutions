@@ -892,6 +892,8 @@
 
     const clone = form.cloneNode(true);
     form.replaceWith(clone);
+        clone.classList.add('is-visible');
+    clone.querySelectorAll('.reveal').forEach((el) => el.classList.add('is-visible'));
 
     clone.addEventListener('submit', async (e) => {
         e.preventDefault();
