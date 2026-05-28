@@ -104,17 +104,25 @@ def send_email(
 def _friendly_error(exc: Exception) -> str:
     msg = str(exc)
     if uses_resend():
-        if "401" in msg or "403" in msg or "invalid" in msg.lower():
+        low = msg.lower()
+        # WICHTIG: Empfänger-Beschränkung VOR dem 401/403-Check prüfen,
+        # sonst wird ein 403 (Empfänger) fälschlich als "Key ungültig" gemeldet.
+        if (
+            "only send" in low
+            or "testing emails" in low
+            or "verify a domain" in low
+            or "your own email" in low
+        ):
+            return (
+                "Resend-Free sendet nur an Ihre eigene Resend-Adresse. "
+                "Für Mails an Kunden bei resend.com eine Domain verifizieren."
+            )
+        if "401" in msg or ("invalid" in low and "key" in low) or "api key" in low:
             return (
                 "Resend-API-Key ungültig oder abgelaufen. "
                 "In Render → Environment neuen Key von resend.com eintragen."
             )
-        if "only send" in msg.lower() or "testing" in msg.lower():
-            return (
-                "Resend-Test: Mit onboarding@resend.dev geht die Mail nur an Ihre "
-                "bei Resend registrierte Gmail. Im Formular dieselbe Adresse nutzen."
-            )
-        return f"Resend-Fehler: {msg[:200]}"
+        return f"Resend-Fehler (Original): {msg[:400]}"
     return "E-Mail konnte nicht gesendet werden. Anfrage wurde lokal gespeichert."
 
 
