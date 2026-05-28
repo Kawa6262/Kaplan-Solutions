@@ -7,6 +7,8 @@ import re
 import smtplib
 import ssl
 import subprocess
+import urllib.error
+import urllib.request
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -45,6 +47,8 @@ SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 SMTP_USER = os.getenv("SMTP_USER", "").strip()
 SMTP_PASS = os.getenv("SMTP_PASS", "").strip()
 FROM_EMAIL = os.getenv("FROM_EMAIL", SMTP_USER).strip()
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "").strip()
+RESEND_FROM = os.getenv("RESEND_FROM", "Kaplan Solutions <onboarding@resend.dev>").strip()
 REPLY_EMAIL = os.getenv("REPLY_EMAIL", "Kawa.f.Kaplan@gmail.com").strip()
 COMPANY_PHONE = os.getenv("COMPANY_PHONE", "+49 159 01309199").strip()
 SITE_URL = os.getenv("SITE_URL", "https://kaplan-solutions.onrender.com").strip().rstrip("/")
@@ -76,7 +80,13 @@ UNTERNEHMEN_FIELDS = [
 ]
 
 
+def uses_resend() -> bool:
+    return bool(RESEND_API_KEY and ADMIN_EMAIL)
+
+
 def email_configured() -> bool:
+    if uses_resend():
+        return True
     return bool(ADMIN_EMAIL and SMTP_USER and SMTP_PASS)
 
 
@@ -239,7 +249,35 @@ def build_email_bodies(data: dict, role_label: str, now: str):
     return subject, text_body, html_body
 
 
-def send_email(to: str, subject: str, text_body: str, html_body: str, reply_to: str | None = None) -> None:
+def _send_resend(to: str, subject: str, text_body: str, html_body: str, reply_to: str | None = None) -> None:
+    payload: dict = {
+        "from": RESEND_FROM,
+        "to": [to],
+        "subject": subject,
+        "html": html_body,
+        "text": text_body,
+    }
+    if reply_to:
+        payload["reply_to"] = reply_to
+    req = urllib.request.Request(
+        "https://api.resend.com/emails",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {RESEND_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            if resp.status >= 300:
+                raise RuntimeError(resp.read().decode("utf-8", errors="replace"))
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"Resend Fehler ({exc.code}): {body}") from exc
+
+
+def _send_smtp(to: str, subject: str, text_body: str, html_body: str, reply_to: str | None = None) -> None:
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = f"Kaplan Solutions <{FROM_EMAIL}>"
@@ -256,6 +294,13 @@ def send_email(to: str, subject: str, text_body: str, html_body: str, reply_to: 
         server.ehlo()
         server.login(SMTP_USER, SMTP_PASS)
         server.sendmail(FROM_EMAIL, [to], msg.as_string())
+
+
+def send_email(to: str, subject: str, text_body: str, html_body: str, reply_to: str | None = None) -> None:
+    if uses_resend():
+        _send_resend(to, subject, text_body, html_body, reply_to=reply_to)
+    else:
+        _send_smtp(to, subject, text_body, html_body, reply_to=reply_to)
 
 
 def send_admin_email(subject: str, text_body: str, html_body: str, reply_to: str) -> None:
