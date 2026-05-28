@@ -46,7 +46,9 @@ SMTP_USER = os.getenv("SMTP_USER", "").strip()
 SMTP_PASS = os.getenv("SMTP_PASS", "").strip()
 FROM_EMAIL = os.getenv("FROM_EMAIL", SMTP_USER).strip()
 REPLY_EMAIL = os.getenv("REPLY_EMAIL", "kontakt@kaplan-solutions.de").strip()
-COMPANY_PHONE = os.getenv("COMPANY_PHONE", "+49 (0)40 123 456 789").strip()
+COMPANY_PHONE = os.getenv("COMPANY_PHONE", "+49 159 01309199").strip()
+SITE_URL = os.getenv("SITE_URL", "https://kaplan-solutions.onrender.com").strip().rstrip("/")
+EMAIL_LOGO_URL = os.getenv("EMAIL_LOGO_URL", f"{SITE_URL}/email-logo.png")
 
 ROLE_LABELS = {
     "bauherr": "Auftraggeber — sucht ein Bauunternehmen",
@@ -102,24 +104,58 @@ def notify_macos(title: str, message: str) -> None:
 
 def _row(label: str, value: str) -> str:
     v = (value or "").strip() or "—"
-    return f"<tr><td style=\"padding:8px 12px;background:#f5f5f5;font-weight:bold;width:180px\">{label}</td><td style=\"padding:8px 12px\">{v}</td></tr>"
+    safe = (
+        str(v)
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+    return (
+        f'<tr><td style="padding:10px 14px;background:#141414;color:#737373;'
+        f'font-family:Arial,sans-serif;font-size:11px;letter-spacing:0.1em;'
+        f'text-transform:uppercase;width:38%;border-bottom:1px solid #262626">{label}</td>'
+        f'<td style="padding:10px 14px;background:#0a0a0a;color:#f5f5f5;'
+        f'font-family:Arial,sans-serif;font-size:14px;border-bottom:1px solid #262626">{safe}</td></tr>'
+    )
+
+
+def _email_header_html(title: str, subtitle: str = "") -> str:
+    sub = (
+        f'<p style="margin:8px 0 0;font-family:Arial,sans-serif;font-size:12px;color:#737373">{subtitle}</p>'
+        if subtitle
+        else ""
+    )
+    return f"""<tr><td style="padding:32px 36px 24px;border-bottom:1px solid #262626;text-align:center">
+  <img src="{EMAIL_LOGO_URL}" alt="Kaplan Solutions" width="280" height="50"
+       style="display:block;margin:0 auto 16px;max-width:100%;height:auto;border:0" />
+  <p style="margin:0;font-family:Georgia,'Times New Roman',serif;font-size:22px;color:#f5f5f5;font-weight:400">{title}</p>
+  {sub}
+</td></tr>"""
 
 
 def build_email_bodies(data: dict, role_label: str, now: str):
     name = data["name"]
     email = data["email"]
-    subject = f"[Kaplan Solutions] Neue Anfrage — {name} ({role_label.split(' — ')[0]})"
+    badge = "AUFTRAGGEBER" if data["role"] == "bauherr" else "AUFTRAGNEHMER"
+    subject = f"[LEAD · {badge}] {name} — Kaplan Solutions"
 
     rows_html = [
         _row("Anfrageart", role_label),
         _row("Name", name),
-        _row("E-Mail", f'<a href="mailto:{email}">{email}</a>'),
+        _row("E-Mail", email),
         _row("Telefon", data.get("phone", "—")),
         _row("Firma / Organisation", data.get("company", "—")),
     ]
 
     rows_text = [
+        "════════════════════════════════════════",
+        "        KAPLAN SOLUTIONS · NEUE ANFRAGE",
+        "════════════════════════════════════════",
+        "",
+        f"Eingegangen:    {now}",
         f"Anfrageart:     {role_label}",
+        "",
+        "── KONTAKT ──",
         f"Name:           {name}",
         f"E-Mail:         {email}",
         f"Telefon:        {data.get('phone', '—')}",
@@ -128,14 +164,14 @@ def build_email_bodies(data: dict, role_label: str, now: str):
     ]
 
     if data["role"] == "bauherr":
-        section = "— PROJEKTDETAILS (Auftraggeber) —"
+        section = "── PROJEKTDETAILS ──"
         rows_text.append(section)
         for label, key in BAUHER_FIELDS:
             val = data.get(key, "—")
             rows_text.append(f"{label + ':':<22} {val}")
             rows_html.append(_row(label, val))
     else:
-        section = "— UNTERNEHMENSDETAILS (Auftragnehmer) —"
+        section = "── UNTERNEHMEN ──"
         rows_text.append(section)
         for label, key in UNTERNEHMEN_FIELDS:
             val = data.get(key, "—")
@@ -143,19 +179,42 @@ def build_email_bodies(data: dict, role_label: str, now: str):
             rows_html.append(_row(label, val))
 
     message = data.get("message", "")
-    rows_text.extend(["", "Zusätzliche Angaben:", message, "", "=" * 50, f"Eingegangen am: {now}", f"Antworten: {email}"])
+    rows_text.extend([
+        "",
+        "── NACHRICHT ──",
+        message or "—",
+        "",
+        "────────────────────────────────────────",
+        f"Direkt antworten: {email}",
+    ])
 
-    text_body = "Neue Kontaktanfrage — Kaplan Solutions\n\n" + "\n".join(rows_text)
+    text_body = "\n".join(rows_text)
 
     html_body = f"""<!DOCTYPE html>
-<html><body style="font-family:Arial,sans-serif;color:#222;line-height:1.6">
-<h2 style="color:#b87333">Neue Kontaktanfrage — Kaplan Solutions</h2>
-<table style="border-collapse:collapse;width:100%;max-width:600px">
+<html lang="de"><head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;background:#f0f0f0">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f0f0f0;padding:28px 12px">
+<tr><td align="center">
+<table role="presentation" width="600" cellspacing="0" cellpadding="0" style="max-width:600px;width:100%;background:#0a0a0a">
+{_email_header_html("Neue Lead-Anfrage", now)}
+<tr><td style="padding:8px 36px 16px;text-align:center">
+  <span style="display:inline-block;padding:6px 14px;border:1px solid #b87333;color:#b87333;font-family:Arial,sans-serif;font-size:10px;letter-spacing:0.2em">{badge}</span>
+</td></tr>
+<tr><td style="padding:0 36px 28px">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border:1px solid #262626">
 {''.join(rows_html)}
 </table>
-<h3 style="margin-top:24px;color:#b87333">Zusätzliche Angaben</h3>
-<p style="white-space:pre-wrap;background:#fafafa;padding:16px;border-left:3px solid #b87333">{message}</p>
-<p style="font-size:12px;color:#888">Eingegangen am {now}</p>
+</td></tr>
+<tr><td style="padding:0 36px 32px">
+  <p style="margin:0 0 10px;font-family:Arial,sans-serif;font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#b87333">Nachricht</p>
+  <p style="margin:0;padding:16px 18px;background:#141414;border-left:3px solid #b87333;color:#d4d4d4;font-family:Arial,sans-serif;font-size:14px;line-height:1.65;white-space:pre-wrap">{message}</p>
+</td></tr>
+<tr><td style="padding:20px 36px 32px;border-top:1px solid #262626;font-family:Arial,sans-serif;font-size:12px;color:#737373;text-align:center">
+  <a href="mailto:{email}" style="color:#b87333;text-decoration:none">Direkt antworten: {email}</a>
+</td></tr>
+</table>
+</td></tr>
+</table>
 </body></html>"""
 
     return subject, text_body, html_body
@@ -240,10 +299,7 @@ Für Rückfragen nutzen Sie: {REPLY_EMAIL}
 <tr><td align="center">
 <table role="presentation" width="600" cellspacing="0" cellpadding="0" style="max-width:600px;width:100%;background:#0a0a0a;color:#f5f5f5">
 
-<tr><td style="padding:40px 40px 24px;border-bottom:1px solid #262626">
-  <p style="margin:0;font-family:Arial,sans-serif;font-size:11px;letter-spacing:0.35em;text-transform:uppercase;color:#b87333">Kaplan Solutions</p>
-  <p style="margin:8px 0 0;font-family:Georgia,serif;font-size:22px;font-weight:400;color:#f5f5f5">Eingang Ihrer Anfrage bestätigt</p>
-</td></tr>
+{_email_header_html("Eingang Ihrer Anfrage bestätigt", now)}
 
 <tr><td style="padding:32px 40px;font-family:Arial,sans-serif;font-size:15px;line-height:1.75;color:#d4d4d4">
   <p style="margin:0 0 20px;color:#f5f5f5">Sehr geehrte/r {name},</p>
@@ -364,6 +420,45 @@ def datenschutz():
 @app.route("/agb")
 def agb():
     return render_template("agb.html", **legal_context("agb"))
+
+
+@app.post("/api/send-confirmation")
+def send_confirmation():
+    """Kunden-Bestätigung per Resend/SMTP (optional, wenn Server konfiguriert)."""
+    data = request.get_json(silent=True) or {}
+    role = (data.get("role") or "").strip()
+    if role not in ROLE_LABELS:
+        return jsonify({"ok": False, "error": "Ungültige Anfrageart."}), 400
+    email = (data.get("email") or "").strip()
+    if not is_valid_email(email):
+        return jsonify({"ok": False, "error": "Ungültige E-Mail."}), 400
+
+    if not email_configured():
+        return jsonify({"ok": False, "error": "E-Mail nicht konfiguriert."}), 503
+
+    role_label = ROLE_LABELS[role]
+    now = datetime.now().strftime("%d.%m.%Y %H:%M")
+    payload = {
+        "role": role,
+        "name": (data.get("name") or "").strip() or "Kunde",
+        "email": email,
+        "phone": data.get("phone", ""),
+        "company": data.get("company", ""),
+        "message": data.get("message", ""),
+        "project": data.get("project", ""),
+        "location": data.get("location", ""),
+        "timeline": data.get("timeline", ""),
+        "company_name": data.get("company_name", ""),
+        "trades": data.get("trades", ""),
+        "region": data.get("region", ""),
+    }
+
+    try:
+        send_customer_confirmation(payload, role_label, now)
+    except Exception:
+        return jsonify({"ok": False, "error": "Bestätigung konnte nicht gesendet werden."}), 500
+
+    return jsonify({"ok": True})
 
 
 @app.post("/api/contact")

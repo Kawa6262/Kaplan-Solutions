@@ -36,14 +36,6 @@
         ['Referenzprojekte', 'references'],
     ];
 
-    function esc(s) {
-        return String(s ?? '')
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;');
-    }
-
     function val(v) {
         const t = (v || '').trim();
         return t || '—';
@@ -63,86 +55,80 @@
         return role === 'unternehmen' ? 'AUFTRAGNEHMER' : 'AUFTRAGGEBER';
     }
 
-    function buildAdminLeadEmail(payload, role) {
+    /** FormSubmit: saubere Felder (kein HTML — sonst sieht man Code in der Mail) */
+    function buildAdminFormSubmitBody(payload, role) {
         const ts = nowDe();
         const label = ROLE_LABELS[role] || role;
         const badge = roleBadge(role);
-        const sectionTitle = role === 'bauherr' ? 'Projektdetails' : 'Unternehmensprofil';
         const fields = role === 'bauherr' ? BAUHER_FIELDS : UNTERNEHMEN_FIELDS;
 
-        const detailRows = fields
-            .map(([lbl, key]) => {
-                return `<tr>
-          <td style="padding:10px 14px;background:#141414;color:#737373;font-family:Arial,sans-serif;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;width:38%;border-bottom:1px solid #262626">${esc(lbl)}</td>
-          <td style="padding:10px 14px;background:#0a0a0a;color:#f5f5f5;font-family:Arial,sans-serif;font-size:14px;border-bottom:1px solid #262626">${esc(val(payload[key]))}</td>
-        </tr>`;
-            })
-            .join('');
+        const body = {
+            _subject: `[LEAD · ${badge}] ${payload.name} — ${BRAND}`,
+            _template: 'box',
+            _replyto: payload.email,
+            _captcha: 'false',
+            name: payload.name,
+            email: payload.email,
+            phone: val(payload.phone),
+            Anfrageart: label,
+            Eingegangen: ts,
+            'Firma / Organisation': val(payload.company),
+        };
 
-        const subject = `[LEAD · ${badge}] ${payload.name} — ${BRAND}`;
-        const html = `<!DOCTYPE html><html lang="de"><body style="margin:0;padding:0;background:#f0f0f0">
-<table role="presentation" width="100%" style="background:#f0f0f0;padding:28px 12px"><tr><td align="center">
-<table role="presentation" width="600" style="max-width:600px;width:100%;background:#0a0a0a">
-<tr><td style="padding:28px 32px 20px;border-bottom:1px solid #262626">
-  <p style="margin:0 0 8px;font-family:Arial,sans-serif;font-size:10px;letter-spacing:0.35em;text-transform:uppercase;color:${GOLD}">${esc(BRAND)}</p>
-  <p style="margin:0;font-family:Georgia,serif;font-size:22px;color:#f5f5f5">Neue Lead-Anfrage</p>
-  <p style="margin:12px 0 0;font-family:Arial,sans-serif;font-size:12px;color:#737373">${esc(ts)}</p>
-  <span style="display:inline-block;margin-top:14px;padding:6px 12px;border:1px solid ${GOLD};color:${GOLD};font-family:Arial,sans-serif;font-size:10px;letter-spacing:0.2em">${esc(badge)}</span>
-</td></tr>
-<tr><td style="padding:24px 32px">
-  <table role="presentation" width="100%" style="border:1px solid #262626">
-    <tr><td style="padding:10px 14px;background:#141414;color:#737373;font-size:11px;width:38%">Anfrageart</td>
-        <td style="padding:10px 14px;background:#0a0a0a;color:#f5f5f5;font-size:14px">${esc(label)}</td></tr>
-    <tr><td style="padding:10px 14px;background:#141414;color:#737373;font-size:11px">Name</td>
-        <td style="padding:10px 14px;background:#0a0a0a;color:#f5f5f5;font-size:14px"><strong>${esc(payload.name)}</strong></td></tr>
-    <tr><td style="padding:10px 14px;background:#141414;color:#737373;font-size:11px">E-Mail</td>
-        <td style="padding:10px 14px;background:#0a0a0a;font-size:14px"><a href="mailto:${esc(payload.email)}" style="color:${GOLD}">${esc(payload.email)}</a></td></tr>
-    <tr><td style="padding:10px 14px;background:#141414;color:#737373;font-size:11px">Telefon</td>
-        <td style="padding:10px 14px;background:#0a0a0a;color:#f5f5f5;font-size:14px">${esc(val(payload.phone))}</td></tr>
-  </table>
-</td></tr>
-<tr><td style="padding:0 32px 24px">
-  <p style="margin:0 0 12px;font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:${GOLD}">${esc(sectionTitle)}</p>
-  <table role="presentation" width="100%" style="border:1px solid #262626">${detailRows}</table>
-</td></tr>
-<tr><td style="padding:0 32px 28px">
-  <p style="margin:0 0 10px;font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:${GOLD}">Nachricht</p>
-  <p style="margin:0;padding:16px;background:#141414;border-left:3px solid ${GOLD};color:#d4d4d4;font-size:14px;white-space:pre-wrap">${esc(payload.message || '—')}</p>
-</td></tr>
-</table></td></tr></table></body></html>`;
+        fields.forEach(([lbl, key]) => {
+            body[lbl] = val(payload[key]);
+        });
 
-        return { subject, html };
+        body['Zusätzliche Angaben'] = val(payload.message);
+        return body;
     }
 
-    function buildCustomerConfirmationEmail(payload, role) {
+    function buildCustomerPlainText(payload, role) {
         const ts = nowDe();
         const label = ROLE_LABELS[role] || role;
-        const summary = [`Anfrageart: ${label}`];
+        const lines = [
+            '════════════════════════════════════════',
+            '          KAPLAN SOLUTIONS',
+            '     Eingang Ihrer Anfrage bestätigt',
+            '════════════════════════════════════════',
+            '',
+            `Sehr geehrte/r ${payload.name},`,
+            '',
+            'vielen Dank für Ihre Anfrage bei Kaplan Solutions.',
+            '',
+            `Wir bestätigen den Eingang am ${ts}.`,
+            'Ein Ansprechpartner meldet sich in der Regel',
+            'innerhalb von 24 Stunden persönlich bei Ihnen.',
+            '',
+            '── Ihre Angaben ──',
+            `Anfrageart: ${label}`,
+        ];
+
         if (role === 'bauherr') {
-            if (payload.project) summary.push(`Projektart: ${payload.project}`);
-            if (payload.location) summary.push(`Standort: ${payload.location}`);
+            if (payload.project) lines.push(`Projektart: ${payload.project}`);
+            if (payload.location) lines.push(`Standort: ${payload.location}`);
         } else {
-            if (payload.company_name) summary.push(`Unternehmen: ${payload.company_name}`);
-            if (payload.trades) summary.push(`Gewerke: ${payload.trades}`);
+            if (payload.company_name) lines.push(`Unternehmen: ${payload.company_name}`);
+            if (payload.trades) lines.push(`Gewerke: ${payload.trades}`);
         }
-        const summaryHtml = summary.map((l) => `<li style="margin-bottom:8px;color:#d4d4d4">${esc(l)}</li>`).join('');
-        const subject = `Ihre Anfrage bei ${BRAND} — Eingang bestätigt`;
-        const html = `<!DOCTYPE html><html lang="de"><body style="margin:0;background:#f0f0f0">
-<table role="presentation" width="100%" style="background:#f0f0f0;padding:32px 16px"><tr><td align="center">
-<table role="presentation" width="600" style="max-width:600px;background:#0a0a0a">
-<tr><td style="padding:40px;border-bottom:1px solid #262626">
-  <p style="margin:0;font-family:Arial,sans-serif;font-size:11px;letter-spacing:0.35em;color:${GOLD}">${esc(BRAND)}</p>
-  <p style="margin:10px 0 0;font-family:Georgia,serif;font-size:22px;color:#f5f5f5">Eingang Ihrer Anfrage bestätigt</p>
-</td></tr>
-<tr><td style="padding:32px 40px;font-family:Arial,sans-serif;font-size:15px;line-height:1.75;color:#d4d4d4">
-  <p style="color:#f5f5f5">Sehr geehrte/r ${esc(payload.name)},</p>
-  <p>vielen Dank für Ihre Anfrage. Wir bestätigen den Eingang am <strong style="color:${GOLD}">${esc(ts)}</strong>.</p>
-  <p>Ein Ansprechpartner meldet sich <strong style="color:#f5f5f5">innerhalb von 24 Stunden</strong> bei Ihnen.</p>
-  <ul style="padding-left:18px;margin:24px 0">${summaryHtml}</ul>
-  <p>E-Mail: <a href="mailto:${esc(REPLY_EMAIL)}" style="color:${GOLD}">${esc(REPLY_EMAIL)}</a><br>Telefon: ${esc(PHONE)}</p>
-</td></tr>
-</table></td></tr></table></body></html>`;
-        return { subject, html };
+
+        lines.push(
+            '',
+            '── Kontakt ──',
+            `E-Mail: ${REPLY_EMAIL}`,
+            `Telefon: ${PHONE}`,
+            '',
+            'Mit freundlichen Grüßen',
+            'Kaplan Solutions',
+            'https://kaplan-solutions.onrender.com',
+            '',
+            '(Automatische Bestätigung — bitte nicht direkt auf diese Mail antworten.)'
+        );
+
+        return {
+            subject: `Ihre Anfrage bei ${BRAND} — Eingang bestätigt`,
+            text: lines.join('\n'),
+        };
     }
 
     const form = document.getElementById('contactForm');
@@ -248,29 +234,50 @@
         }
     }
 
-    async function sendAdminLead(payload, role) {
-        const mail = buildAdminLeadEmail(payload, role);
-        await postFormSubmit({
-            name: payload.name,
-            email: payload.email,
-            phone: payload.phone || '',
-            _subject: mail.subject,
-            _replyto: payload.email,
-            _captcha: 'false',
-            message: mail.html,
+    async function sendViaServer(payload, role) {
+        const res = await fetch('/api/contact', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+            body: JSON.stringify({ ...payload, role }),
         });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.ok) return true;
+        return false;
+    }
+
+    async function sendConfirmationViaServer(payload, role) {
+        const res = await fetch('/api/send-confirmation', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+            body: JSON.stringify({ ...payload, role }),
+        });
+        return res.ok;
+    }
+
+    async function sendAdminLead(payload, role) {
+        await postFormSubmit(buildAdminFormSubmitBody(payload, role));
     }
 
     async function sendCustomerConfirmation(payload, role) {
-        const mail = buildCustomerConfirmationEmail(payload, role);
+        const mail = buildCustomerPlainText(payload, role);
+        if (await sendConfirmationViaServer(payload, role)) return;
+
         await postFormSubmit({
-            name: BRAND,
-            email: NOTIFY_EMAIL,
             _subject: mail.subject,
+            _template: 'box',
             _cc: payload.email,
             _captcha: 'false',
-            message: mail.html,
+            name: BRAND,
+            email: NOTIFY_EMAIL,
+            message: mail.text,
+            Hinweis: 'Automatische Bestätigung für den Kunden',
         });
+    }
+
+    async function sendInquiry(payload, role) {
+        if (await sendViaServer(payload, role)) return;
+        await sendAdminLead(payload, role);
+        await sendCustomerConfirmation(payload, role);
     }
 
     form.addEventListener(
@@ -324,12 +331,7 @@
             }
 
             try {
-                await sendAdminLead(payload, role);
-                try {
-                    await sendCustomerConfirmation(payload, role);
-                } catch (err) {
-                    console.warn('Kunden-Bestätigung:', err);
-                }
+                await sendInquiry(payload, role);
 
                 form.querySelectorAll('.form-group, .form-row, .form-footer, .role-panel').forEach((el) => {
                     el.style.display = 'none';
