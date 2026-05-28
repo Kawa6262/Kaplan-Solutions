@@ -118,7 +118,7 @@ def _friendly_error(exc: Exception) -> str:
         ):
             return (
                 "Resend-Free sendet nur an Ihre eigene Resend-Adresse. "
-                "Für Mails an Kunden bei resend.com eine Domain verifizieren."
+                f"Original: {msg[:300]}"
             )
         if "401" in msg or ("invalid" in low and "key" in low) or "api key" in low:
             return (
