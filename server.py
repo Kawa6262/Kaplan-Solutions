@@ -409,6 +409,12 @@ def build_customer_confirmation(data: dict, role_label: str, now: str) -> tuple[
         if data.get("region"):
             summary_lines.append(f"Einsatzgebiet: {data['region']}")
 
+    attachment_names = data.get("attachment_names") or []
+    if attachment_names:
+        summary_lines.append(
+            f"Anhänge ({len(attachment_names)}): {', '.join(attachment_names)}"
+        )
+
     summary_text = "\n".join(f"  • {line}" for line in summary_lines)
 
     text_body = f"""Sehr geehrte/r {name},
