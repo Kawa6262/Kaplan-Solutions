@@ -422,20 +422,39 @@ def _sheet_fields(payload: dict) -> dict:
 
 def forward_to_sheet(payload: dict) -> None:
     """Schreibt den Lead zusätzlich in eine Google-Tabelle (optional, via Apps-Script-Webhook)."""
-    if not SHEETS_WEBHOOK_URL:
+    url = os.getenv("SHEETS_WEBHOOK_URL", "").strip()
+    if not url:
+        return
+    if not url.rstrip("/").endswith("/exec"):
+        print("[sheet] SHEETS_WEBHOOK_URL muss mit /exec enden", flush=True)
         return
     try:
-        data = json.dumps(_sheet_fields(payload)).encode("utf-8")
-        req = urllib.request.Request(
-            SHEETS_WEBHOOK_URL,
-            data=data,
-            headers={
-                "Content-Type": "application/json",
-                "User-Agent": "Mozilla/5.0 (compatible; KaplanSolutions/1.0)",
-            },
-            method="POST",
-        )
-        urllib.request.urlopen(req, timeout=10)
+        body = json.dumps(_sheet_fields(payload)).encode("utf-8")
+        headers = {
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (compatible; KaplanSolutions/1.0)",
+        }
+
+        def _post(target: str) -> None:
+            req = urllib.request.Request(
+                target, data=body, headers=headers, method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                result = resp.read().decode("utf-8", errors="replace")
+                if result and '"ok":false' in result.replace(" ", ""):
+                    raise RuntimeError(result[:300])
+
+        try:
+            _post(url)
+        except urllib.error.HTTPError as exc:
+            # Google Apps Script antwortet oft mit 302 — POST erneut an Ziel-URL senden.
+            if exc.code in (301, 302, 303, 307, 308):
+                redirect = exc.headers.get("Location")
+                if not redirect:
+                    raise
+                _post(redirect)
+            else:
+                raise
     except Exception as exc:
         print(f"[sheet] Weiterleitung in Google-Tabelle übersprungen: {exc}", flush=True)
 
