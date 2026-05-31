@@ -269,13 +269,26 @@
         };
     }
 
+    function friendlyNetworkError(err) {
+        const msg = err?.message || '';
+        if (/failed|network|abort|timeout|load/i.test(msg)) {
+            return (
+                'Verbindung unterbrochen. Bitte erneut senden — oder rufen Sie uns an: ' + PHONE
+            );
+        }
+        return msg || 'Anfrage konnte nicht gesendet werden.';
+    }
+
     /* ---------- Weg 1: Server (Resend) — schöne HTML-Mails ---------- */
-    async function sendViaServer(payload) {
+    async function sendViaServer(payload, attempt = 1) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 45000);
         try {
             const res = await fetch('/api/contact', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
                 body: JSON.stringify(payload),
+                signal: controller.signal,
             });
             const data = await res.json().catch(() => ({}));
             if (!res.ok && data.error) {
@@ -286,10 +299,16 @@
             }
             return { ok: false, ref: null };
         } catch (err) {
-            if (err.message && !/failed|network/i.test(err.message)) {
+            if (attempt < 2 && /failed|network|abort|timeout|load/i.test(err?.message || '')) {
+                await new Promise((r) => setTimeout(r, 1200));
+                return sendViaServer(payload, attempt + 1);
+            }
+            if (err.message && !/failed|network|abort|timeout|load/i.test(err.message)) {
                 throw err;
             }
-            return { ok: false, ref: null };
+            return { ok: false, ref: null, networkError: true };
+        } finally {
+            clearTimeout(timer);
         }
     }
 
@@ -395,9 +414,10 @@
 
     /* ---------- Versand mit Sicherheitsnetz ---------- */
     async function sendInquiry(payload, role) {
+        let serverResult = { ok: false, ref: null };
         try {
-            const result = await sendViaServer(payload);
-            if (result.ok) return result.ref;
+            serverResult = await sendViaServer(payload);
+            if (serverResult.ok) return serverResult.ref;
         } catch (err) {
             if (payload.attachments?.length) {
                 throw new Error(
@@ -405,6 +425,7 @@
                         'Anfrage mit Anhängen konnte nicht gesendet werden. Bitte rufen Sie uns an.'
                 );
             }
+            throw err;
         }
         if (payload.attachments?.length) {
             throw new Error(
@@ -412,8 +433,15 @@
                     REPLY_EMAIL
             );
         }
-        await sendViaFormSubmit(payload, role);
-        return null;
+        try {
+            await sendViaFormSubmit(payload, role);
+            return null;
+        } catch (err) {
+            if (serverResult.networkError) {
+                throw new Error(friendlyNetworkError(err));
+            }
+            throw new Error(friendlyNetworkError(err));
+        }
     }
 
     form.addEventListener(

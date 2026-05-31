@@ -633,7 +633,7 @@ def forward_to_sheet(payload: dict) -> dict:
             req = urllib.request.Request(
                 target, data=body, headers=headers, method="POST"
             )
-            with urllib.request.urlopen(req, timeout=30) as resp:
+            with urllib.request.urlopen(req, timeout=6) as resp:
                 result = resp.read().decode("utf-8", errors="replace")
                 if result and '"ok":false' in result.replace(" ", ""):
                     raise RuntimeError(result[:300])
