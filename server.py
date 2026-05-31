@@ -53,6 +53,7 @@ REPLY_EMAIL = os.getenv("REPLY_EMAIL", "Kawa.f.Kaplan@gmail.com").strip()
 COMPANY_PHONE = os.getenv("COMPANY_PHONE", "+49 159 01309199").strip()
 SITE_URL = os.getenv("SITE_URL", "https://kaplan-solutions.onrender.com").strip().rstrip("/")
 EMAIL_LOGO_URL = os.getenv("EMAIL_LOGO_URL", f"{SITE_URL}/email-logo.png")
+SHEETS_WEBHOOK_URL = os.getenv("SHEETS_WEBHOOK_URL", "").strip()
 
 ROLE_LABELS = {
     "bauherr": "Auftraggeber — sucht ein Bauunternehmen",
@@ -394,6 +395,51 @@ def send_customer_confirmation(data: dict, role_label: str, now: str) -> None:
     send_email(data["email"], subject, text_body, html_body, reply_to=REPLY_EMAIL)
 
 
+def _sheet_fields(payload: dict) -> dict:
+    """Vereinheitlicht beide Rollen auf gemeinsame Spalten für die Google-Tabelle."""
+    is_bau = payload.get("role") == "bauherr"
+    company = payload.get("company", "")
+    if not is_bau:
+        company = payload.get("company_name") or company
+    return {
+        "eingegangen": payload.get("timestamp", ""),
+        "rolle": "Auftraggeber" if is_bau else "Auftragnehmer",
+        "name": payload.get("name", ""),
+        "email": payload.get("email", ""),
+        "telefon": payload.get("phone", ""),
+        "firma": company,
+        "projekt": payload.get("project", "") if is_bau else payload.get("trades", ""),
+        "standort": payload.get("location", "") if is_bau else payload.get("region", ""),
+        "zeitrahmen": payload.get("timeline", "") if is_bau else payload.get("capacity", ""),
+        "budget": payload.get("budget", "") if is_bau else payload.get("order_scope", ""),
+        "groesse": payload.get("project_size", "") if is_bau else payload.get("team_capacity", ""),
+        "status_feld": payload.get("project_status", "") if is_bau else payload.get("employees", ""),
+        "referenzen": "" if is_bau else payload.get("references", ""),
+        "nachricht": payload.get("message", ""),
+        "bearbeitung": "",
+    }
+
+
+def forward_to_sheet(payload: dict) -> None:
+    """Schreibt den Lead zusätzlich in eine Google-Tabelle (optional, via Apps-Script-Webhook)."""
+    if not SHEETS_WEBHOOK_URL:
+        return
+    try:
+        data = json.dumps(_sheet_fields(payload)).encode("utf-8")
+        req = urllib.request.Request(
+            SHEETS_WEBHOOK_URL,
+            data=data,
+            headers={
+                "Content-Type": "application/json",
+                "User-Agent": "Mozilla/5.0 (compatible; KaplanSolutions/1.0)",
+            },
+            method="POST",
+        )
+        urllib.request.urlopen(req, timeout=10)
+    except Exception as exc:
+        print(f"[sheet] Weiterleitung in Google-Tabelle übersprungen: {exc}", flush=True)
+
+
 def validate_inquiry(data: dict) -> str | None:
     role = (data.get("role") or "").strip()
     if role not in ROLE_LABELS:
@@ -548,6 +594,7 @@ def contact():
         payload["project"] = payload.get("trades", "")
 
     save_inquiry(payload)
+    forward_to_sheet(payload)
 
     if not email_configured():
         notify_macos("Kaplan Solutions", f"Neue Anfrage gespeichert: {payload['name']}")

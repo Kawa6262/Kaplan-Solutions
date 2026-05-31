@@ -183,6 +183,10 @@ def install(server: types.ModuleType) -> None:
             payload["project"] = payload.get("trades", "")
 
         server.save_inquiry(payload)
+        try:
+            server.forward_to_sheet(payload)
+        except Exception as exc:
+            print(f"[mailer] Google-Tabelle übersprungen: {exc}", flush=True)
 
         if not email_configured():
             err_msg = (
