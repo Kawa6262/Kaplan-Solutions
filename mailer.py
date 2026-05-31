@@ -203,7 +203,7 @@ def install(server: types.ModuleType) -> None:
 
         server.save_inquiry(payload)
         try:
-            server.forward_to_sheet(payload)
+            server.apply_sheet_meta(payload)
         except Exception as exc:
             print(f"[mailer] Google-Tabelle übersprungen: {exc}", flush=True)
 
@@ -243,7 +243,11 @@ def install(server: types.ModuleType) -> None:
             pass
 
         server.notify_macos("Kaplan Solutions", f"Neue Anfrage von {payload['name']}")
-        return jsonify({"ok": True, "message": "Anfrage wurde gesendet."})
+        return jsonify({
+            "ok": True,
+            "message": "Anfrage wurde gesendet.",
+            "ref": payload.get("ref"),
+        })
 
     contact_patched.__name__ = "contact"
     server.contact = contact_patched

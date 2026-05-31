@@ -215,27 +215,113 @@ def _email_footer_html() -> str:
 </td></tr>"""
 
 
+def _parse_location(text: str) -> tuple[str, str]:
+    """Extrahiert Stadt und PLZ aus Standort/Gebiet."""
+    raw = (text or "").strip()
+    if not raw or raw == "—":
+        return "—", ""
+    m = re.search(r"\b(\d{5})\b", raw)
+    plz = m.group(1) if m else ""
+    city = raw
+    if plz:
+        city = re.sub(r".*?\b" + plz + r"\b\s*", "", raw).strip(" ,-")
+        if not city:
+            city = re.sub(r"\b\d{5}\b", "", raw).strip(" ,-")
+    city = city.split(",")[0].strip() or raw
+    return city[:80], plz
+
+
+def _categorize_branche(text: str) -> str:
+    raw = (text or "").strip().lower()
+    if not raw or raw == "—":
+        return "Sonstiges"
+    rules = [
+        ("Neubau", ("neubau", "neubau", "mehrfamilien", "einfamilienhaus", "neugestaltung")),
+        ("Sanierung", ("sanierung", "renovierung", "modernisierung", "kernsanierung")),
+        ("Rohbau", ("rohbau", "schalung", "betonbau")),
+        ("Ausbau", ("ausbau", "innenausbau", "trockenbau", "innenausbau")),
+        ("Tiefbau", ("tiefbau", "erdarbeiten", "straßenbau", "strassenbau")),
+        ("Gewerbebau", ("gewerbe", "industrie", "halle", "logistik")),
+        ("Wohnungsbau", ("wohnung", "wohnungsbau", "mfh", "efh")),
+        ("Elektro", ("elektro", "elektrik", "photovoltaik", "pv")),
+        ("SHK", ("shk", "sanitär", "heizung", "klima", "installateur")),
+    ]
+    for label, keys in rules:
+        if any(k in raw for k in keys):
+            return label
+    return raw[:48].title()
+
+
+def _fallback_ref() -> str:
+    return f"KS-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+
+
+def _matches_email_html(matches: list) -> str:
+    if not matches:
+        return ""
+    items = []
+    for m in matches[:3]:
+        score = m.get("score", 0)
+        reason = _safe(m.get("reason", ""))
+        name = _safe(m.get("name", ""))
+        ref = _safe(m.get("ref", ""))
+        email = _safe(m.get("email", ""))
+        items.append(
+            f'<li style="margin-bottom:14px;line-height:1.55;color:{MUTED}">'
+            f'<strong style="color:{TEXT}">{name}</strong>'
+            f' <span style="color:{GOLD}">({score}% Passung)</span><br>'
+            f'Anfrage-Nr.: {ref} · {reason}<br>'
+            f'<a href="mailto:{email}" style="color:{GOLD};text-decoration:none">{email}</a>'
+            f"</li>"
+        )
+    return f"""<tr><td style="padding:0 40px 28px">
+  <p style="margin:0 0 12px;font-family:Arial,Helvetica,sans-serif;font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:{GOLD}">Empfohlene Partner (automatisch)</p>
+  <ul style="margin:0;padding-left:18px;font-size:14px">{''.join(items)}</ul>
+</td></tr>"""
+
+
+def _matches_email_text(matches: list) -> list[str]:
+    if not matches:
+        return []
+    lines = ["", "── EMPFOHLENE PARTNER (AUTOMATISCH) ──"]
+    for m in matches[:3]:
+        lines.append(
+            f"• {m.get('name')} ({m.get('score')}% Passung) — {m.get('ref')}\n"
+            f"  {m.get('reason')}\n"
+            f"  {m.get('email')}"
+        )
+    return lines
+
+
 def build_email_bodies(data: dict, role_label: str, now: str):
     name = data["name"]
     email = data["email"]
+    ref = data.get("ref") or _fallback_ref()
     badge = "AUFTRAGGEBER" if data["role"] == "bauherr" else "AUFTRAGNEHMER"
     attachment_names = data.get("attachment_names") or []
     att_suffix = f" · {len(attachment_names)} Anhang/Anhänge" if attachment_names else ""
-    subject = f"[LEAD · {badge}{att_suffix}] {name} — Kaplan Solutions"
+    subject = f"[LEAD · {ref} · {badge}{att_suffix}] {name} — Kaplan Solutions"
+    matches = data.get("matches") or []
 
     rows_html = [
+        _row("Anfrage-Nr.", ref),
         _row("Anfrageart", role_label),
         _row("Name", name),
         _row("E-Mail", email),
         _row("Telefon", data.get("phone", "—")),
         _row("Firma / Organisation", data.get("company", "—")),
     ]
+    if data.get("branche"):
+        rows_html.append(_row("Branche", data["branche"]))
+    if data.get("stadt"):
+        rows_html.append(_row("Stadt", data["stadt"]))
 
     rows_text = [
         "════════════════════════════════════════",
         "        KAPLAN SOLUTIONS · NEUE ANFRAGE",
         "════════════════════════════════════════",
         "",
+        f"Anfrage-Nr.:    {ref}",
         f"Eingegangen:    {now}",
         f"Anfrageart:     {role_label}",
         "",
@@ -246,6 +332,11 @@ def build_email_bodies(data: dict, role_label: str, now: str):
         f"Firma:          {data.get('company', '—')}",
         "",
     ]
+    if data.get("branche"):
+        rows_text.append(f"Branche:        {data['branche']}")
+    if data.get("stadt"):
+        rows_text.append(f"Stadt:          {data['stadt']}")
+    rows_text.append("")
 
     if data["role"] == "bauherr":
         section = "── PROJEKTDETAILS ──"
@@ -269,6 +360,12 @@ def build_email_bodies(data: dict, role_label: str, now: str):
         rows_html.append(_row("Anhänge", names))
         rows_text.extend(["", "── ANHÄNGE ──", names])
 
+    folder_url = data.get("folder_url")
+    if folder_url:
+        rows_html.append(_row("Lead-Ordner", folder_url))
+        rows_text.extend(["", "── LEAD-ORDNER ──", folder_url])
+
+    rows_text.extend(_matches_email_text(matches))
     rows_text.extend([
         "",
         "── NACHRICHT ──",
@@ -295,6 +392,7 @@ def build_email_bodies(data: dict, role_label: str, now: str):
   <p style="margin:0 0 12px;font-family:Arial,Helvetica,sans-serif;font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:{GOLD}">Nachricht</p>
   <p style="margin:0;padding:16px 20px;background:#f7f7f7;border-left:3px solid {GOLD};color:{MUTED};font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.65;white-space:pre-wrap">{safe_message}</p>
 </td></tr>
+{_matches_email_html(matches)}
 <tr><td style="padding:0 40px 32px;font-family:Arial,Helvetica,sans-serif;font-size:14px;text-align:center">
   <a href="mailto:{_safe(email)}" style="color:{GOLD};text-decoration:none">Direkt antworten: {_safe(email)}</a>
 </td></tr>
@@ -390,9 +488,10 @@ def send_admin_email(
 
 def build_customer_confirmation(data: dict, role_label: str, now: str) -> tuple[str, str, str]:
     name = data["name"]
-    subject = "Ihre Anfrage bei Kaplan Solutions — Eingang bestätigt"
+    ref = data.get("ref") or _fallback_ref()
+    subject = f"Ihre Anfrage {ref} bei Kaplan Solutions — Eingang bestätigt"
 
-    summary_lines = [f"Anfrageart: {role_label}"]
+    summary_lines = [f"Anfrage-Nr.: {ref}", f"Anfrageart: {role_label}"]
     if data["role"] == "bauherr":
         if data.get("project"):
             summary_lines.append(f"Projektart: {data['project']}")
@@ -421,7 +520,9 @@ def build_customer_confirmation(data: dict, role_label: str, now: str) -> tuple[
 
 vielen Dank für Ihre Anfrage bei Kaplan Solutions.
 
-Wir bestätigen den Eingang Ihrer Nachricht am {now}. Ihre Angaben wurden an unser Team weitergeleitet. Ein fachkundiger Ansprechpartner meldet sich in der Regel innerhalb von 24 Stunden persönlich bei Ihnen.
+Wir bestätigen den Eingang Ihrer Nachricht am {now}.
+Ihre Anfrage-Nr. lautet: {ref}
+Ihre Angaben wurden an unser Team weitergeleitet. Ein fachkundiger Ansprechpartner meldet sich in der Regel innerhalb von 24 Stunden persönlich bei Ihnen.
 
 Ihre Angaben im Überblick:
 {summary_text}
@@ -448,6 +549,7 @@ Für Rückfragen nutzen Sie: {REPLY_EMAIL}
 <tr><td style="padding:32px 40px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.75;color:{MUTED}">
   <p style="margin:0 0 20px;color:{TEXT}">Sehr geehrte/r {_safe(name)},</p>
   <p style="margin:0 0 20px">vielen Dank für Ihr Vertrauen in <strong style="color:{TEXT}">Kaplan Solutions</strong>. Wir bestätigen hiermit den Eingang Ihrer Anfrage am <strong style="color:{GOLD}">{_safe(now)}</strong>.</p>
+  <p style="margin:0 0 20px">Ihre Anfrage-Nr.: <strong style="color:{GOLD}">{_safe(ref)}</strong></p>
   <p style="margin:0 0 28px">Ihre Angaben wurden an unser Team weitergeleitet. Ein fachkundiger Ansprechpartner wird sich <strong style="color:{TEXT}">zeitnah — in der Regel innerhalb von 24 Stunden</strong> — persönlich bei Ihnen melden.</p>
 
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f7f7f7;border:1px solid #ebebeb;margin-bottom:28px">
@@ -484,15 +586,23 @@ def _sheet_fields(payload: dict) -> dict:
     company = payload.get("company", "")
     if not is_bau:
         company = payload.get("company_name") or company
+    loc_raw = payload.get("location", "") if is_bau else payload.get("region", "")
+    stadt, plz = _parse_location(loc_raw)
+    branche_raw = payload.get("project", "") if is_bau else payload.get("trades", "")
+    branche = _categorize_branche(branche_raw)
     return {
+        "role_code": "bauherr" if is_bau else "unternehmen",
         "eingegangen": payload.get("timestamp", ""),
         "rolle": "Auftraggeber" if is_bau else "Auftragnehmer",
         "name": payload.get("name", ""),
         "email": payload.get("email", ""),
         "telefon": payload.get("phone", ""),
         "firma": company,
-        "projekt": payload.get("project", "") if is_bau else payload.get("trades", ""),
-        "standort": payload.get("location", "") if is_bau else payload.get("region", ""),
+        "branche": branche,
+        "stadt": stadt,
+        "plz": plz,
+        "projekt": branche_raw or (payload.get("project", "") if is_bau else payload.get("trades", "")),
+        "standort": loc_raw,
         "zeitrahmen": payload.get("timeline", "") if is_bau else payload.get("capacity", ""),
         "budget": payload.get("budget", "") if is_bau else payload.get("order_scope", ""),
         "groesse": payload.get("project_size", "") if is_bau else payload.get("team_capacity", ""),
@@ -500,18 +610,18 @@ def _sheet_fields(payload: dict) -> dict:
         "referenzen": "" if is_bau else payload.get("references", ""),
         "nachricht": payload.get("message", ""),
         "dateien": ", ".join(payload.get("attachment_names") or []) or "—",
-        "bearbeitung": "",
+        "bearbeitung": "Neu",
     }
 
 
-def forward_to_sheet(payload: dict) -> None:
-    """Schreibt den Lead zusätzlich in eine Google-Tabelle (optional, via Apps-Script-Webhook)."""
+def forward_to_sheet(payload: dict) -> dict:
+    """Schreibt Lead in Google-Tabelle; gibt ref, matches, folder_url zurück."""
     url = os.getenv("SHEETS_WEBHOOK_URL", "").strip()
     if not url:
-        return
+        return {}
     if not url.rstrip("/").endswith("/exec"):
         print("[sheet] SHEETS_WEBHOOK_URL muss mit /exec enden", flush=True)
-        return
+        return {}
     try:
         body = json.dumps(_sheet_fields(payload)).encode("utf-8")
         headers = {
@@ -519,28 +629,48 @@ def forward_to_sheet(payload: dict) -> None:
             "User-Agent": "Mozilla/5.0 (compatible; KaplanSolutions/1.0)",
         }
 
-        def _post(target: str) -> None:
+        def _post(target: str) -> str:
             req = urllib.request.Request(
                 target, data=body, headers=headers, method="POST"
             )
-            with urllib.request.urlopen(req, timeout=15) as resp:
+            with urllib.request.urlopen(req, timeout=30) as resp:
                 result = resp.read().decode("utf-8", errors="replace")
                 if result and '"ok":false' in result.replace(" ", ""):
                     raise RuntimeError(result[:300])
+                return result
 
         try:
-            _post(url)
+            raw = _post(url)
         except urllib.error.HTTPError as exc:
-            # Google Apps Script antwortet oft mit 302 — POST erneut an Ziel-URL senden.
             if exc.code in (301, 302, 303, 307, 308):
                 redirect = exc.headers.get("Location")
                 if not redirect:
                     raise
-                _post(redirect)
+                raw = _post(redirect)
             else:
                 raise
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            return {}
     except Exception as exc:
         print(f"[sheet] Weiterleitung in Google-Tabelle übersprungen: {exc}", flush=True)
+        return {}
+
+
+def apply_sheet_meta(payload: dict) -> None:
+    """Reichert Payload mit Anfrage-Nr., Matches und Ordner-Link an."""
+    meta = forward_to_sheet(payload)
+    payload["ref"] = meta.get("ref") or _fallback_ref()
+    payload["matches"] = meta.get("matches") or []
+    if meta.get("folder_url"):
+        payload["folder_url"] = meta["folder_url"]
+    payload["stadt"] = _parse_location(
+        payload.get("location", "") if payload.get("role") == "bauherr" else payload.get("region", "")
+    )[0]
+    payload["branche"] = _categorize_branche(
+        payload.get("project", "") if payload.get("role") == "bauherr" else payload.get("trades", "")
+    )
 
 
 def validate_inquiry(data: dict) -> str | None:
@@ -704,7 +834,7 @@ def contact():
         payload["attachment_names"] = [a["filename"] for a in attachments]
 
     save_inquiry(payload)
-    forward_to_sheet(payload)
+    apply_sheet_meta(payload)
 
     if not email_configured():
         notify_macos("Kaplan Solutions", f"Neue Anfrage gespeichert: {payload['name']}")
@@ -738,7 +868,11 @@ def contact():
         }), 500
 
     notify_macos("Kaplan Solutions", f"Neue Anfrage von {payload['name']}")
-    return jsonify({"ok": True, "message": "Anfrage wurde gesendet."})
+    return jsonify({
+        "ok": True,
+        "message": "Anfrage wurde gesendet.",
+        "ref": payload.get("ref"),
+    })
 
 
 if __name__ == "__main__":

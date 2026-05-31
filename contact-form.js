@@ -281,12 +281,15 @@
             if (!res.ok && data.error) {
                 throw new Error(data.error);
             }
-            return Boolean(res.ok && data.ok);
+            if (res.ok && data.ok) {
+                return { ok: true, ref: data.ref || null };
+            }
+            return { ok: false, ref: null };
         } catch (err) {
             if (err.message && !/failed|network/i.test(err.message)) {
                 throw err;
             }
-            return false;
+            return { ok: false, ref: null };
         }
     }
 
@@ -393,7 +396,8 @@
     /* ---------- Versand mit Sicherheitsnetz ---------- */
     async function sendInquiry(payload, role) {
         try {
-            if (await sendViaServer(payload)) return;
+            const result = await sendViaServer(payload);
+            if (result.ok) return result.ref;
         } catch (err) {
             if (payload.attachments?.length) {
                 throw new Error(
@@ -409,6 +413,7 @@
             );
         }
         await sendViaFormSubmit(payload, role);
+        return null;
     }
 
     form.addEventListener(
@@ -475,12 +480,21 @@
             }
 
             try {
-                await sendInquiry(payload, role);
+                const ref = await sendInquiry(payload, role);
 
                 form.querySelectorAll('.form-group, .form-row, .form-footer, .role-panel').forEach((el) => {
                     el.style.display = 'none';
                 });
-                if (formSuccess) formSuccess.hidden = false;
+                if (formSuccess) {
+                    if (ref) {
+                        formSuccess.innerHTML =
+                            '<strong>Vielen Dank!</strong> Ihre Anfrage wurde erfolgreich übermittelt.' +
+                            ' Ihre Anfrage-Nr. lautet: <strong>' + ref + '</strong>.' +
+                            ' Sie erhalten in Kürze eine Bestätigung per E-Mail.' +
+                            ' Unser Team meldet sich innerhalb von 24 Stunden persönlich bei Ihnen.';
+                    }
+                    formSuccess.hidden = false;
+                }
             } catch (err) {
                 if (formError) {
                     formError.textContent =
