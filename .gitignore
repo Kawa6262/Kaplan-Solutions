@@ -1,0 +1,9 @@
+# Lokale Backups & Hilfsdateien (nicht auf GitHub/Render nötig)
+checkpoints/
+__pycache__/
+*.pyc
+venv/
+.venv/
+.env
+data/
+.DS_Store
