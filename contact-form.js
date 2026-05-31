@@ -66,6 +66,15 @@
     const roleInput = document.getElementById('role');
     const panelBauherr = document.getElementById('panel-bauherr');
     const panelUnternehmen = document.getElementById('panel-unternehmen');
+    const fileInput = document.getElementById('attachments');
+    const fileList = document.getElementById('fileList');
+    const fileUpload = document.getElementById('fileUpload');
+
+    const MAX_FILES = 3;
+    const MAX_FILE_BYTES = 8 * 1024 * 1024;
+    const MAX_TOTAL_BYTES = 15 * 1024 * 1024;
+    const ALLOWED_EXT = ['.pdf', '.jpg', '.jpeg', '.png', '.webp', '.heic', '.doc', '.docx', '.xls', '.xlsx'];
+    let selectedFiles = [];
 
     form.setAttribute('method', 'post');
     form.setAttribute('action', '#contact');
@@ -97,6 +106,126 @@
     });
 
     setRole(roleInput?.value || 'bauherr');
+
+    function formatBytes(n) {
+        if (n < 1024 * 1024) return Math.round(n / 1024) + ' KB';
+        return (n / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+
+    function fileExt(name) {
+        const i = (name || '').lastIndexOf('.');
+        return i >= 0 ? name.slice(i).toLowerCase() : '';
+    }
+
+    function renderFileList() {
+        if (!fileList) return;
+        fileList.innerHTML = '';
+        if (!selectedFiles.length) {
+            fileList.hidden = true;
+            return;
+        }
+        fileList.hidden = false;
+        selectedFiles.forEach((file, idx) => {
+            const li = document.createElement('li');
+            li.className = 'file-upload-item';
+            li.innerHTML =
+                '<span class="file-upload-item-name"></span>' +
+                '<span class="file-upload-item-size"></span>' +
+                '<button type="button" class="file-upload-remove" aria-label="Datei entfernen">×</button>';
+            li.querySelector('.file-upload-item-name').textContent = file.name;
+            li.querySelector('.file-upload-item-size').textContent = formatBytes(file.size);
+            li.querySelector('.file-upload-remove').addEventListener('click', () => {
+                selectedFiles = selectedFiles.filter((f) => f !== file);
+                renderFileList();
+            });
+            fileList.appendChild(li);
+        });
+    }
+
+    function addFiles(fileListLike) {
+        const incoming = Array.from(fileListLike || []);
+        if (!incoming.length) return null;
+        const merged = selectedFiles.slice();
+        for (const file of incoming) {
+            const ext = fileExt(file.name);
+            if (!ALLOWED_EXT.includes(ext)) {
+                return `Dateityp nicht erlaubt: ${file.name}`;
+            }
+            if (file.size > MAX_FILE_BYTES) {
+                return `Datei zu groß (max. 8 MB): ${file.name}`;
+            }
+            if (merged.length >= MAX_FILES) {
+                return `Maximal ${MAX_FILES} Dateien erlaubt.`;
+            }
+            merged.push(file);
+        }
+        let total = merged.reduce((s, f) => s + f.size, 0);
+        if (total > MAX_TOTAL_BYTES) {
+            return 'Anhänge gesamt zu groß (max. 15 MB).';
+        }
+        selectedFiles = merged;
+        renderFileList();
+        if (fileInput) fileInput.value = '';
+        return null;
+    }
+
+    if (fileInput) {
+        fileInput.addEventListener('change', () => {
+            const err = addFiles(fileInput.files);
+            if (err && formError) {
+                formError.textContent = err;
+                formError.hidden = false;
+            } else if (formError) {
+                formError.hidden = true;
+            }
+        });
+    }
+
+    if (fileUpload) {
+        ['dragenter', 'dragover'].forEach((ev) => {
+            fileUpload.addEventListener(ev, (e) => {
+                e.preventDefault();
+                fileUpload.classList.add('is-dragover');
+            });
+        });
+        ['dragleave', 'drop'].forEach((ev) => {
+            fileUpload.addEventListener(ev, (e) => {
+                e.preventDefault();
+                fileUpload.classList.remove('is-dragover');
+            });
+        });
+        fileUpload.addEventListener('drop', (e) => {
+            const err = addFiles(e.dataTransfer?.files);
+            if (err && formError) {
+                formError.textContent = err;
+                formError.hidden = false;
+            }
+        });
+    }
+
+    function readFileBase64(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+                const result = reader.result || '';
+                const base64 = String(result).split(',')[1] || '';
+                resolve(base64);
+            };
+            reader.onerror = () => reject(new Error('Datei konnte nicht gelesen werden.'));
+            reader.readAsDataURL(file);
+        });
+    }
+
+    async function filesToAttachments() {
+        const out = [];
+        for (const file of selectedFiles) {
+            out.push({
+                filename: file.name,
+                content: await readFileBase64(file),
+            });
+        }
+        return out;
+    }
 
     function getRequiredFields(role) {
         const panel = role === 'bauherr' ? panelBauherr : panelUnternehmen;
@@ -149,8 +278,14 @@
                 body: JSON.stringify(payload),
             });
             const data = await res.json().catch(() => ({}));
+            if (!res.ok && data.error) {
+                throw new Error(data.error);
+            }
             return Boolean(res.ok && data.ok);
-        } catch {
+        } catch (err) {
+            if (err.message && !/failed|network/i.test(err.message)) {
+                throw err;
+            }
             return false;
         }
     }
@@ -194,6 +329,11 @@
             body[lbl] = val(payload[key]);
         });
         body['Zusätzliche Angaben'] = val(payload.message);
+        if (payload.attachment_names?.length) {
+            body['Anhänge'] =
+                payload.attachment_names.join(', ') +
+                ' (im Notfallmodus nicht übermittelt — bitte erneut senden)';
+        }
         return body;
     }
 
@@ -252,7 +392,22 @@
 
     /* ---------- Versand mit Sicherheitsnetz ---------- */
     async function sendInquiry(payload, role) {
-        if (await sendViaServer(payload)) return;
+        try {
+            if (await sendViaServer(payload)) return;
+        } catch (err) {
+            if (payload.attachments?.length) {
+                throw new Error(
+                    err.message ||
+                        'Anfrage mit Anhängen konnte nicht gesendet werden. Bitte rufen Sie uns an.'
+                );
+            }
+        }
+        if (payload.attachments?.length) {
+            throw new Error(
+                'Anhänge konnten nicht übermittelt werden. Bitte senden Sie uns die Dateien per E-Mail an ' +
+                    REPLY_EMAIL
+            );
+        }
         await sendViaFormSubmit(payload, role);
     }
 
@@ -300,6 +455,19 @@
             }
 
             const payload = collectPayload(role);
+
+            if (selectedFiles.length) {
+                try {
+                    payload.attachments = await filesToAttachments();
+                    payload.attachment_names = selectedFiles.map((f) => f.name);
+                } catch {
+                    if (formError) {
+                        formError.textContent = 'Dateien konnten nicht gelesen werden.';
+                        formError.hidden = false;
+                    }
+                    return;
+                }
+            }
 
             if (submitBtn) {
                 submitBtn.disabled = true;

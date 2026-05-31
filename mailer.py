@@ -43,7 +43,12 @@ def email_configured() -> bool:
 
 
 def send_resend(
-    to: str, subject: str, text_body: str, html_body: str, reply_to: str | None = None
+    to: str,
+    subject: str,
+    text_body: str,
+    html_body: str,
+    reply_to: str | None = None,
+    attachments: list[dict] | None = None,
 ) -> None:
     payload: dict = {
         "from": RESEND_FROM,
@@ -54,6 +59,8 @@ def send_resend(
     }
     if reply_to:
         payload["reply_to"] = reply_to
+    if attachments:
+        payload["attachments"] = attachments
     req = urllib.request.Request(
         "https://api.resend.com/emails",
         data=json.dumps(payload).encode("utf-8"),
@@ -96,10 +103,15 @@ def send_smtp(
 
 
 def send_email(
-    to: str, subject: str, text_body: str, html_body: str, reply_to: str | None = None
+    to: str,
+    subject: str,
+    text_body: str,
+    html_body: str,
+    reply_to: str | None = None,
+    attachments: list[dict] | None = None,
 ) -> None:
     if uses_resend():
-        send_resend(to, subject, text_body, html_body, reply_to=reply_to)
+        send_resend(to, subject, text_body, html_body, reply_to=reply_to, attachments=attachments)
     else:
         send_smtp(to, subject, text_body, html_body, reply_to=reply_to)
 
@@ -132,8 +144,8 @@ def _friendly_error(exc: Exception) -> str:
 def install(server: types.ModuleType) -> None:
     """Ersetzt E-Mail-Funktionen in server.py (ohne server.py auf GitHub zu tauschen)."""
 
-    def send_admin_email(subject, text_body, html_body, reply_to: str) -> None:
-        send_email(ADMIN_EMAIL, subject, text_body, html_body, reply_to=reply_to)
+    def send_admin_email(subject, text_body, html_body, reply_to: str, attachments=None) -> None:
+        send_email(ADMIN_EMAIL, subject, text_body, html_body, reply_to=reply_to, attachments=attachments)
 
     original_confirmation = server.send_customer_confirmation
 
@@ -156,6 +168,10 @@ def install(server: types.ModuleType) -> None:
         err = server.validate_inquiry(data)
         if err:
             return jsonify({"ok": False, "error": err}), 400
+
+        attachments, att_err = server.parse_attachments(data)
+        if att_err:
+            return jsonify({"ok": False, "error": att_err}), 400
 
         role = data["role"].strip()
         role_label = server.ROLE_LABELS[role]
@@ -182,6 +198,9 @@ def install(server: types.ModuleType) -> None:
                 payload[key] = (data.get(key) or "").strip() or "—"
             payload["project"] = payload.get("trades", "")
 
+        if attachments:
+            payload["attachment_names"] = [a["filename"] for a in attachments]
+
         server.save_inquiry(payload)
         try:
             server.forward_to_sheet(payload)
@@ -205,7 +224,7 @@ def install(server: types.ModuleType) -> None:
         )
 
         try:
-            send_admin_email(subject, text_body, html_body, payload["email"])
+            send_admin_email(subject, text_body, html_body, payload["email"], attachments=attachments or None)
         except smtplib.SMTPAuthenticationError:
             return jsonify({
                 "ok": False,

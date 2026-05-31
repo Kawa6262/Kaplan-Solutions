@@ -1198,6 +1198,89 @@ textarea { resize: none; min-height: 8rem; }
 .form-consent.is-error span { color: #fca5a5; }
 .form-consent.is-error input { outline: 2px solid #dc2626; outline-offset: 2px; }
 
+.form-label-hint {
+    font-weight: 400;
+    color: var(--dim);
+    font-size: 0.85em;
+}
+
+.file-upload {
+    position: relative;
+}
+.file-upload-input {
+    position: absolute;
+    width: 0.1px;
+    height: 0.1px;
+    opacity: 0;
+    overflow: hidden;
+    z-index: -1;
+}
+.file-upload-label {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 1.75rem 1.25rem;
+    border: 1px dashed var(--border);
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.02);
+    cursor: pointer;
+    transition: border-color 0.2s ease, background 0.2s ease;
+    text-align: center;
+}
+.file-upload-label:hover,
+.file-upload.is-dragover .file-upload-label {
+    border-color: var(--gold);
+    background: rgba(184, 115, 51, 0.06);
+}
+.file-upload-label svg { color: var(--gold); opacity: 0.85; }
+.file-upload-text {
+    font-size: 0.875rem;
+    color: var(--text);
+}
+.file-upload-hint {
+    font-size: 0.75rem;
+    color: var(--dim);
+}
+.file-upload-list {
+    list-style: none;
+    margin: 0.75rem 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+.file-upload-list:not([hidden]) { display: flex; }
+.file-upload-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.625rem 0.875rem;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border);
+    font-size: 0.8125rem;
+}
+.file-upload-item-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+}
+.file-upload-item-size { color: var(--dim); flex-shrink: 0; }
+.file-upload-remove {
+    background: none;
+    border: none;
+    color: var(--dim);
+    cursor: pointer;
+    padding: 0.25rem;
+    line-height: 1;
+    flex-shrink: 0;
+}
+.file-upload-remove:hover { color: #fca5a5; }
+
 /* ========== COOKIE NOTICE (kein Tracking) ========== */
 .cookie-notice {
     position: fixed;

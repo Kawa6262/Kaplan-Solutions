@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Kaplan Solutions — Website + Kontaktformular per E-Mail."""
 
+import base64
 import json
 import os
 import re
@@ -40,6 +41,15 @@ app = Flask(
     static_url_path="",
     template_folder=str(TEMPLATE_DIR),
 )
+app.config["MAX_CONTENT_LENGTH"] = 20 * 1024 * 1024  # 20 MB (Datei-Uploads)
+
+MAX_ATTACHMENTS = 3
+MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024
+MAX_ATTACHMENTS_TOTAL = 15 * 1024 * 1024
+ALLOWED_ATTACHMENT_EXT = {
+    ".pdf", ".jpg", ".jpeg", ".png", ".webp", ".heic",
+    ".doc", ".docx", ".xls", ".xlsx",
+}
 
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "").strip()
 SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com").strip()
@@ -93,6 +103,43 @@ def email_configured() -> bool:
 
 def is_valid_email(value: str) -> bool:
     return bool(re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", value or ""))
+
+
+def parse_attachments(data: dict) -> tuple[list[dict], str | None]:
+    """Validiert Anhänge aus JSON [{filename, content}] → Resend-Format."""
+    raw = data.get("attachments") or []
+    if not raw:
+        return [], None
+    if not isinstance(raw, list):
+        return [], "Ungültige Anhänge."
+    if len(raw) > MAX_ATTACHMENTS:
+        return [], f"Maximal {MAX_ATTACHMENTS} Dateien erlaubt."
+
+    out: list[dict] = []
+    total = 0
+    for item in raw:
+        if not isinstance(item, dict):
+            return [], "Ungültige Anhänge."
+        filename = (item.get("filename") or "").strip()
+        content_b64 = (item.get("content") or "").strip()
+        if not filename or not content_b64:
+            return [], "Ungültige Anhänge."
+        safe_name = Path(filename).name
+        ext = Path(safe_name).suffix.lower()
+        if ext not in ALLOWED_ATTACHMENT_EXT:
+            return [], f"Dateityp nicht erlaubt: {ext or safe_name}"
+        try:
+            raw_bytes = base64.b64decode(content_b64, validate=True)
+        except Exception:
+            return [], f"Datei konnte nicht gelesen werden: {safe_name}"
+        if len(raw_bytes) > MAX_ATTACHMENT_BYTES:
+            return [], f"Datei zu groß (max. 8 MB): {safe_name}"
+        total += len(raw_bytes)
+        if total > MAX_ATTACHMENTS_TOTAL:
+            return [], "Anhänge gesamt zu groß (max. 15 MB)."
+        out.append({"filename": safe_name, "content": content_b64})
+
+    return out, None
 
 
 def save_inquiry(payload: dict) -> Path:
@@ -172,7 +219,9 @@ def build_email_bodies(data: dict, role_label: str, now: str):
     name = data["name"]
     email = data["email"]
     badge = "AUFTRAGGEBER" if data["role"] == "bauherr" else "AUFTRAGNEHMER"
-    subject = f"[LEAD · {badge}] {name} — Kaplan Solutions"
+    attachment_names = data.get("attachment_names") or []
+    att_suffix = f" · {len(attachment_names)} Anhang/Anhänge" if attachment_names else ""
+    subject = f"[LEAD · {badge}{att_suffix}] {name} — Kaplan Solutions"
 
     rows_html = [
         _row("Anfrageart", role_label),
@@ -214,6 +263,12 @@ def build_email_bodies(data: dict, role_label: str, now: str):
             rows_html.append(_row(label, val))
 
     message = data.get("message", "")
+    attachment_names = data.get("attachment_names") or []
+    if attachment_names:
+        names = ", ".join(attachment_names)
+        rows_html.append(_row("Anhänge", names))
+        rows_text.extend(["", "── ANHÄNGE ──", names])
+
     rows_text.extend([
         "",
         "── NACHRICHT ──",
@@ -250,7 +305,14 @@ def build_email_bodies(data: dict, role_label: str, now: str):
     return subject, text_body, html_body
 
 
-def _send_resend(to: str, subject: str, text_body: str, html_body: str, reply_to: str | None = None) -> None:
+def _send_resend(
+    to: str,
+    subject: str,
+    text_body: str,
+    html_body: str,
+    reply_to: str | None = None,
+    attachments: list[dict] | None = None,
+) -> None:
     payload: dict = {
         "from": RESEND_FROM,
         "to": [to],
@@ -260,6 +322,8 @@ def _send_resend(to: str, subject: str, text_body: str, html_body: str, reply_to
     }
     if reply_to:
         payload["reply_to"] = reply_to
+    if attachments:
+        payload["attachments"] = attachments
     req = urllib.request.Request(
         "https://api.resend.com/emails",
         data=json.dumps(payload).encode("utf-8"),
@@ -300,15 +364,28 @@ def _send_smtp(to: str, subject: str, text_body: str, html_body: str, reply_to: 
         server.sendmail(FROM_EMAIL, [to], msg.as_string())
 
 
-def send_email(to: str, subject: str, text_body: str, html_body: str, reply_to: str | None = None) -> None:
+def send_email(
+    to: str,
+    subject: str,
+    text_body: str,
+    html_body: str,
+    reply_to: str | None = None,
+    attachments: list[dict] | None = None,
+) -> None:
     if uses_resend():
-        _send_resend(to, subject, text_body, html_body, reply_to=reply_to)
+        _send_resend(to, subject, text_body, html_body, reply_to=reply_to, attachments=attachments)
     else:
         _send_smtp(to, subject, text_body, html_body, reply_to=reply_to)
 
 
-def send_admin_email(subject: str, text_body: str, html_body: str, reply_to: str) -> None:
-    send_email(ADMIN_EMAIL, subject, text_body, html_body, reply_to=reply_to)
+def send_admin_email(
+    subject: str,
+    text_body: str,
+    html_body: str,
+    reply_to: str,
+    attachments: list[dict] | None = None,
+) -> None:
+    send_email(ADMIN_EMAIL, subject, text_body, html_body, reply_to=reply_to, attachments=attachments)
 
 
 def build_customer_confirmation(data: dict, role_label: str, now: str) -> tuple[str, str, str]:
@@ -416,6 +493,7 @@ def _sheet_fields(payload: dict) -> dict:
         "status_feld": payload.get("project_status", "") if is_bau else payload.get("employees", ""),
         "referenzen": "" if is_bau else payload.get("references", ""),
         "nachricht": payload.get("message", ""),
+        "dateien": ", ".join(payload.get("attachment_names") or []) or "—",
         "bearbeitung": "",
     }
 
@@ -587,6 +665,10 @@ def contact():
     if err:
         return jsonify({"ok": False, "error": err}), 400
 
+    attachments, att_err = parse_attachments(data)
+    if att_err:
+        return jsonify({"ok": False, "error": att_err}), 400
+
     role = data["role"].strip()
     role_label = ROLE_LABELS[role]
     now = datetime.now().strftime("%d.%m.%Y %H:%M")
@@ -612,6 +694,9 @@ def contact():
             payload[key] = (data.get(key) or "").strip() or "—"
         payload["project"] = payload.get("trades", "")
 
+    if attachments:
+        payload["attachment_names"] = [a["filename"] for a in attachments]
+
     save_inquiry(payload)
     forward_to_sheet(payload)
 
@@ -629,7 +714,7 @@ def contact():
 
     log_line = f"{datetime.now().isoformat()} | OK | {payload['name']} | {payload['email']}\n"
     try:
-        send_admin_email(subject, text_body, html_body, payload["email"])
+        send_admin_email(subject, text_body, html_body, payload["email"], attachments=attachments or None)
         send_customer_confirmation(payload, role_label, now)
         (BASE_DIR / "data" / "contact.log").open("a", encoding="utf-8").write(
             log_line.replace("| OK |", "| OK + Bestätigung |")
