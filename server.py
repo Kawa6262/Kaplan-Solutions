@@ -735,6 +735,12 @@ def apply_sheet_meta(payload: dict) -> None:
     payload["branche"] = _categorize_branche(
         payload.get("project", "") if payload.get("role") == "bauherr" else payload.get("trades", "")
     )
+    try:
+        from trust_score import schedule_trust_check
+
+        schedule_trust_check(payload)
+    except Exception as exc:
+        print(f"[trust] Hintergrund-Prüfung nicht gestartet: {exc}", flush=True)
 
 
 def validate_inquiry(data: dict) -> str | None:

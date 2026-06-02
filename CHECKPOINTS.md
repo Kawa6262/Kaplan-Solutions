@@ -6,7 +6,11 @@ Gespeicherte Versionen des Projekts, auf die Sie jederzeit zurückspringen könn
 
 | Name | Datum | Beschreibung |
 |------|-------|--------------|
-| `2026-05-19-alles-funktioniert` | 19.05.2026 | **Aktuell** — Formular, Rechtsseiten, Firmensitz Berlin, DSGVO, E-Mail, Ihre Kontaktdaten |
+| `2026-06-02-lead-system-komplett` | 02.06.2026 | **Aktuell (vor Intelligence-Upgrade)** — Alles live: Anfrage-Nr., Sheet-Sortierung, Drive-Ordner, Partner-Matching in Mails, Webhook-Fix (25s Timeout). Siehe `checkpoints/2026-06-02-lead-system-komplett/KONFIGURATION.txt` |
+| `2026-05-31-mails-komplett-verifiziert` | 31.05.2026 | Domain verifiziert (SPF+DKIM+DMARC), Absender `kontakt@kaplan-solutions.de`, schöne Lead- + Kunden-Mails, Sicherheitsnetz FormSubmit |
+| `2026-05-29-resend-funktioniert` | 29.05.2026 | Resend live (Cloudflare-Fix + korrekte ADMIN_EMAIL), schöne Lead-Mail, Rollenwahl, Sicherheitsnetz FormSubmit |
+| `2026-05-26-formular-funktioniert` | 26.05.2026 | FormSubmit live, Rollenwahl, professionelle Lead- + Bestätigungs-Mails |
+| `2026-05-19-alles-funktioniert` | 19.05.2026 | Formular, Rechtsseiten, Firmensitz Berlin, DSGVO, E-Mail |
 | `2026-05-19-kontaktformular-funktioniert` | 19.05.2026 | Älter — nur Formular + E-Mail (ohne Rechtsseiten/Berlin) |
 
 ## Wiederherstellen

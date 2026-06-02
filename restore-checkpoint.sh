@@ -5,7 +5,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-DEFAULT="2026-05-19-alles-funktioniert"
+DEFAULT="2026-06-02-lead-system-komplett"
 CP="${1:-$DEFAULT}"
 SRC="$ROOT/checkpoints/$CP"
 
