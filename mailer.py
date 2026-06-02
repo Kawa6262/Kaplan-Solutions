@@ -247,6 +247,8 @@ def install(server: types.ModuleType) -> None:
             "ok": True,
             "message": "Anfrage wurde gesendet.",
             "ref": payload.get("ref"),
+            "folder_url": payload.get("folder_url"),
+            "matches": payload.get("matches") or [],
         })
 
     contact_patched.__name__ = "contact"

@@ -185,6 +185,23 @@ def _row(label: str, value: str) -> str:
     )
 
 
+def _row_link(label: str, url: str) -> str:
+    u = (url or "").strip()
+    safe = _safe(u)
+    inner = (
+        f'<a href="{safe}" style="color:{GOLD};text-decoration:none;word-break:break-all">{safe}</a>'
+        if u
+        else "—"
+    )
+    return (
+        f'<tr><td style="padding:12px 16px;background:#fafafa;color:#888888;'
+        f'font-family:Arial,Helvetica,sans-serif;font-size:11px;letter-spacing:0.08em;'
+        f'text-transform:uppercase;width:40%;border-bottom:1px solid #eeeeee;vertical-align:top">{label}</td>'
+        f'<td style="padding:12px 16px;color:{TEXT};font-family:Arial,Helvetica,sans-serif;'
+        f'font-size:15px;line-height:1.5;border-bottom:1px solid #eeeeee;vertical-align:top">{inner}</td></tr>'
+    )
+
+
 def _email_wrap(inner_html: str) -> str:
     return f"""<!DOCTYPE html>
 <html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -258,32 +275,43 @@ def _fallback_ref() -> str:
 
 def _matches_email_html(matches: list) -> str:
     if not matches:
-        return ""
-    items = []
-    for m in matches[:3]:
-        score = m.get("score", 0)
-        reason = _safe(m.get("reason", ""))
-        name = _safe(m.get("name", ""))
-        ref = _safe(m.get("ref", ""))
-        email = _safe(m.get("email", ""))
-        items.append(
-            f'<li style="margin-bottom:14px;line-height:1.55;color:{MUTED}">'
-            f'<strong style="color:{TEXT}">{name}</strong>'
-            f' <span style="color:{GOLD}">({score}% Passung)</span><br>'
-            f'Anfrage-Nr.: {ref} · {reason}<br>'
-            f'<a href="mailto:{email}" style="color:{GOLD};text-decoration:none">{email}</a>'
-            f"</li>"
+        body = (
+            f'<p style="margin:0;color:{MUTED};font-size:14px;line-height:1.55">'
+            f"Aktuell keine passende Gegenanfrage in der Datenbank "
+            f"(Matching startet ab Score 35% bei Stadt, Branche und Region)."
+            f"</p>"
         )
+    else:
+        items = []
+        for m in matches[:3]:
+            score = m.get("score", 0)
+            reason = _safe(m.get("reason", ""))
+            name = _safe(m.get("name", ""))
+            ref = _safe(m.get("ref", ""))
+            email = _safe(m.get("email", ""))
+            items.append(
+                f'<li style="margin-bottom:14px;line-height:1.55;color:{MUTED}">'
+                f'<strong style="color:{TEXT}">{name}</strong>'
+                f' <span style="color:{GOLD}">({score}% Passung)</span><br>'
+                f'Anfrage-Nr.: {ref} · {reason}<br>'
+                f'<a href="mailto:{email}" style="color:{GOLD};text-decoration:none">{email}</a>'
+                f"</li>"
+            )
+        body = f'<ul style="margin:0;padding-left:18px;font-size:14px">{"".join(items)}</ul>'
     return f"""<tr><td style="padding:0 40px 28px">
   <p style="margin:0 0 12px;font-family:Arial,Helvetica,sans-serif;font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:{GOLD}">Empfohlene Partner (automatisch)</p>
-  <ul style="margin:0;padding-left:18px;font-size:14px">{''.join(items)}</ul>
+  {body}
 </td></tr>"""
 
 
 def _matches_email_text(matches: list) -> list[str]:
-    if not matches:
-        return []
     lines = ["", "── EMPFOHLENE PARTNER (AUTOMATISCH) ──"]
+    if not matches:
+        lines.append(
+            "Keine passende Gegenanfrage gefunden "
+            "(Matching ab 35% bei Stadt, Branche, Region)."
+        )
+        return lines
     for m in matches[:3]:
         lines.append(
             f"• {m.get('name')} ({m.get('score')}% Passung) — {m.get('ref')}\n"
@@ -361,9 +389,12 @@ def build_email_bodies(data: dict, role_label: str, now: str):
         rows_text.extend(["", "── ANHÄNGE ──", names])
 
     folder_url = data.get("folder_url")
-    if folder_url:
-        rows_html.append(_row("Lead-Ordner", folder_url))
-        rows_text.extend(["", "── LEAD-ORDNER ──", folder_url])
+    rows_html.append(_row_link("Lead-Ordner (Google Drive)", folder_url or ""))
+    rows_text.extend([
+        "",
+        "── LEAD-ORDNER (GOOGLE DRIVE) ──",
+        folder_url or "— (wird nachgereicht, falls Sheet-Webhook langsam war)",
+    ])
 
     rows_text.extend(_matches_email_text(matches))
     rows_text.extend([
@@ -614,48 +645,81 @@ def _sheet_fields(payload: dict) -> dict:
     }
 
 
+def _parse_sheet_json(raw: str) -> dict:
+    """Parst JSON aus Apps-Script-Antwort (auch wenn HTML drumherum liegt)."""
+    raw = (raw or "").strip()
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+        return data if isinstance(data, dict) else {}
+    except json.JSONDecodeError:
+        pass
+    m = re.search(r"\{[\s\S]*\}", raw)
+    if not m:
+        return {}
+    try:
+        data = json.loads(m.group(0))
+        return data if isinstance(data, dict) else {}
+    except json.JSONDecodeError:
+        return {}
+
+
 def forward_to_sheet(payload: dict) -> dict:
     """Schreibt Lead in Google-Tabelle; gibt ref, matches, folder_url zurück."""
     url = os.getenv("SHEETS_WEBHOOK_URL", "").strip()
     if not url:
+        print("[sheet] SHEETS_WEBHOOK_URL fehlt", flush=True)
         return {}
     if not url.rstrip("/").endswith("/exec"):
         print("[sheet] SHEETS_WEBHOOK_URL muss mit /exec enden", flush=True)
         return {}
-    try:
-        body = json.dumps(_sheet_fields(payload)).encode("utf-8")
-        headers = {
-            "Content-Type": "application/json",
-            "User-Agent": "Mozilla/5.0 (compatible; KaplanSolutions/1.0)",
-        }
 
-        def _post(target: str) -> str:
-            req = urllib.request.Request(
-                target, data=body, headers=headers, method="POST"
-            )
-            with urllib.request.urlopen(req, timeout=6) as resp:
-                result = resp.read().decode("utf-8", errors="replace")
-                if result and '"ok":false' in result.replace(" ", ""):
-                    raise RuntimeError(result[:300])
-                return result
+    body = json.dumps(_sheet_fields(payload)).encode("utf-8")
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (compatible; KaplanSolutions/1.0)",
+    }
+    timeout = int(os.getenv("SHEETS_WEBHOOK_TIMEOUT", "25"))
+    attempts = int(os.getenv("SHEETS_WEBHOOK_RETRIES", "2"))
 
+    def _post(target: str) -> str:
+        req = urllib.request.Request(target, data=body, headers=headers, method="POST")
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            result = resp.read().decode("utf-8", errors="replace")
+            if result and '"ok":false' in result.replace(" ", ""):
+                raise RuntimeError(result[:300])
+            return result
+
+    last_exc: Exception | None = None
+    for attempt in range(1, attempts + 1):
         try:
-            raw = _post(url)
-        except urllib.error.HTTPError as exc:
-            if exc.code in (301, 302, 303, 307, 308):
-                redirect = exc.headers.get("Location")
-                if not redirect:
+            try:
+                raw = _post(url)
+            except urllib.error.HTTPError as exc:
+                if exc.code in (301, 302, 303, 307, 308):
+                    redirect = exc.headers.get("Location")
+                    if not redirect:
+                        raise
+                    raw = _post(redirect)
+                else:
                     raise
-                raw = _post(redirect)
-            else:
-                raise
-        try:
-            return json.loads(raw)
-        except json.JSONDecodeError:
-            return {}
-    except Exception as exc:
-        print(f"[sheet] Weiterleitung in Google-Tabelle übersprungen: {exc}", flush=True)
-        return {}
+            meta = _parse_sheet_json(raw)
+            if meta.get("ok"):
+                print(
+                    f"[sheet] OK ref={meta.get('ref')} matches={len(meta.get('matches') or [])} "
+                    f"folder={'ja' if meta.get('folder_url') else 'nein'} attempt={attempt}",
+                    flush=True,
+                )
+                return meta
+            print(f"[sheet] Antwort ohne ok:true: {raw[:200]}", flush=True)
+            return meta
+        except Exception as exc:
+            last_exc = exc
+            print(f"[sheet] Versuch {attempt}/{attempts} fehlgeschlagen: {exc}", flush=True)
+
+    print(f"[sheet] Alle Versuche fehlgeschlagen: {last_exc}", flush=True)
+    return {}
 
 
 def apply_sheet_meta(payload: dict) -> None:
@@ -872,6 +936,8 @@ def contact():
         "ok": True,
         "message": "Anfrage wurde gesendet.",
         "ref": payload.get("ref"),
+        "folder_url": payload.get("folder_url"),
+        "matches": payload.get("matches") or [],
     })
 
 
