@@ -401,7 +401,7 @@ function upsertSeriosityRow_(ss, ref, data, score, status, flags, details, repor
     now, details || ''
   ];
   if (rowNum > 0) {
-    sheet.getRange(rowNum, 1, rowNum, row.length).setValues([row]);
+    sheet.getRange(rowNum, 1, 1, row.length).setValues([row]);
   } else {
     sheet.appendRow(row);
   }
