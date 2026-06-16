@@ -112,7 +112,7 @@ function handleSeriosityUpdate_(data) {
   var status = data.status || 'Geprüft';
   var flags = data.flags || '';
   var details = data.details || '';
-  var reportUrl = data.report_url || '';
+  var reportUrl = data.report_url || createSeriosityReport_(ref, data, score, status, flags, details);
 
   updateLeadSeriosity_(ss, ref, score, flags);
   upsertSeriosityRow_(ss, ref, data, score, status, flags, details, reportUrl);
@@ -219,11 +219,6 @@ function createLeadFolder_(data, ref) {
   var info = buildLeadInfoText_(data, ref);
   leadFolder.createFile('Lead-Info.txt', info, MimeType.PLAIN_TEXT);
 
-  var serRoot = getOrCreateFolder_(root, FOLDER_SERIOSITY);
-  var serFolder = serRoot.createFolder(ref + ' — ' + safeName_(data.firma || data.name || 'Lead'));
-  serFolder.createFile('Report-ausstehend.txt',
-    'Seriositäts-Prüfung läuft im Hintergrund.\nAnfrage-Nr.: ' + ref, MimeType.PLAIN_TEXT);
-
   return leadFolder.getUrl();
 }
 
@@ -245,6 +240,30 @@ function buildLeadInfoText_(data, ref) {
     'Budget/Umfang: ' + (data.budget || ''),
     'Nachricht:', data.nachricht || '—'
   ].join('\n');
+}
+
+function createSeriosityReport_(ref, data, score, status, flags, details) {
+  try {
+    var root = getOrCreateFolder_(DriveApp.getRootFolder(), ROOT_FOLDER_NAME);
+    var serRoot = getOrCreateFolder_(root, FOLDER_SERIOSITY);
+    var fName = ref + ' — ' + safeName_(data.firma || data.name || 'Lead');
+    var folder = serRoot.getFoldersByName(fName).hasNext()
+      ? serRoot.getFoldersByName(fName).next()
+      : serRoot.createFolder(fName);
+    var content = [
+      'SERIOSITÄTS-REPORT',
+      '==================',
+      'Anfrage-Nr.: ' + ref,
+      'Firma/Name: ' + (data.firma || data.name || ''),
+      'Score: ' + score + '% (' + status + ') ' + (flags || ''),
+      '',
+      details || ''
+    ].join('\n');
+    folder.createFile('Seriositaets-Report.txt', content, MimeType.PLAIN_TEXT);
+    return folder.getUrl();
+  } catch (err) {
+    return '';
+  }
 }
 
 function moveToPruefenFolder_(ref, name, score, flags) {

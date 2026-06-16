@@ -680,8 +680,10 @@ def forward_to_sheet(payload: dict) -> dict:
         "Content-Type": "application/json",
         "User-Agent": "Mozilla/5.0 (compatible; KaplanSolutions/1.0)",
     }
-    timeout = int(os.getenv("SHEETS_WEBHOOK_TIMEOUT", "25"))
-    attempts = int(os.getenv("SHEETS_WEBHOOK_RETRIES", "2"))
+    # Hoher Timeout, aber nur EIN Versuch: ein Retry würde bei langsamer
+    # (aber erfolgreicher) Apps-Script-Verarbeitung einen doppelten Lead anlegen.
+    timeout = int(os.getenv("SHEETS_WEBHOOK_TIMEOUT", "90"))
+    attempts = int(os.getenv("SHEETS_WEBHOOK_RETRIES", "1"))
 
     def _post(target: str) -> str:
         req = urllib.request.Request(target, data=body, headers=headers, method="POST")
