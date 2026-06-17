@@ -165,9 +165,16 @@ def install(server: types.ModuleType) -> None:
         from flask import jsonify, request
 
         data = request.get_json(silent=True) or {}
+
+        blocked = server.spam_response(data)
+        if blocked is not None:
+            return blocked
+
         err = server.validate_inquiry(data)
         if err:
             return jsonify({"ok": False, "error": err}), 400
+
+        server.record_submission(server.client_ip())
 
         attachments, att_err = server.parse_attachments(data)
         if att_err:

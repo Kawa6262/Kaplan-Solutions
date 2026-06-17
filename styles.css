@@ -1173,6 +1173,18 @@ textarea { resize: none; min-height: 8rem; }
 .legal-footer-nav { display: flex; gap: 1.25rem; }
 .legal-footer-nav a[aria-current="page"] { color: var(--gold); }
 
+/* ========== HONEYPOT (Spam-Schutz, für Menschen unsichtbar) ========== */
+.hp-field {
+    position: absolute !important;
+    left: -9999px !important;
+    top: auto;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    opacity: 0;
+    pointer-events: none;
+}
+
 /* ========== FORM CONSENT (DSGVO) ========== */
 .form-consent {
     display: flex;

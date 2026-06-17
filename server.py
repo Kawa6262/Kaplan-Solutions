@@ -8,8 +8,10 @@ import re
 import smtplib
 import ssl
 import subprocess
+import time
 import urllib.error
 import urllib.request
+from collections import defaultdict
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -50,6 +52,56 @@ ALLOWED_ATTACHMENT_EXT = {
     ".pdf", ".jpg", ".jpeg", ".png", ".webp", ".heic",
     ".doc", ".docx", ".xls", ".xlsx",
 }
+
+# ── Spam-Schutz (Honeypot + Rate-Limit) ──────────────────────────────────────
+HONEYPOT_FIELD = "company_website"  # verstecktes Feld; nur Bots füllen es aus
+RATE_LIMIT_MAX = int(os.getenv("RATE_LIMIT_MAX", "5"))
+RATE_LIMIT_WINDOW = int(os.getenv("RATE_LIMIT_WINDOW", "600"))  # Sekunden
+_rate_log: dict[str, list[float]] = defaultdict(list)
+
+
+def client_ip() -> str:
+    """Echte Client-IP (hinter Render/Proxy via X-Forwarded-For)."""
+    fwd = request.headers.get("X-Forwarded-For", "")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    return request.remote_addr or "unknown"
+
+
+def is_honeypot_spam(data: dict) -> bool:
+    """True, wenn das versteckte Honeypot-Feld ausgefüllt wurde (= Bot)."""
+    return bool((data.get(HONEYPOT_FIELD) or "").strip())
+
+
+def is_rate_limited(ip: str) -> bool:
+    """True, wenn die IP im Zeitfenster bereits zu viele erfolgreiche
+    Absendungen hatte. Zählt NICHT mit (nur Lese-Prüfung)."""
+    now = time.time()
+    hits = [t for t in _rate_log[ip] if now - t < RATE_LIMIT_WINDOW]
+    _rate_log[ip] = hits
+    return len(hits) >= RATE_LIMIT_MAX
+
+
+def record_submission(ip: str) -> None:
+    """Vermerkt eine erfolgreiche Absendung für das Rate-Limit."""
+    _rate_log[ip].append(time.time())
+
+
+def spam_response(data: dict):
+    """Prüft Honeypot + Rate-Limit VOR der Verarbeitung. Gibt eine fertige
+    Flask-Antwort zurück (oder None, wenn die Anfrage in Ordnung ist)."""
+    if is_honeypot_spam(data):
+        ip = client_ip()
+        print(f"[spam] Honeypot ausgelöst — IP {ip} blockiert", flush=True)
+        # Bot soll glauben, es habe geklappt → kein erneuter Versuch.
+        return jsonify({"ok": True, "message": "Anfrage wurde gesendet."}), 200
+    if is_rate_limited(client_ip()):
+        print(f"[spam] Rate-Limit erreicht — IP {client_ip()}", flush=True)
+        return jsonify({
+            "ok": False,
+            "error": "Zu viele Anfragen in kurzer Zeit. Bitte versuchen Sie es in einigen Minuten erneut.",
+        }), 429
+    return None
 
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "").strip()
 SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com").strip()
@@ -869,9 +921,15 @@ def send_confirmation():
 def contact():
     data = request.get_json(silent=True) or {}
 
+    blocked = spam_response(data)
+    if blocked is not None:
+        return blocked
+
     err = validate_inquiry(data)
     if err:
         return jsonify({"ok": False, "error": err}), 400
+
+    record_submission(client_ip())
 
     attachments, att_err = parse_attachments(data)
     if att_err:

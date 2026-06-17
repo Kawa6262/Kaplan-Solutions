@@ -243,6 +243,7 @@
             phone: get('phone'),
             company: get('company'),
             message: get('message'),
+            company_website: get('company_website'),
             privacy_consent: Boolean(form.querySelector('#privacyConsent')?.checked),
         };
         if (role === 'bauherr') {
