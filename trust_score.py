@@ -183,8 +183,8 @@ def run_trust_check(payload: dict) -> dict:
         for s in w_sources:
             src(s["label"], s["url"])
         positives.extend(w_pos)
-        if w_fields.get("rechtsform"):
-            add(True, f"Rechtsform erkannt: {w_fields['rechtsform']}", 8)
+        if fields.get("rechtsform"):
+            add(True, f"Rechtsform erkannt: {fields['rechtsform']}", 8)
         if w_fields.get("handelsregister"):
             add(True, f"Handelsregister: {w_fields['handelsregister']}", 14)
         if w_fields.get("ust_id"):
