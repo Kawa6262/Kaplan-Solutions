@@ -4,7 +4,9 @@
  * Tabs: Dashboard, Alle Leads, Auftraggeber, Auftragnehmer, Matches,
  *       Seriosität, Pipeline
  *
- * Nach Code-Update: Bereitstellen → Bereitstellungen verwalten → Neue Version
+ * Erstes Mal / nach Layout-Update:  Funktion "neuAufsetzen" einmal ausführen
+ *   (löscht Testdaten + baut alle Tabs sauber & farbig neu auf).
+ * Nach jedem Code-Update:  Bereitstellen → Bereitstellungen verwalten → Neue Version
  */
 
 var ROOT_FOLDER_NAME = 'Kaplan Leads';
@@ -28,6 +30,17 @@ var MIN_MATCH_SCORE_TAB = 50;
 var MIN_MATCH_SCORE_EMAIL = 35;
 var MATCH_FOLDER_MIN = 75;
 
+var TZ = 'Europe/Berlin';
+
+// Farben
+var C_HEAD_BG = '#0b3d2e';
+var C_HEAD_FG = '#d9b75a';
+var C_GREEN = '#b7e1cd';
+var C_GREEN2 = '#d9ead3';
+var C_YELLOW = '#ffe599';
+var C_RED = '#f4a8a8';
+var C_BAND = '#f3f6f4';
+
 var LEAD_HEADERS = [
   'Anfrage-Nr.', 'Eingegangen', 'Rolle', 'Name', 'E-Mail', 'Telefon', 'Firma',
   'Branche', 'Stadt', 'PLZ', 'Projekt/Gewerke', 'Standort', 'Zeitrahmen',
@@ -38,19 +51,24 @@ var LEAD_HEADERS = [
 ];
 
 var MATCH_HEADERS = [
-  'Match-ID', 'Erstellt', 'Ref A', 'Name A', 'Rolle A', 'Ref B', 'Name B', 'Rolle B',
-  'Score %', 'Gründe', 'Status', 'Ordner-Link'
+  'Passung', 'Status', 'Auftraggeber', 'Kontakt Auftraggeber',
+  'Auftragnehmer', 'Kontakt Auftragnehmer', 'Branche', 'Region',
+  'Warum es passt', 'Anfragen', 'Ordner', 'Erstellt', 'Match-ID'
 ];
 
 var SERIOSITY_HEADERS = [
-  'Anfrage-Nr.', 'Name', 'Firma', 'Rolle', 'Score %', 'Status', 'Flags',
-  'Report-Link', 'Zuletzt geprüft', 'Details'
+  'Anfrage-Nr.', 'Firma / Name', 'Score', 'Bewertung', 'Rechtsform',
+  'Handelsregister', 'Firmenalter', 'Google-Bewertung', 'Konfidenz',
+  '⚠️ Warnungen', 'Quellen', 'Report', 'Geprüft am'
 ];
 
 var PIPELINE_HEADERS = [
   'Anfrage-Nr.', 'Eingegangen', 'Name', 'Rolle', 'Branche', 'Stadt',
   'Pipeline-Status', 'Seriosität %', 'Matches', 'Nächster Schritt', 'Ordner-Link'
 ];
+
+var MATCH_STATUS_OPTIONS = ['Neu', 'In Kontakt', 'Vermittelt', 'Abgelehnt'];
+var PIPELINE_STATUS_OPTIONS = ['Neu', 'In Bearbeitung', 'Vermittelt', 'Abgeschlossen', 'Abgelehnt'];
 
 // ── Webhook ─────────────────────────────────────────────────────────────────
 
@@ -67,7 +85,7 @@ function doPost(e) {
 }
 
 function doGet() {
-  return jsonResponse_({ ok: true, service: 'Kaplan Solutions Lead Intelligence' });
+  return jsonResponse_({ ok: true, service: 'Kaplan Solutions Lead Intelligence v2' });
 }
 
 function handleNewLead_(data) {
@@ -79,7 +97,7 @@ function handleNewLead_(data) {
   var allMatches = findAllMatches_(ss, data, ref);
   var emailMatches = allMatches.filter(function (m) { return m.score >= MIN_MATCH_SCORE_EMAIL; }).slice(0, 3);
 
-  var row = buildLeadRow_(data, ref, folderUrl, allMatches.length, 'Ausstehend', seriosityFlag_(null));
+  var row = buildLeadRow_(data, ref, folderUrl, allMatches.length, '—', '🟡 Prüfung läuft');
 
   appendToTab_(ss, TAB_ALL, row);
   if (data.role_code === 'bauherr') {
@@ -91,7 +109,6 @@ function handleNewLead_(data) {
   writeMatches_(ss, ref, data, allMatches);
   writeSeriosityPending_(ss, ref, data, folderUrl);
   writePipeline_(ss, ref, data, folderUrl, allMatches.length);
-  createMatchFolders_(ref, data, allMatches);
   updateDashboard_(ss);
 
   return jsonResponse_({
@@ -114,11 +131,11 @@ function handleSeriosityUpdate_(data) {
   var details = data.details || '';
   var reportUrl = data.report_url || createSeriosityReport_(ref, data, score, status, flags, details);
 
-  updateLeadSeriosity_(ss, ref, score, flags);
-  upsertSeriosityRow_(ss, ref, data, score, status, flags, details, reportUrl);
+  updateLeadSeriosity_(ss, ref, score, flags, status);
+  upsertSeriosityRow_(ss, ref, data, score, status, flags, reportUrl);
   updatePipelineSeriosity_(ss, ref, score, flags);
   if (score > 0 && score < 40) {
-    moveToPruefenFolder_(ref, data.name || '', score, flags);
+    moveToPruefenFolder_(ref, data.firma || data.name || '', score, flags);
   }
   updateDashboard_(ss);
 
@@ -141,19 +158,68 @@ function ensureStructure_(ss) {
 
 function ensureTab_(ss, name, headers) {
   var sheet = ss.getSheetByName(name);
-  if (!sheet) sheet = ss.insertSheet(name);
+  var fresh = false;
+  if (!sheet) { sheet = ss.insertSheet(name); fresh = true; }
   if (headers && sheet.getLastRow() === 0) {
     sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    fresh = true;
+  }
+  if (fresh && headers) {
     styleHeader_(sheet, headers.length);
     sheet.setFrozenRows(1);
+    setupAppearance_(sheet, name, headers.length);
   }
 }
 
 function styleHeader_(sheet, cols) {
   sheet.getRange(1, 1, 1, cols)
     .setFontWeight('bold')
-    .setBackground('#1a1a1a')
-    .setFontColor('#c9a227');
+    .setBackground(C_HEAD_BG)
+    .setFontColor(C_HEAD_FG)
+    .setVerticalAlignment('middle')
+    .setWrap(true);
+  sheet.setRowHeight(1, 34);
+}
+
+function setupAppearance_(sheet, name, cols) {
+  // Zebra-Streifen für bessere Lesbarkeit
+  try {
+    var range = sheet.getRange(1, 1, Math.max(sheet.getMaxRows(), 2), cols);
+    var bandings = sheet.getBandings();
+    if (!bandings.length) {
+      range.applyRowBanding(SpreadsheetApp.BandingTheme.LIGHT_GREY, true, false);
+    }
+  } catch (e) {}
+
+  if (name === TAB_MATCHES) {
+    var wM = [70, 110, 170, 200, 170, 200, 130, 130, 260, 150, 90, 130, 0];
+    applyWidths_(sheet, wM);
+    sheet.hideColumns(13);
+    setDropdown_(sheet, 2, MATCH_STATUS_OPTIONS);
+  } else if (name === TAB_SERIOSITY) {
+    var wS = [110, 220, 70, 130, 150, 140, 130, 150, 90, 220, 90, 90, 130];
+    applyWidths_(sheet, wS);
+  } else if (name === TAB_PIPELINE) {
+    var wP = [110, 130, 170, 130, 130, 110, 140, 100, 80, 220, 90];
+    applyWidths_(sheet, wP);
+    setDropdown_(sheet, 7, PIPELINE_STATUS_OPTIONS);
+  } else if (name === TAB_ALL || name === TAB_AUFTRAGGEBER || name === TAB_AUFTRAGNEHMER) {
+    sheet.setColumnWidth(1, 110);
+    sheet.setColumnWidth(4, 160);
+    sheet.setColumnWidth(7, 160);
+  }
+}
+
+function applyWidths_(sheet, widths) {
+  for (var i = 0; i < widths.length; i++) {
+    if (widths[i] > 0) sheet.setColumnWidth(i + 1, widths[i]);
+  }
+}
+
+function setDropdown_(sheet, col, options) {
+  var rule = SpreadsheetApp.newDataValidation()
+    .requireValueInList(options, true).setAllowInvalid(true).build();
+  sheet.getRange(2, col, 1000, 1).setDataValidation(rule);
 }
 
 function ensureMeta_(ss) {
@@ -250,15 +316,33 @@ function createSeriosityReport_(ref, data, score, status, flags, details) {
     var folder = serRoot.getFoldersByName(fName).hasNext()
       ? serRoot.getFoldersByName(fName).next()
       : serRoot.createFolder(fName);
-    var content = [
-      'SERIOSITÄTS-REPORT',
-      '==================',
-      'Anfrage-Nr.: ' + ref,
-      'Firma/Name: ' + (data.firma || data.name || ''),
-      'Score: ' + score + '% (' + status + ') ' + (flags || ''),
+
+    var quellen = data.quellen || [];
+    var qLines = quellen.length
+      ? quellen.map(function (q) { return '  • ' + (q.label || 'Quelle') + ': ' + (q.url || ''); })
+      : ['  — keine externen Quellen gefunden'];
+
+    var header = [
+      '╔══════════════════════════════════════════════════╗',
+      '   KAPLAN SOLUTIONS — SERIOSITÄTS-REPORT',
+      '╚══════════════════════════════════════════════════╝',
       '',
-      details || ''
+      'Anfrage-Nr.: ' + ref,
+      'Firma/Name:  ' + (data.firma || data.name || ''),
+      'Geprüft am:  ' + Utilities.formatDate(new Date(), TZ, 'dd.MM.yyyy HH:mm'),
+      '',
+      '──────────────────────────────────────────────────',
+      ''
     ].join('\n');
+
+    var content = header + (details || '') + '\n\n' +
+      '──────────────────────────────────────────────────\n' +
+      'QUELLENVERZEICHNIS (zum Selbst-Nachprüfen):\n' +
+      qLines.join('\n');
+
+    // bestehende Datei ersetzen
+    var old = folder.getFilesByName('Seriositaets-Report.txt');
+    while (old.hasNext()) old.next().setTrashed(true);
     folder.createFile('Seriositaets-Report.txt', content, MimeType.PLAIN_TEXT);
     return folder.getUrl();
   } catch (err) {
@@ -270,6 +354,7 @@ function moveToPruefenFolder_(ref, name, score, flags) {
   var root = getOrCreateFolder_(DriveApp.getRootFolder(), ROOT_FOLDER_NAME);
   var pruefen = getOrCreateFolder_(root, FOLDER_PRUEFEN);
   var fName = ref + ' — ' + safeName_(name) + ' (' + score + '%)';
+  if (pruefen.getFoldersByName(fName).hasNext()) return;
   var folder = pruefen.createFolder(fName);
   folder.createFile('Hinweis.txt',
     'Niedrige Seriosität: ' + score + '%\nFlags: ' + (flags || '—') +
@@ -299,6 +384,8 @@ function findAllMatches_(ss, incoming, currentRef) {
         ref: ref,
         email: String(row[idx.email] || ''),
         role: String(row[idx.rolle] || ''),
+        branche: String(row[idx.branche] || ''),
+        stadt: String(row[idx.stadt] || ''),
         score: scored.score,
         reason: scored.reasons.join(', ')
       });
@@ -335,38 +422,63 @@ function writeMatches_(ss, ref, data, matches) {
   if (!matches.length) return;
   var sheet = ss.getSheetByName(TAB_MATCHES);
   var existing = getExistingMatchIds_(sheet);
-  var now = Utilities.formatDate(new Date(), 'Europe/Berlin', 'dd.MM.yyyy HH:mm');
+  var now = Utilities.formatDate(new Date(), TZ, 'dd.MM.yyyy HH:mm');
+  var isBauIncoming = data.role_code === 'bauherr';
 
   matches.forEach(function (m) {
     var matchId = makeMatchId_(ref, m.ref);
     if (existing[matchId]) return;
+
+    var agName, agMail, anName, anMail;
+    if (isBauIncoming) {
+      agName = data.name || ''; agMail = data.email || '';
+      anName = m.name || ''; anMail = m.email || '';
+    } else {
+      anName = data.name || ''; anMail = data.email || '';
+      agName = m.name || ''; agMail = m.email || '';
+    }
+
+    var ordnerUrl = m.score >= MATCH_FOLDER_MIN
+      ? createMatchFolder_(ref, data, m) : '';
+
     var row = [
-      matchId, now, ref, data.name || '', data.rolle || '',
-      m.ref, m.name, m.role || '', m.score, m.reason, 'Neu', ''
+      m.score + '%', 'Neu', agName, agMail, anName, anMail,
+      data.branche || m.branche || '', data.stadt || m.stadt || '',
+      m.reason, ref + ' ↔ ' + m.ref, '', now, matchId
     ];
     sheet.appendRow(row);
+    var rowNum = sheet.getLastRow();
+    sheet.getRange(rowNum, 1).setBackground(matchColor_(m.score)).setFontWeight('bold');
+    if (ordnerUrl) {
+      sheet.getRange(rowNum, 11).setFormula('=HYPERLINK("' + ordnerUrl + '";"Öffnen")');
+    }
     existing[matchId] = true;
   });
 }
 
-function createMatchFolders_(ref, data, matches) {
-  var root = getOrCreateFolder_(DriveApp.getRootFolder(), ROOT_FOLDER_NAME);
-  var matchRoot = getOrCreateFolder_(root, FOLDER_MATCHES);
-  matches.filter(function (m) { return m.score >= MATCH_FOLDER_MIN; }).forEach(function (m) {
+function createMatchFolder_(ref, data, m) {
+  try {
+    var root = getOrCreateFolder_(DriveApp.getRootFolder(), ROOT_FOLDER_NAME);
+    var matchRoot = getOrCreateFolder_(root, FOLDER_MATCHES);
     var fname = ref + ' ↔ ' + m.ref + ' (' + m.score + '%)';
-    if (matchRoot.getFoldersByName(fname).hasNext()) return;
+    if (matchRoot.getFoldersByName(fname).hasNext()) {
+      return matchRoot.getFoldersByName(fname).next().getUrl();
+    }
     var folder = matchRoot.createFolder(fname);
     folder.createFile('Match-Info.txt',
-      'Match: ' + (data.name || '') + ' ↔ ' + m.name + '\nScore: ' + m.score + '%\n' +
-      'Gründe: ' + m.reason + '\nRef A: ' + ref + '\nRef B: ' + m.ref,
+      'Match: ' + (data.name || '') + ' ↔ ' + m.name + '\nPassung: ' + m.score + '%\n' +
+      'Gründe: ' + m.reason + '\nAnfrage A: ' + ref + '\nAnfrage B: ' + m.ref,
       MimeType.PLAIN_TEXT);
-  });
+    return folder.getUrl();
+  } catch (e) {
+    return '';
+  }
 }
 
 function getExistingMatchIds_(sheet) {
   var map = {};
   if (!sheet || sheet.getLastRow() < 2) return map;
-  var col = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues();
+  var col = sheet.getRange(2, 13, sheet.getLastRow() - 1, 1).getValues();
   col.forEach(function (r) { if (r[0]) map[String(r[0])] = true; });
   return map;
 }
@@ -380,8 +492,8 @@ function makeMatchId_(refA, refB) {
 function writeSeriosityPending_(ss, ref, data, folderUrl) {
   var sheet = ss.getSheetByName(TAB_SERIOSITY);
   sheet.appendRow([
-    ref, data.name || '', data.firma || '', data.rolle || '',
-    '—', 'Ausstehend', '', folderUrl || '', '', 'Hintergrund-Prüfung läuft…'
+    ref, (data.firma && data.firma !== '—' ? data.firma : data.name) || '',
+    '', '⏳ Prüfung läuft …', '', '', '', '', '', '', '', '', ''
   ]);
 }
 
@@ -394,35 +506,61 @@ function writePipeline_(ss, ref, data, folderUrl, matchCount) {
   ]);
 }
 
-function seriosityFlag_(score) {
-  if (score === null || score === undefined || score === '—') return '🟡 Prüfung ausstehend';
-  if (score >= 70) return '🟢';
-  if (score >= 40) return '🟡';
-  return '🔴 Vorsicht';
-}
-
-function updateLeadSeriosity_(ss, ref, score, flags) {
+function updateLeadSeriosity_(ss, ref, score, flags, status) {
   [TAB_ALL, TAB_AUFTRAGGEBER, TAB_AUFTRAGNEHMER].forEach(function (tabName) {
-    updateColumnByRef_(ss.getSheetByName(tabName), ref, {
-      20: score + '%',
-      23: flags || seriosityFlag_(score)
-    });
+    var sheet = ss.getSheetByName(tabName);
+    var rowNum = findRowByRef_(sheet, ref, 1);
+    if (rowNum < 1) return;
+    sheet.getRange(rowNum, 20).setValue(score + '%').setBackground(scoreColor_(score));
+    sheet.getRange(rowNum, 23).setValue((flags || '') + ' ' + (status || ''));
   });
 }
 
-function upsertSeriosityRow_(ss, ref, data, score, status, flags, details, reportUrl) {
+function upsertSeriosityRow_(ss, ref, data, score, status, flags, reportUrl) {
   var sheet = ss.getSheetByName(TAB_SERIOSITY);
   var rowNum = findRowByRef_(sheet, ref, 1);
-  var now = Utilities.formatDate(new Date(), 'Europe/Berlin', 'dd.MM.yyyy HH:mm');
-  var row = [
-    ref, data.name || '', data.firma || '', data.rolle || '',
-    score + '%', status, flags || seriosityFlag_(score), reportUrl || '',
-    now, details || ''
-  ];
-  if (rowNum > 0) {
-    sheet.getRange(rowNum, 1, 1, row.length).setValues([row]);
+  var now = Utilities.formatDate(new Date(), TZ, 'dd.MM.yyyy HH:mm');
+  var firmaName = (data.firma && data.firma !== '—' ? data.firma : data.name) || '';
+
+  var warn = '';
+  if (data.negative && data.negative.length) {
+    warn = '⚠️ ' + data.negative.join(' | ');
+  } else if (score < 40) {
+    warn = '⚠️ Wenig verlässliche Daten';
   } else {
+    warn = '—';
+  }
+
+  var row = [
+    ref, firmaName, score, (flags || '') + ' ' + (status || ''),
+    data.rechtsform || '—', data.handelsregister || '—',
+    data.domain_alter || '—', data.google_rating || '—',
+    data.confidence || '—', warn, '', '', now
+  ];
+
+  if (rowNum < 1) {
     sheet.appendRow(row);
+    rowNum = sheet.getLastRow();
+  } else {
+    sheet.getRange(rowNum, 1, 1, row.length).setValues([row]);
+  }
+
+  // Score-Zelle farbig
+  sheet.getRange(rowNum, 3).setBackground(scoreColor_(score))
+    .setFontWeight('bold').setHorizontalAlignment('center');
+
+  // Quellen-Link (erste/Website) + Report-Link
+  var primary = data.website || '';
+  if (!primary && data.quellen && data.quellen.length) primary = data.quellen[0].url || '';
+  if (primary) {
+    sheet.getRange(rowNum, 11).setFormula('=HYPERLINK("' + primary + '";"Webseite")');
+  } else {
+    sheet.getRange(rowNum, 11).setValue('—');
+  }
+  if (reportUrl) {
+    sheet.getRange(rowNum, 12).setFormula('=HYPERLINK("' + reportUrl + '";"📄 Report")');
+  } else {
+    sheet.getRange(rowNum, 12).setValue('—');
   }
 }
 
@@ -430,18 +568,9 @@ function updatePipelineSeriosity_(ss, ref, score, flags) {
   var sheet = ss.getSheetByName(TAB_PIPELINE);
   var rowNum = findRowByRef_(sheet, ref, 1);
   if (rowNum > 0) {
-    sheet.getRange(rowNum, 8).setValue(score + '%');
-    if (flags) sheet.getRange(rowNum, 10).setValue('Manuell prüfen: ' + flags);
+    sheet.getRange(rowNum, 8).setValue(score + '%').setBackground(scoreColor_(score));
+    if (score < 40) sheet.getRange(rowNum, 10).setValue('⚠️ Manuell prüfen');
   }
-}
-
-function updateColumnByRef_(sheet, ref, colValueMap) {
-  if (!sheet) return;
-  var rowNum = findRowByRef_(sheet, ref, 1);
-  if (rowNum < 1) return;
-  Object.keys(colValueMap).forEach(function (col) {
-    sheet.getRange(rowNum, Number(col)).setValue(colValueMap[col]);
-  });
 }
 
 function findRowByRef_(sheet, ref, refCol) {
@@ -459,44 +588,82 @@ function updateDashboard_(ss) {
   var sheet = ss.getSheetByName(TAB_DASHBOARD);
   if (!sheet) return;
 
-  var all = ss.getSheetByName(TAB_ALL);
+  var ag = ss.getSheetByName(TAB_AUFTRAGGEBER);
+  var an = ss.getSheetByName(TAB_AUFTRAGNEHMER);
   var matches = ss.getSheetByName(TAB_MATCHES);
   var ser = ss.getSheetByName(TAB_SERIOSITY);
   var pipe = ss.getSheetByName(TAB_PIPELINE);
 
-  var leadCount = all ? Math.max(0, all.getLastRow() - 1) : 0;
+  var agCount = ag ? Math.max(0, ag.getLastRow() - 1) : 0;
+  var anCount = an ? Math.max(0, an.getLastRow() - 1) : 0;
   var matchCount = matches ? Math.max(0, matches.getLastRow() - 1) : 0;
-  var pendingSer = countPendingSeriosity_(ser);
+  var serStats = seriosityStats_(ser);
   var openPipe = countOpenPipeline_(pipe);
 
-  var rows = [
-    ['Kaplan Solutions — Lead Dashboard', ''],
-    ['Stand', Utilities.formatDate(new Date(), 'Europe/Berlin', 'dd.MM.yyyy HH:mm')],
-    ['', ''],
-    ['Leads gesamt', leadCount],
-    ['Matches gesamt', matchCount],
-    ['Seriosität ausstehend', pendingSer],
-    ['Pipeline offen', openPipe],
-    ['', ''],
-    ['Tabs', 'Alle Leads · Auftraggeber · Auftragnehmer · Matches · Seriosität · Pipeline'],
-    ['Drive', ROOT_FOLDER_NAME + ' / 01_Auftraggeber · 02_Auftragnehmer · 03_Matches']
+  sheet.clear();
+  var widths = [40, 200, 120, 200, 120];
+  applyWidths_(sheet, widths);
+
+  // Titel
+  sheet.getRange('B2:E2').merge().setValue('KAPLAN SOLUTIONS — LEAD-ÜBERSICHT')
+    .setFontSize(16).setFontWeight('bold').setFontColor(C_HEAD_FG)
+    .setBackground(C_HEAD_BG).setHorizontalAlignment('center').setVerticalAlignment('middle');
+  sheet.setRowHeight(2, 40);
+  sheet.getRange('B3:E3').merge()
+    .setValue('Stand: ' + Utilities.formatDate(new Date(), TZ, 'dd.MM.yyyy HH:mm') + ' Uhr')
+    .setFontColor('#666').setHorizontalAlignment('center');
+
+  // KPI-Kacheln (Label / Wert nebeneinander)
+  var kpis = [
+    ['Auftraggeber (Bauherren)', agCount, 'Auftragnehmer (Firmen)', anCount],
+    ['Gefundene Matches', matchCount, 'Pipeline offen', openPipe],
+    ['Ø Seriosität', serStats.avg > 0 ? serStats.avg + '%' : '—', '⚠️ Prüffälle (<40%)', serStats.red],
+    ['Seriosität geprüft', serStats.done, 'Prüfung läuft', serStats.pending]
   ];
 
-  sheet.clear();
-  sheet.getRange(1, 1, rows.length, 2).setValues(rows);
-  sheet.getRange(1, 1).setFontWeight('bold').setFontSize(14);
-  sheet.setColumnWidth(1, 220);
-  sheet.setColumnWidth(2, 320);
+  var startRow = 5;
+  kpis.forEach(function (k, i) {
+    var r = startRow + i;
+    sheet.getRange(r, 2).setValue(k[0]).setFontColor('#555');
+    sheet.getRange(r, 3).setValue(k[1]).setFontSize(14).setFontWeight('bold')
+      .setHorizontalAlignment('center').setBackground(C_BAND);
+    sheet.getRange(r, 4).setValue(k[2]).setFontColor('#555');
+    sheet.getRange(r, 5).setValue(k[3]).setFontSize(14).setFontWeight('bold')
+      .setHorizontalAlignment('center').setBackground(C_BAND);
+    sheet.setRowHeight(r, 28);
+  });
+
+  // Prüffälle hervorheben
+  if (serStats.red > 0) {
+    sheet.getRange(startRow + 2, 5).setBackground(C_RED);
+  }
+
+  // Hinweis-Zeile
+  var noteRow = startRow + kpis.length + 1;
+  sheet.getRange(noteRow, 2, 1, 4).merge()
+    .setValue('Tabs unten: Matches = Vermittlungs-Vorschläge · Seriosität = Background-Checks mit Quellen · Pipeline = Status je Lead')
+    .setFontColor('#888').setFontStyle('italic').setWrap(true);
+
+  sheet.setHiddenGridlines && sheet.setHiddenGridlines(true);
 }
 
-function countPendingSeriosity_(sheet) {
-  if (!sheet || sheet.getLastRow() < 2) return 0;
-  var statuses = sheet.getRange(2, 6, sheet.getLastRow() - 1, 1).getValues();
-  var n = 0;
-  statuses.forEach(function (r) {
-    if (String(r[0]).indexOf('Ausstehend') >= 0) n++;
+function seriosityStats_(sheet) {
+  var out = { avg: 0, done: 0, pending: 0, red: 0 };
+  if (!sheet || sheet.getLastRow() < 2) return out;
+  var data = sheet.getRange(2, 3, sheet.getLastRow() - 1, 2).getValues(); // Score + Bewertung
+  var sum = 0, n = 0;
+  data.forEach(function (r) {
+    var score = Number(r[0]);
+    var bew = String(r[1]);
+    if (bew.indexOf('läuft') >= 0 || r[0] === '' || r[0] === null) {
+      out.pending++;
+    } else {
+      out.done++;
+      if (!isNaN(score)) { sum += score; n++; if (score < 40) out.red++; }
+    }
   });
-  return n;
+  out.avg = n ? Math.round(sum / n) : 0;
+  return out;
 }
 
 function countOpenPipeline_(sheet) {
@@ -505,9 +672,27 @@ function countOpenPipeline_(sheet) {
   var n = 0;
   statuses.forEach(function (r) {
     var s = String(r[0]);
-    if (s && s !== 'Abgeschlossen' && s !== 'Abgelehnt') n++;
+    if (s && s !== 'Abgeschlossen' && s !== 'Abgelehnt' && s !== 'Vermittelt') n++;
   });
   return n;
+}
+
+// ── Farben ────────────────────────────────────────────────────────────────────
+
+function scoreColor_(score) {
+  var s = Number(score);
+  if (isNaN(s) || s === 0) return null;
+  if (s >= 80) return C_GREEN;
+  if (s >= 60) return C_GREEN2;
+  if (s >= 40) return C_YELLOW;
+  return C_RED;
+}
+
+function matchColor_(score) {
+  var s = Number(score);
+  if (s >= 75) return C_GREEN;
+  if (s >= 50) return C_GREEN2;
+  return C_YELLOW;
 }
 
 // ── Scoring-Hilfen ──────────────────────────────────────────────────────────
@@ -641,6 +826,8 @@ function jsonResponse_(obj) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
+// ── Einmalige Wartungs-Funktionen ─────────────────────────────────────────────
+
 /** Einmal ausführen → Berechtigungen erteilen */
 function testBerechtigung() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -648,4 +835,22 @@ function testBerechtigung() {
   var test = root.createFolder('_kaplan_test');
   test.setTrashed(true);
   Logger.log('Alles OK — Sheet: ' + ss.getName() + ' / Drive Schreiben funktioniert');
+}
+
+/**
+ * EINMAL ausführen für sauberen Neustart:
+ * Löscht Dashboard/Matches/Seriosität/Pipeline + leert die Lead-Tabs,
+ * baut alles im neuen, übersichtlichen Layout neu auf.
+ * (Anfrage-Zähler bleibt erhalten.)
+ */
+function neuAufsetzen() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  [TAB_DASHBOARD, TAB_MATCHES, TAB_SERIOSITY, TAB_PIPELINE,
+   TAB_ALL, TAB_AUFTRAGGEBER, TAB_AUFTRAGNEHMER].forEach(function (n) {
+    var sh = ss.getSheetByName(n);
+    if (sh) ss.deleteSheet(sh);
+  });
+  ensureStructure_(ss);
+  updateDashboard_(ss);
+  Logger.log('Fertig — alle Tabs sauber & farbig neu aufgebaut.');
 }
