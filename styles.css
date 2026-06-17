@@ -1182,12 +1182,40 @@ textarea { resize: none; min-height: 8rem; }
     max-width: 36rem;
 }
 .form-consent input[type="checkbox"] {
-    width: 1.125rem;
-    height: 1.125rem;
-    margin-top: 0.2rem;
+    appearance: none;
+    -webkit-appearance: none;
+    width: 1.35rem;
+    height: 1.35rem;
+    margin-top: 0.15rem;
     flex-shrink: 0;
-    accent-color: var(--gold);
+    border: 2px solid var(--gold);
+    border-radius: 5px;
+    background: transparent;
     cursor: pointer;
+    position: relative;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+.form-consent input[type="checkbox"]:hover {
+    background: rgba(201, 162, 39, 0.15);
+}
+.form-consent input[type="checkbox"]:checked {
+    background: var(--gold);
+    border-color: var(--gold);
+}
+.form-consent input[type="checkbox"]:checked::after {
+    content: "";
+    position: absolute;
+    left: 0.42rem;
+    top: 0.12rem;
+    width: 0.32rem;
+    height: 0.62rem;
+    border: solid #0b0b0b;
+    border-width: 0 0.18rem 0.18rem 0;
+    transform: rotate(45deg);
+}
+.form-consent input[type="checkbox"]:focus-visible {
+    outline: 2px solid var(--gold);
+    outline-offset: 2px;
 }
 .form-consent span {
     font-size: 0.75rem;
