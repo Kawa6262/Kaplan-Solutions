@@ -39,10 +39,14 @@ FREE_EMAIL_DOMAINS = {
 }
 
 LEGAL_FORMS = [
+    ("SE & Co. KGaA", r"se\s*&\s*co\.?\s*kgaa"),
     ("GmbH & Co. KG", r"gmbh\s*&\s*co\.?\s*kg"),
+    ("AG & Co. KG", r"ag\s*&\s*co\.?\s*kg"),
+    ("KGaA", r"\bkgaa\b|kommanditgesellschaft auf aktien"),
     ("UG (haftungsbeschränkt)", r"ug\s*\(haftungsbeschr[aä]nkt\)|unternehmergesellschaft"),
     ("gGmbH", r"\bggmbh\b"),
     ("GmbH", r"\bgmbh\b"),
+    ("SE", r"\bse\b|societas europaea"),
     ("AG", r"\baktiengesellschaft\b|\bag\b"),
     ("e.K.", r"\be\.?\s?k\.?\b|eingetragene[r]? kaufmann|kauffrau"),
     ("OHG", r"\bohg\b|offene handelsgesellschaft"),
@@ -50,6 +54,14 @@ LEGAL_FORMS = [
     ("GbR", r"\bgbr\b|gesellschaft b[uü]rgerlichen rechts"),
     ("e.V.", r"\be\.?\s?v\.?\b|eingetragener verein"),
 ]
+
+
+def _detect_legal_form(text: str) -> str:
+    low = (text or "").lower()
+    for label, pat in LEGAL_FORMS:
+        if re.search(pat, low):
+            return label
+    return ""
 
 NEGATIVE_SIGNALS = [
     "insolvenz", "insolvent", "betrug", "betrüger", "abzocke", "abzocker",
@@ -130,6 +142,9 @@ def run_trust_check(payload: dict) -> dict:
     if company:
         add(True, f"Firmenname angegeben: {company}", 6)
         score += 6
+        name_form = _detect_legal_form(company)
+        if name_form:
+            fields["rechtsform"] = name_form
     elif role == "unternehmen":
         add(False, "Kein Firmenname angegeben (Auftragnehmer)", -10)
         score -= 10
@@ -308,21 +323,18 @@ def _deep_website_check(website: str) -> tuple[int, dict, list, list]:
             if kw in low:
                 positives.append(f"Website nennt: „{kw}“")
 
-    # Impressum / Kontakt finden
-    impressum_url = _find_subpage(base, home, ["impressum", "imprint", "kontakt", "legal"])
+    # Impressum / Kontakt finden (Impressum hat Vorrang)
+    impressum_url = _find_subpage(base, home, ["impressum", "imprint", "legal", "kontakt"])
     imp_html = _fetch_url(impressum_url) if impressum_url else ""
     text_pool = (home or "") + "\n" + (imp_html or "")
 
     if impressum_url and imp_html:
         points += 10
-        sources.append({"label": "Impressum", "url": impressum_url})
+        is_imp = "impressum" in impressum_url.lower() or "imprint" in impressum_url.lower()
+        sources.append({"label": "Impressum" if is_imp else "Kontakt", "url": impressum_url})
 
-    # Rechtsform
-    low_pool = text_pool.lower()
-    for label, pat in LEGAL_FORMS:
-        if re.search(pat, low_pool):
-            fields["rechtsform"] = label
-            break
+    # Rechtsform (nur aus Impressum-Text, um Tochterfirmen auf Startseite zu meiden)
+    fields["rechtsform"] = _detect_legal_form(imp_html or text_pool)
 
     # Handelsregister
     m = re.search(r"\b(HR[AB]\s?\d{1,6}\s?[A-Z]?)\b", text_pool)
@@ -357,14 +369,14 @@ def _deep_website_check(website: str) -> tuple[int, dict, list, list]:
 
 
 def _find_subpage(base: str, home_html: str, keywords: list[str]) -> str:
-    """Sucht Link zu Impressum/Kontakt in der Startseite, sonst rät Standardpfade."""
+    """Sucht Link zu Impressum/Kontakt — Keywords in Prioritätsreihenfolge."""
     if home_html:
-        for m in re.finditer(r'href=["\']([^"\']+)["\']', home_html, re.IGNORECASE):
-            href = m.group(1)
-            low = href.lower()
-            if any(kw in low for kw in keywords):
-                return urllib.parse.urljoin(base + "/", href)
-    for kw in ("impressum", "kontakt", "imprint"):
+        hrefs = re.findall(r'href=["\']([^"\']+)["\']', home_html, re.IGNORECASE)
+        for kw in keywords:  # zuerst "impressum", dann "kontakt" etc.
+            for href in hrefs:
+                if kw in href.lower():
+                    return urllib.parse.urljoin(base + "/", href)
+    for kw in ("impressum", "imprint", "kontakt"):
         guess = f"{base}/{kw}"
         if _fetch_url(guess):
             return guess
