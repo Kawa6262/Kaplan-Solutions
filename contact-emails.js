@@ -183,7 +183,7 @@
 
 vielen Dank für Ihre Anfrage bei ${BRAND}.
 
-Wir bestätigen den Eingang Ihrer Nachricht am ${ts}. Ein fachkundiger Ansprechpartner meldet sich in der Regel innerhalb von 24 Stunden persönlich bei Ihnen.
+Wir bestätigen den Eingang Ihrer Nachricht am ${ts}. Ein fachkundiger Ansprechpartner meldet sich zeitnah persönlich bei Ihnen.
 
 Ihre Angaben im Überblick:
 ${summaryText}
@@ -214,7 +214,7 @@ Diese E-Mail wurde automatisch erstellt.`;
 <tr><td style="padding:32px 40px;font-family:Arial,sans-serif;font-size:15px;line-height:1.75;color:#d4d4d4">
   <p style="margin:0 0 20px;color:#f5f5f5">Sehr geehrte/r ${esc(name)},</p>
   <p style="margin:0 0 20px">vielen Dank für Ihr Vertrauen in <strong style="color:#f5f5f5">${esc(BRAND)}</strong>. Wir bestätigen den Eingang Ihrer Anfrage am <strong style="color:${GOLD}">${esc(ts)}</strong>.</p>
-  <p style="margin:0 0 28px">Ihre Angaben wurden an unser Team weitergeleitet. Ein Ansprechpartner meldet sich <strong style="color:#f5f5f5">zeitnah — in der Regel innerhalb von 24 Stunden</strong> — persönlich bei Ihnen.</p>
+  <p style="margin:0 0 28px">Ihre Angaben wurden an unser Team weitergeleitet. Ein Ansprechpartner meldet sich <strong style="color:#f5f5f5">zeitnah persönlich</strong> bei Ihnen.</p>
 
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#141414;border:1px solid #262626;margin-bottom:28px">
   <tr><td style="padding:20px 24px">

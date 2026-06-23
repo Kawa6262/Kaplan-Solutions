@@ -368,7 +368,7 @@
             '',
             'vielen Dank für Ihre Anfrage bei Kaplan Solutions.',
             `Wir bestätigen den Eingang am ${nowDe()}.`,
-            'Ein Ansprechpartner meldet sich in der Regel innerhalb von 24 Stunden persönlich bei Ihnen.',
+            'Ein Ansprechpartner meldet sich zeitnah persönlich bei Ihnen.',
             '',
             '— Ihre Angaben —',
             `Anfrageart: ${label}`,
@@ -521,7 +521,7 @@
                             '<strong>Vielen Dank!</strong> Ihre Anfrage wurde erfolgreich übermittelt.' +
                             ' Ihre Anfrage-Nr. lautet: <strong>' + ref + '</strong>.' +
                             ' Sie erhalten in Kürze eine Bestätigung per E-Mail.' +
-                            ' Unser Team meldet sich innerhalb von 24 Stunden persönlich bei Ihnen.';
+                            ' Unser Team meldet sich zeitnah persönlich bei Ihnen.';
                     }
                     formSuccess.hidden = false;
                 }

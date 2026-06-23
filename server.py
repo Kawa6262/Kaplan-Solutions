@@ -618,7 +618,7 @@ vielen Dank für Ihre Anfrage bei Kaplan Solutions.
 
 Wir bestätigen den Eingang Ihrer Nachricht am {now}.
 Ihre Anfrage-Nr. lautet: {ref}
-Ihre Angaben wurden an unser Team weitergeleitet. Ein fachkundiger Ansprechpartner meldet sich in der Regel innerhalb von 24 Stunden persönlich bei Ihnen.
+Ihre Angaben wurden an unser Team weitergeleitet. Ein fachkundiger Ansprechpartner meldet sich zeitnah persönlich bei Ihnen.
 
 Ihre Angaben im Überblick:
 {summary_text}
@@ -646,7 +646,7 @@ Alternativ: {REPLY_EMAIL} · {COMPANY_PHONE}
   <p style="margin:0 0 20px;color:{TEXT}">Sehr geehrte/r {_safe(name)},</p>
   <p style="margin:0 0 20px">vielen Dank für Ihr Vertrauen in <strong style="color:{TEXT}">Kaplan Solutions</strong>. Wir bestätigen hiermit den Eingang Ihrer Anfrage am <strong style="color:{GOLD}">{_safe(now)}</strong>.</p>
   <p style="margin:0 0 20px">Ihre Anfrage-Nr.: <strong style="color:{GOLD}">{_safe(ref)}</strong></p>
-  <p style="margin:0 0 28px">Ihre Angaben wurden an unser Team weitergeleitet. Ein fachkundiger Ansprechpartner wird sich <strong style="color:{TEXT}">zeitnah — in der Regel innerhalb von 24 Stunden</strong> — persönlich bei Ihnen melden.</p>
+  <p style="margin:0 0 28px">Ihre Angaben wurden an unser Team weitergeleitet. Ein fachkundiger Ansprechpartner meldet sich <strong style="color:{TEXT}">zeitnah persönlich</strong> bei Ihnen.</p>
 
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f7f7f7;border:1px solid #ebebeb;margin-bottom:28px">
   <tr><td style="padding:20px 24px">
