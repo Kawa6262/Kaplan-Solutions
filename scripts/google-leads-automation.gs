@@ -296,6 +296,7 @@ function buildLeadInfoText_(data, ref) {
     'Name: ' + (data.name || ''),
     'E-Mail: ' + (data.email || ''),
     'Telefon: ' + (data.telefon || ''),
+    'Rückruf-Termin: ' + (data.rueckruf || '—'),
     'Firma: ' + (data.firma || ''),
     'Branche: ' + (data.branche || ''),
     'Stadt: ' + (data.stadt || ''),

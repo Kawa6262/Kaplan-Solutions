@@ -242,6 +242,7 @@
             email: get('email'),
             phone: get('phone'),
             company: get('company'),
+            callback_slot: get('callback_slot'),
             message: get('message'),
             company_website: get('company_website'),
             privacy_consent: Boolean(form.querySelector('#privacyConsent')?.checked),

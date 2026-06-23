@@ -110,7 +110,9 @@ SMTP_USER = os.getenv("SMTP_USER", "").strip()
 SMTP_PASS = os.getenv("SMTP_PASS", "").strip()
 FROM_EMAIL = os.getenv("FROM_EMAIL", SMTP_USER).strip()
 RESEND_API_KEY = os.getenv("RESEND_API_KEY", "").strip()
-RESEND_FROM = os.getenv("RESEND_FROM", "Kaplan Solutions <onboarding@resend.dev>").strip()
+RESEND_FROM = os.getenv(
+    "RESEND_FROM", "Kaplan Solutions <kontakt@kaplan-solutions.de>"
+).strip()
 REPLY_EMAIL = os.getenv("REPLY_EMAIL", "Kawa.f.Kaplan@gmail.com").strip()
 COMPANY_PHONE = os.getenv("COMPANY_PHONE", "+49 159 01309199").strip()
 SITE_URL = os.getenv("SITE_URL", "https://kaplan-solutions.onrender.com").strip().rstrip("/")
@@ -391,6 +393,8 @@ def build_email_bodies(data: dict, role_label: str, now: str):
         _row("Telefon", data.get("phone", "—")),
         _row("Firma / Organisation", data.get("company", "—")),
     ]
+    if data.get("callback_slot"):
+        rows_html.append(_row("Rückruf-Termin", data["callback_slot"]))
     if data.get("branche"):
         rows_html.append(_row("Branche", data["branche"]))
     if data.get("stadt"):
@@ -412,6 +416,9 @@ def build_email_bodies(data: dict, role_label: str, now: str):
         f"Firma:          {data.get('company', '—')}",
         "",
     ]
+    if data.get("callback_slot"):
+        rows_text.append(f"Rückruf-Termin: {data['callback_slot']}")
+        rows_text.append("")
     if data.get("branche"):
         rows_text.append(f"Branche:        {data['branche']}")
     if data.get("stadt"):
@@ -501,8 +508,12 @@ def _send_resend(
         "html": html_body,
         "text": text_body,
     }
-    if reply_to:
-        payload["reply_to"] = reply_to
+    reply = reply_to or REPLY_EMAIL
+    if reply:
+        payload["reply_to"] = reply
+    payload["headers"] = {
+        "List-Unsubscribe": f"<mailto:{REPLY_EMAIL}?subject=Abmeldung%20Kaplan%20Solutions>",
+    }
     if attachments:
         payload["attachments"] = attachments
     req = urllib.request.Request(
@@ -590,6 +601,8 @@ def build_customer_confirmation(data: dict, role_label: str, now: str) -> tuple[
             summary_lines.append(f"Gewerke: {data['trades']}")
         if data.get("region"):
             summary_lines.append(f"Einsatzgebiet: {data['region']}")
+    if data.get("callback_slot"):
+        summary_lines.append(f"Rückruf-Termin: {data['callback_slot']}")
 
     attachment_names = data.get("attachment_names") or []
     if attachment_names:
@@ -620,8 +633,8 @@ Mit freundlichen Grüßen
 www.kaplan-solutions.de
 
 —
-Diese E-Mail wurde automatisch erstellt. Bitte antworten Sie nicht direkt auf diese Nachricht.
-Für Rückfragen nutzen Sie: {REPLY_EMAIL}
+Bei Rückfragen antworten Sie einfach auf diese E-Mail — wir lesen mit.
+Alternativ: {REPLY_EMAIL} · {COMPANY_PHONE}
 """
 
     summary_html = "".join(
@@ -649,7 +662,8 @@ Für Rückfragen nutzen Sie: {REPLY_EMAIL}
   </p>
 </td></tr>
 <tr><td style="padding:0 40px 24px;font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#aaaaaa;line-height:1.5">
-  Diese Nachricht wurde automatisch erstellt. Für Rückfragen: <a href="mailto:{_safe(REPLY_EMAIL)}" style="color:{GOLD};text-decoration:none">{_safe(REPLY_EMAIL)}</a>
+  Bei Rückfragen antworten Sie einfach auf diese E-Mail — wir lesen mit.
+  Alternativ: <a href="mailto:{_safe(REPLY_EMAIL)}" style="color:{GOLD};text-decoration:none">{_safe(REPLY_EMAIL)}</a>
 </td></tr>
 {_email_footer_html()}"""
 
@@ -692,6 +706,7 @@ def _sheet_fields(payload: dict) -> dict:
         "status_feld": payload.get("project_status", "") if is_bau else payload.get("employees", ""),
         "referenzen": "" if is_bau else payload.get("references", ""),
         "nachricht": payload.get("message", ""),
+        "rueckruf": payload.get("callback_slot", "") or "—",
         "dateien": ", ".join(payload.get("attachment_names") or []) or "—",
         "bearbeitung": "Neu",
     }
@@ -992,6 +1007,7 @@ def contact():
         "email": data.get("email", "").strip(),
         "phone": data.get("phone", "").strip() or "—",
         "company": data.get("company", "").strip() or "—",
+        "callback_slot": (data.get("callback_slot") or "").strip() or "—",
         "message": data.get("message", "").strip(),
         "privacy_consent": bool(data.get("privacy_consent")),
     }

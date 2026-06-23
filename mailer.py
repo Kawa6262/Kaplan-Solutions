@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 RESEND_API_KEY = os.getenv("RESEND_API_KEY", "").strip()
 RESEND_FROM = os.getenv(
-    "RESEND_FROM", "Kaplan Solutions <onboarding@resend.dev>"
+    "RESEND_FROM", "Kaplan Solutions <kontakt@kaplan-solutions.de>"
 ).strip()
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "").strip()
 SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com").strip()
@@ -57,8 +57,13 @@ def send_resend(
         "html": html_body,
         "text": text_body,
     }
-    if reply_to:
-        payload["reply_to"] = reply_to
+    reply = reply_to or os.getenv("REPLY_EMAIL", "").strip()
+    if reply:
+        payload["reply_to"] = reply
+    if reply:
+        payload["headers"] = {
+            "List-Unsubscribe": f"<mailto:{reply}?subject=Abmeldung%20Kaplan%20Solutions>",
+        }
     if attachments:
         payload["attachments"] = attachments
     req = urllib.request.Request(
@@ -192,6 +197,7 @@ def install(server: types.ModuleType) -> None:
             "email": data.get("email", "").strip(),
             "phone": data.get("phone", "").strip() or "—",
             "company": data.get("company", "").strip() or "—",
+            "callback_slot": (data.get("callback_slot") or "").strip() or "—",
             "message": data.get("message", "").strip(),
             "privacy_consent": bool(data.get("privacy_consent")),
         }
