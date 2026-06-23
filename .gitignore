@@ -1,5 +1,8 @@
 # Lokale Backups & Hilfsdateien (nicht auf GitHub/Render nötig)
-checkpoints/
+# Lokale Backups (Golden Master ist ausgenommen — siehe unten)
+checkpoints/*
+!checkpoints/2026-06-24-golden-master/
+!checkpoints/2026-06-24-golden-master/**
 __pycache__/
 *.pyc
 venv/

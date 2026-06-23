@@ -1,0 +1,35 @@
+[
+  {
+    "tag": "Wohnungsbau",
+    "title": "Kernsanierung Mehrfamilienhaus",
+    "location": "Berlin-Wedding",
+    "description": "Vermittlung eines spezialisierten Sanierungsunternehmens für acht Wohneinheiten — inklusive Abstimmung von Gewerken und Zeitplan.",
+    "stats": [
+      { "label": "Budgetrahmen", "value": "ca. 480.000 €" },
+      { "label": "Vermittlung", "value": "12 Tage" },
+      { "label": "Ergebnis", "value": "3 geprüfte Angebote" }
+    ]
+  },
+  {
+    "tag": "Gewerbebau",
+    "title": "Büro- und Praxisausbau",
+    "location": "Potsdam",
+    "description": "Auswahl eines Generalunternehmers für den Innenausbau von 650 m² Gewerbefläche mit festem Qualitätsprofil und Kapazitätsnachweis.",
+    "stats": [
+      { "label": "Budgetrahmen", "value": "ca. 1,2 Mio. €" },
+      { "label": "Vermittlung", "value": "18 Tage" },
+      { "label": "Ergebnis", "value": "Auftrag vergeben" }
+    ]
+  },
+  {
+    "tag": "Denkmalschutz",
+    "title": "Fassaden- & Dachsanierung",
+    "location": "Berlin-Mitte",
+    "description": "Matching mit erfahrenen Partnern für denkmalgerechte Sanierung — Koordination der Erstgespräche und Angebotsvergleich.",
+    "stats": [
+      { "label": "Budgetrahmen", "value": "ca. 2,1 Mio. €" },
+      { "label": "Vermittlung", "value": "21 Tage" },
+      { "label": "Ergebnis", "value": "2 Finalisten" }
+    ]
+  }
+]

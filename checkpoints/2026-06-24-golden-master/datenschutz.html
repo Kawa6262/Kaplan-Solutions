@@ -1,0 +1,153 @@
+{% extends "legal_base.html" %}
+{% block title %}Datenschutzerklärung — Kaplan Solutions{% endblock %}
+{% block page_title %}Datenschutzerklärung{% endblock %}
+{% block content %}
+<section class="legal-block">
+    <h2>1. Verantwortlicher</h2>
+    <p>
+        Verantwortlich für die Datenverarbeitung auf dieser Website ist:
+    </p>
+    <p>
+        <strong>{{ c.legal_name }}</strong><br />
+        {{ c.street }}<br />
+        {{ c.zip_city }}<br />
+        E-Mail: <a href="mailto:{{ c.email }}">{{ c.email }}</a><br />
+        Telefon: {{ c.phone }}
+    </p>
+</section>
+
+<section class="legal-block">
+    <h2>2. Überblick der Verarbeitungen</h2>
+    <p>
+        Wir verarbeiten personenbezogene Daten nur, soweit dies zur Bereitstellung einer funktionsfähigen
+        Website sowie zur Bearbeitung Ihrer Kontaktanfrage erforderlich ist. Die Verarbeitung erfolgt
+        regelmäßig nur nach Ihrer Einwilligung oder auf Grundlage von Gesetzen, insbesondere der DSGVO.
+    </p>
+</section>
+
+<section class="legal-block">
+    <h2>3. Bereitstellung der Website und Server-Logfiles</h2>
+    <p>
+        Beim Aufruf unserer Website werden durch den Browser auf Ihrem Endgerät automatisch Informationen
+        an den Server übermittelt. Dies können sein:
+    </p>
+    <ul class="legal-list">
+        <li>IP-Adresse (gekürzt bzw. anonymisiert, soweit technisch möglich)</li>
+        <li>Datum und Uhrzeit der Anfrage</li>
+        <li>Browsertyp und -version</li>
+        <li>Betriebssystem</li>
+        <li>Referrer-URL</li>
+    </ul>
+    <p>
+        <strong>Rechtsgrundlage:</strong> Art. 6 Abs. 1 lit. f DSGVO (berechtigtes Interesse an der sicheren
+        Bereitstellung der Website).<br />
+        <strong>Speicherdauer:</strong> maximal 7 Tage, sofern keine Sicherheitsvorfälle eine längere Aufbewahrung erfordern.
+    </p>
+</section>
+
+<section class="legal-block">
+    <h2>4. Kontaktformular und E-Mail-Kommunikation</h2>
+    <p>
+        Wenn Sie uns über das Kontaktformular eine Anfrage senden, verarbeiten wir die von Ihnen eingegebenen Daten:
+    </p>
+    <ul class="legal-list">
+        <li>Anfrageart (Auftraggeber / Auftragnehmer)</li>
+        <li>Name, E-Mail-Adresse, optional Telefon und Firma</li>
+        <li>Projekt- bzw. Unternehmensangaben (z. B. Standort, Budget, Gewerke, Kapazität)</li>
+        <li>Ihre Nachricht / zusätzliche Angaben</li>
+        <li>Zeitpunkt der Anfrage</li>
+        <li>Bestätigung der Datenschutzerklärung</li>
+    </ul>
+    <p>
+        <strong>Zweck:</strong> Bearbeitung Ihrer Anfrage, Erstkontakt, Vermittlung passender Bauunternehmen
+        bzw. Aufnahme in unser Netzwerk.<br />
+        <strong>Rechtsgrundlage:</strong> Art. 6 Abs. 1 lit. b DSGVO (Vertragsanbahnung) und Art. 6 Abs. 1 lit. a DSGVO
+        (Einwilligung durch Aktivierung der Checkbox).<br />
+        <strong>Speicherdauer:</strong> bis zur vollständigen Erledigung der Anfrage, längstens 3 Jahre nach dem letzten
+        Kontakt, sofern keine gesetzlichen Aufbewahrungspflichten entgegenstehen.
+    </p>
+    <p>
+        Die Daten werden zusätzlich lokal als Backup in unserem System gespeichert und per E-Mail an unsere
+        interne Bearbeitungsadresse übermittelt. Sie erhalten eine automatische Eingangsbestätigung per E-Mail.
+    </p>
+</section>
+
+<section class="legal-block">
+    <h2>5. E-Mail-Versand (SMTP)</h2>
+    <p>
+        Für den Versand von E-Mails nutzen wir einen SMTP-Dienst (z. B. Gmail/Google). Dabei werden Ihre
+        Angaben an den jeweiligen E-Mail-Provider übermittelt. Anbieter können Daten in Drittländern
+        (z. B. USA) verarbeiten. Soweit erforderlich, erfolgt dies auf Grundlage von
+        Standardvertragsklauseln der EU-Kommission gemäß Art. 46 DSGVO.
+    </p>
+</section>
+
+<section class="legal-block" id="cookies">
+    <h2>6. Cookies und Tracking</h2>
+    <p>
+        Diese Website setzt derzeit <strong>keine</strong> Marketing- oder Analyse-Cookies ein, die einer
+        Einwilligung bedürfen. Technisch notwendige Session-Mechanismen des Servers können temporär verwendet werden.
+    </p>
+    <p>
+        Sollten wir künftig Analyse-Tools (z. B. Google Analytics) einsetzen, werden wir diese Datenschutzerklärung
+        entsprechend ergänzen und — sofern erforderlich — vorab Ihre Einwilligung einholen.
+    </p>
+</section>
+
+<section class="legal-block">
+    <h2>7. Weitergabe an Dritte</h2>
+    <p>
+        Eine Weitergabe Ihrer Daten an Dritte erfolgt nur, wenn dies zur Vertragserfüllung erforderlich ist
+        (z. B. Vorstellung an ein passendes Bauunternehmen nach Ihrer ausdrücklichen Zustimmung), wenn Sie
+        eingewilligt haben oder eine gesetzliche Verpflichtung besteht. Eine Weitergabe zu Werbezwecken findet nicht statt.
+    </p>
+</section>
+
+<section class="legal-block">
+    <h2>8. Ihre Rechte</h2>
+    <p>Sie haben gegenüber uns folgende Rechte hinsichtlich der Sie betreffenden personenbezogenen Daten:</p>
+    <ul class="legal-list">
+        <li>Auskunft (Art. 15 DSGVO)</li>
+        <li>Berichtigung (Art. 16 DSGVO)</li>
+        <li>Löschung (Art. 17 DSGVO)</li>
+        <li>Einschränkung der Verarbeitung (Art. 18 DSGVO)</li>
+        <li>Datenübertragbarkeit (Art. 20 DSGVO)</li>
+        <li>Widerspruch (Art. 21 DSGVO)</li>
+        <li>Widerruf erteilter Einwilligungen (Art. 7 Abs. 3 DSGVO) mit Wirkung für die Zukunft</li>
+    </ul>
+    <p>
+        Zur Ausübung Ihrer Rechte genügt eine Nachricht an:
+        <a href="mailto:{{ c.email }}">{{ c.email }}</a>.
+    </p>
+</section>
+
+<section class="legal-block">
+    <h2>9. Beschwerderecht bei der Aufsichtsbehörde</h2>
+    <p>
+        Sie haben das Recht, sich bei einer Datenschutz-Aufsichtsbehörde zu beschweren. Zuständig ist u. a.:
+    </p>
+    <p>
+        Berliner Beauftragte für Datenschutz und Informationsfreiheit<br />
+        Friedrichstraße 219, 10969 Berlin<br />
+        <a href="https://www.datenschutz-berlin.de" target="_blank" rel="noopener noreferrer">www.datenschutz-berlin.de</a>
+    </p>
+</section>
+
+<section class="legal-block">
+    <h2>10. Datensicherheit</h2>
+    <p>
+        Wir verwenden geeignete technische und organisatorische Sicherheitsmaßnahmen (z. B. TLS-Verschlüsselung
+        bei HTTPS-Betrieb), um Ihre Daten gegen zufällige oder vorsätzliche Manipulation, Verlust oder
+        unbefugten Zugriff zu schützen.
+    </p>
+</section>
+
+<section class="legal-block">
+    <h2>11. Änderungen dieser Datenschutzerklärung</h2>
+    <p>
+        Wir behalten uns vor, diese Datenschutzerklärung anzupassen, damit sie stets den aktuellen rechtlichen
+        Anforderungen entspricht oder Änderungen unserer Leistungen berücksichtigt. Für Ihren erneuten Besuch
+        gilt dann die neue Datenschutzerklärung.
+    </p>
+</section>
+{% endblock %}

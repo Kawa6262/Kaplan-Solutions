@@ -1,0 +1,70 @@
+★ GOLDEN MASTER — Kaplan Solutions (Fundament)
+=============================================================================
+Datum:     24.06.2026
+Git:       5d7c3b7 — FAQ, Rückruf-Terminwahl, E-Mail-Zustellbarkeit
+Status:    Live getestet & bestätigt (Test-Anfrage KS-2026-0043)
+
+Dies ist die stabile Basis-Version. Bei Problemen hierher zurück.
+
+------------------------------------------------------------------------
+WAS FUNKTIONIERT (alles verifiziert)
+------------------------------------------------------------------------
+✓ Website live:        https://kaplan-solutions.de (HTTPS, eigene Domain)
+✓ Kontaktformular:     Rollenwahl, Datei-Upload, Datenschutz-Checkbox
+✓ Anfrage-Nummern:     KS-YYYY-NNNN automatisch
+✓ Google Sheet:        Dashboard, Leads, Matches, Seriosität, Pipeline
+✓ Google Drive:        Auto-Ordner nach Rolle/Branche/Stadt
+✓ Partner-Matching:    Score + Gründe + Match-Ordner ab 75%
+✓ Seriositäts-Check:   Rechtsform, HRB, USt-IdNr, Domain-Alter, Quellen
+✓ Spam-Schutz:         Honeypot + Rate-Limit (5/10 Min)
+✓ SEO:                 Open Graph, Sitemap, robots.txt, Favicon, JSON-LD
+✓ Besucher-Statistik:  /api/stats (cookiefrei)
+✓ FAQ-Bereich:         6 Fragen auf der Startseite
+✓ Rückruf-Terminwahl:  Im Formular + E-Mail + Sheet
+
+------------------------------------------------------------------------
+BEKANNT / OFFEN (kein Blocker)
+------------------------------------------------------------------------
+⚠ Kunden-Mails landen teils im Spam (Resend-Domain DNS noch nicht verified)
+  → Anleitung: RESEND-SETUP.md
+⚠ Serper-Key fehlt (Web-Reputation optional)
+⚠ Render: Manual Deploy nach Git-Push nötig
+
+------------------------------------------------------------------------
+RENDER — Environment (Render Dashboard)
+------------------------------------------------------------------------
+RESEND_API_KEY         = (resend.com → API Keys)
+ADMIN_EMAIL            = Kawa.f.Kaplan@gmail.com
+RESEND_FROM            = Kaplan Solutions <kontakt@kaplan-solutions.de>
+REPLY_EMAIL            = Kawa.f.Kaplan@gmail.com
+COMPANY_PHONE          = +49 159 01309199
+SITE_URL               = https://kaplan-solutions.de
+SHEETS_WEBHOOK_URL     = https://script.google.com/macros/s/AKfycbxWDqH7ZioJeZtXp0rbZ45WnhR3mPiyYAmJDbKiGo6YOn68jI22WoG5IkT--SfgVvJRsA/exec
+SHEETS_WEBHOOK_TIMEOUT = 90
+SHEETS_WEBHOOK_RETRIES = 1
+COMPANY_LEGAL_FORM     = privat
+COMPANY_OPERATOR       = Ferhat Kawa Kaplan
+COMPANY_STREET         = Hochstraße 8
+COMPANY_ZIP            = 13357
+COMPANY_CITY           = Berlin
+
+Deploy: Manual Deploy → Deploy latest commit
+
+------------------------------------------------------------------------
+GOOGLE APPS SCRIPT
+------------------------------------------------------------------------
+Sheet:   https://docs.google.com/spreadsheets/d/1wsQt_9budZaXxJE17OqtU_oY6vHrmRA1TZifRXiWl6k/edit
+Code:    scripts/google-leads-automation.gs (Lead Intelligence v2)
+Deploy:  Bereitstellen → Bereitstellungen verwalten → Neue Version
+Reset:   Funktion neuAufsetzen() einmal ausführen (Testdaten löschen)
+
+------------------------------------------------------------------------
+WIEDERHERSTELLEN
+------------------------------------------------------------------------
+./restore-checkpoint.sh
+  oder
+./restore-checkpoint.sh 2026-06-24-golden-master
+
+Danach: git push + Render Manual Deploy + Apps Script Neue Version
+
+Git-Tag:  golden-master  (Commit 5d7c3b7)
