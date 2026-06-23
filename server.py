@@ -12,7 +12,7 @@ import time
 import urllib.error
 import urllib.request
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
@@ -849,9 +849,54 @@ def serve_references():
     abort(404)
 
 
+STATS_FILE = BASE_DIR / "data" / "stats.json"
+
+
+def record_view() -> None:
+    """Zählt einen Startseiten-Aufruf — ohne Cookies, ohne IP-Speicherung."""
+    try:
+        stats = json.loads(STATS_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        stats = {"total": 0, "days": {}}
+    today = datetime.now().strftime("%Y-%m-%d")
+    stats["total"] = int(stats.get("total", 0)) + 1
+    days = stats.setdefault("days", {})
+    days[today] = int(days.get(today, 0)) + 1
+    if len(days) > 120:  # nur die letzten ~90 Tage behalten
+        for old in sorted(days)[:-90]:
+            days.pop(old, None)
+    try:
+        STATS_FILE.write_text(json.dumps(stats), encoding="utf-8")
+    except Exception:
+        pass
+
+
 @app.route("/")
 def index():
+    record_view()
     return send_from_directory(BASE_DIR, "index.html")
+
+
+@app.route("/api/stats")
+def stats_view():
+    """Einfache Besucher-Statistik (mit ?key=… schützbar via STATS_TOKEN)."""
+    token = os.getenv("STATS_TOKEN", "").strip()
+    if token and request.args.get("key", "") != token:
+        abort(403)
+    try:
+        stats = json.loads(STATS_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        stats = {"total": 0, "days": {}}
+    days = stats.get("days", {})
+    today = datetime.now().strftime("%Y-%m-%d")
+    cutoff = (datetime.now() - timedelta(days=6)).strftime("%Y-%m-%d")
+    last7 = sum(v for k, v in days.items() if k >= cutoff)
+    return jsonify({
+        "gesamt": stats.get("total", 0),
+        "heute": days.get(today, 0),
+        "letzte_7_tage": last7,
+        "pro_tag": dict(sorted(days.items())[-30:]),
+    })
 
 
 def legal_context(active: str) -> dict:
