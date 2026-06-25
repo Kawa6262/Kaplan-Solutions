@@ -19,6 +19,7 @@ except ImportError:
 from lead_followup import storage
 from lead_followup.schedule import process_due, schedule_followup
 from lead_followup.reconcile import run_maintenance
+from lead_followup.daily_digest import send_daily_digest, gather_digest_data
 
 
 def cmd_status() -> None:
@@ -57,9 +58,25 @@ def cmd_test() -> None:
     sys.exit(0 if ok else 1)
 
 
+def cmd_digest(force: bool = False) -> None:
+    ok = send_daily_digest(force=force)
+    data = gather_digest_data()
+    print(f"Fazit: {'gesendet' if ok else 'nicht gesendet'} — {data['sent']}/{data['total']} versendet")
+    for c in data["companies"]:
+        print(f"  · {c['company']} <{c['email']}> — {c['status']}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Kaplan Solutions Lead Follow-up")
-    parser.add_argument("command", choices=("status", "process", "maintain", "test"))
+    parser.add_argument(
+        "command",
+        choices=("status", "process", "maintain", "digest", "test"),
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Tagesfazit erneut senden (nur mit digest)",
+    )
     args = parser.parse_args()
     if args.command == "status":
         cmd_status()
@@ -67,6 +84,8 @@ def main() -> None:
         cmd_process()
     elif args.command == "maintain":
         cmd_maintain()
+    elif args.command == "digest":
+        cmd_digest(force=args.force)
     else:
         cmd_test()
 

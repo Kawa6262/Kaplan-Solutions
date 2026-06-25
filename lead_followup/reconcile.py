@@ -62,10 +62,17 @@ def scan_inbox(limit_days: int = 14) -> dict:
 
 
 def run_maintenance() -> dict:
-    """Vollständiger Wartungslauf: Inbox + fällige Sends + Resend-Nachplanung."""
+    """Vollständiger Wartungslauf: Inbox + fällige Sends + Resend-Nachplanung + Tagesfazit."""
     from lead_followup.schedule import process_due, retry_unscheduled
+    from lead_followup.daily_digest import maybe_send_digest
 
     inbox = scan_inbox()
     retried = retry_unscheduled()
     sent = process_due()
-    return {"inbox": inbox, "retried": retried, "sent": sent}
+    digest = maybe_send_digest()
+    return {
+        "inbox": inbox,
+        "retried": retried,
+        "sent": sent,
+        "digest_sent": digest,
+    }

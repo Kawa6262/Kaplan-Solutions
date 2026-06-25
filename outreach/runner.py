@@ -56,6 +56,8 @@ def run_cycle() -> None:
 
         result = run_maintenance()
         followups = result.get("sent", 0) + result.get("retried", 0)
+        if result.get("digest_sent"):
+            followups += 1
     except Exception as exc:
         _log(f"[lead_followup] Fehler: {exc}")
     if not any((discovered, enriched, sent, reported, followups)):

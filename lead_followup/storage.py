@@ -36,6 +36,10 @@ def init_db() -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_lead_followups_due
                 ON lead_followups(status, scheduled_for);
+            CREATE TABLE IF NOT EXISTS lead_digest_log (
+                day TEXT PRIMARY KEY,
+                sent_at TEXT NOT NULL
+            );
             """
         )
         conn.commit()
@@ -175,6 +179,53 @@ def due_pending() -> list[sqlite3.Row]:
                 """,
                 (now,),
             ).fetchall()
+        )
+
+
+def scheduled_with_resend() -> list[sqlite3.Row]:
+    with _conn() as db:
+        return list(
+            db.execute(
+                """
+                SELECT * FROM lead_followups
+                WHERE status = 'scheduled' AND resend_id IS NOT NULL AND resend_id != ''
+                ORDER BY scheduled_for ASC
+                """
+            ).fetchall()
+        )
+
+
+def followups_on_day(day_iso: str) -> list[sqlite3.Row]:
+    """Alle Follow-ups mit Versandtermin an diesem Tag (Europe/Berlin-Datum)."""
+    with _conn() as db:
+        return list(
+            db.execute(
+                """
+                SELECT * FROM lead_followups
+                WHERE scheduled_for LIKE ?
+                ORDER BY scheduled_for ASC, company ASC, name ASC
+                """,
+                (f"{day_iso}%",),
+            ).fetchall()
+        )
+
+
+def digest_was_sent(day_iso: str) -> bool:
+    with _conn() as db:
+        row = db.execute(
+            "SELECT 1 FROM lead_digest_log WHERE day = ?", (day_iso,)
+        ).fetchone()
+        return row is not None
+
+
+def mark_digest_sent(day_iso: str) -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _conn() as db:
+        db.execute(
+            """
+            INSERT OR REPLACE INTO lead_digest_log (day, sent_at) VALUES (?, ?)
+            """,
+            (day_iso, now),
         )
 
 
