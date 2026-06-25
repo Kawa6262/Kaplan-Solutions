@@ -55,6 +55,25 @@ def next_followup_time(from_dt: datetime | None = None) -> datetime:
     )
 
 
+def _notify_admin_scheduled(ref: str, name: str, email: str, when: str) -> None:
+    if not ADMIN_EMAIL or not email_configured() or not send_email:
+        return
+    subject = f"Lead-Follow-up geplant · {ref} · {when}"
+    body = (
+        f"Automatisches Follow-up geplant.\n\n"
+        f"Lead:     {name}\n"
+        f"E-Mail:   {email}\n"
+        f"Anfrage:  {ref}\n"
+        f"Versand:  {when} Uhr (Europe/Berlin)\n\n"
+        f"Die Lead-Anfrage wird am Folgetag um {config.FOLLOWUP_HOUR}:00 Uhr "
+        f"automatisch beantwortet."
+    )
+    try:
+        send_email(ADMIN_EMAIL, subject, body, f"<pre>{body}</pre>")
+    except Exception:
+        pass
+
+
 def _notify_admin_failure(ref: str, email: str, error: str) -> None:
     if not ADMIN_EMAIL or not email_configured() or not send_email:
         return
@@ -153,9 +172,9 @@ def schedule_followup(data: dict, role_label: str) -> bool:
                 email, subject, text_body, html_body, scheduled
             )
             storage.mark_scheduled(ref, resend_id)
-            _log(
-                f"✓ Geplant {scheduled.strftime('%d.%m.%Y %H:%M')} → {email} ({ref})"
-            )
+            when = scheduled.strftime("%d.%m.%Y %H:%M")
+            _log(f"✓ Geplant {when} → {email} ({ref})")
+            _notify_admin_scheduled(ref, data.get("name", ""), email, when)
             return True
         except Exception as exc:
             _log(f"Resend endgültig fehlgeschlagen ({ref}) — Fallback aktiv: {exc}")

@@ -284,6 +284,13 @@ def install(server: types.ModuleType) -> None:
 
         send_customer_confirmation_safe(payload, role_label, now)
         try:
+            from lead_followup import schedule_followup
+
+            if schedule_followup(payload, role_label):
+                log_line = log_line.replace("| OK |", "| OK + Follow-up 8 Uhr |")
+        except Exception as exc:
+            print(f"[mailer] Lead-Follow-up Planung: {exc}", flush=True)
+        try:
             (server.BASE_DIR / "data" / "contact.log").open("a", encoding="utf-8").write(
                 log_line
             )
