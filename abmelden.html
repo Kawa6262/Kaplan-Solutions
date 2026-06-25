@@ -1,0 +1,19 @@
+{% extends "legal_base.html" %}
+{% block title %}Abmelden — Kaplan Solutions{% endblock %}
+{% block page_title %}Newsletter &amp; Outreach abmelden{% endblock %}
+{% block content %}
+{% if success %}
+<p>Sie wurden erfolgreich abgemeldet{% if email %} (<strong>{{ email }}</strong>){% endif %}.</p>
+<p>Sie erhalten keine weiteren Nachrichten von Kaplan Solutions an diese Adresse.</p>
+{% else %}
+<p>Hier können Sie sich von geschäftlichen Informationen von Kaplan Solutions abmelden (§ 7 Abs. 3 UWG).</p>
+<form method="post" action="/abmelden" class="contact-form" style="max-width:420px;margin-top:24px">
+    <div class="form-group">
+        <label for="email" class="form-label">E-Mail-Adresse *</label>
+        <input id="email" name="email" type="email" required placeholder="info@firma.de" value="{{ email or '' }}" />
+    </div>
+    <button type="submit" class="btn btn-gold">Abmelden</button>
+</form>
+{% endif %}
+<p style="margin-top:32px"><a href="/">← Zur Startseite</a></p>
+{% endblock %}

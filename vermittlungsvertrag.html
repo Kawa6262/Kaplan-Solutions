@@ -1,0 +1,156 @@
+{% extends "legal_base.html" %}
+{% block title %}Vermittlungsvertrag — Kaplan Solutions{% endblock %}
+{% block page_title %}Vermittlungsvertrag (Muster){% endblock %}
+{% block content %}
+<p class="legal-lead">
+    Mustervertrag für die erfolgsbasierte Bauvermittlung durch Kaplan Solutions.
+    Vor Unterzeichnung bitte von einem Rechtsanwalt prüfen lassen — insbesondere bei Firmengründung
+    oder abweichenden Projektgrößen.
+</p>
+
+<section class="legal-block">
+    <h2>Vertragsparteien</h2>
+    <p>
+        <strong>Vermittler:</strong><br />
+        {{ c.legal_name }}<br />
+        {{ c.street }}, {{ c.zip_city }}<br />
+        E-Mail: {{ c.email }} · Tel.: {{ c.phone }}<br />
+        (nachfolgend „<strong>Kaplan Solutions</strong>“)
+    </p>
+    <p>
+        <strong>Auftraggeber / Partner</strong> (Bauherr, Investor oder Bauunternehmen):<br />
+        _______________________________________________<br />
+        _______________________________________________<br />
+        _______________________________________________<br />
+        (nachfolgend „<strong>Auftraggeber</strong>“)
+    </p>
+</section>
+
+<section class="legal-block">
+    <h2>§ 1 Vertragsgegenstand</h2>
+    <p>
+        (1) Kaplan Solutions erbringt Vermittlungs- und Projektberatungsleistungen im Bauwesen.
+        Gegenstand ist die <strong>Nachweis- und/oder Vermittlungstätigkeit</strong> im Sinne des § 652 BGB
+        i.&nbsp;V.&nbsp;m. § 652a BGB.
+    </p>
+    <p>
+        (2) Kaplan Solutions ist nicht ausführendes Bauunternehmen und schuldet keinen bestimmten
+        wirtschaftlichen Erfolg, keine Auftragsvergabe und keine Bauausführung.
+    </p>
+    <p>
+        (3) Art der Beauftragung (bitte ankreuzen):<br />
+        ☐ <strong>Nachweis</strong> — Benennung geeigneter Vertragspartner<br />
+        ☐ <strong>Vermittlung</strong> — Herbeiführung des Vertragsschlusses<br />
+        ☐ <strong>Projektberatung</strong> — zusätzlich wie besprochen: _______________________
+    </p>
+</section>
+
+<section class="legal-block">
+    <h2>§ 2 Vergütung / Provision</h2>
+    <p>
+        (1) <strong>Partner-Unternehmen (Auftragnehmer):</strong> Erfolgsprovision von
+        <strong>{{ p.partner_percent }}&nbsp;%</strong> der vereinbarten <strong>Netto-Auftragssumme</strong>
+        des Bauhauptvertrags, mindestens <strong>{{ p.partner_min }}&nbsp;€</strong>,
+        höchstens <strong>{{ p.partner_max }}&nbsp;€</strong> (sofern nicht abweichend vereinbart).
+    </p>
+    <p>
+        (2) <strong>Bauherren / Investoren:</strong> Erfolgsprovision von
+        <strong>{{ p.bauherr_percent }}&nbsp;%</strong> — in der Regel entfällt eine Vergütung;
+        abweichende Regelungen nur schriftlich.
+    </p>
+    <p>
+        (3) <strong>Berechnungsgrundlage:</strong> Netto-Auftragssumme des Hauptvertrags zwischen
+        Auftraggeber und vermittelter Gegenpartei, ohne Umsatzsteuer und ohne Nachträge, die nicht
+        schriftlich bestätigt wurden.
+    </p>
+    <p>
+        (4) <strong>Fälligkeit:</strong> 14 Tage nach Unterzeichnung des Bauhauptvertrags bzw.
+        nach Eingang der ersten vereinbarten Anzahlung — je nachdem, was zuerst eintritt.
+    </p>
+    <p>
+        (5) <strong>Beratungspauschale</strong> (nur wenn ausdrücklich vereinbart):
+        {{ p.beratung_eur }}&nbsp;€, zahlbar bei Vertragsschluss dieses Vermittlungsvertrags.
+    </p>
+</section>
+
+<section class="legal-block">
+    <h2>§ 3 Provisionsanspruch</h2>
+    <p>
+        (1) Der Provisionsanspruch entsteht, wenn infolge der Tätigkeit von Kaplan Solutions ein
+        Bauhauptvertrag zwischen dem Auftraggeber und der vermittelten Gegenpartei zustande kommt.
+    </p>
+    <p>
+        (2) <strong>Nachvertragliche Provision:</strong> Kommt innerhalb von
+        <strong>{{ p.partner_followup_months }} Monaten</strong> nach dem Nachweis ein Hauptvertrag
+        mit der benannten Gegenpartei zustande, ist die Provision gleichfalls geschuldet — auch wenn
+        der Kontakt zunächst nicht zum Abschluss führte.
+    </p>
+    <p>
+        (3) <strong>Ausschluss:</strong> Keine Provision, wenn der Auftraggeber nachweislich bereits
+        vor dem Nachweis in aktiven Vertragsverhandlungen mit der Gegenpartei stand und Kaplan Solutions
+        dies vorab schriftlich mitgeteilt wurde.
+    </p>
+</section>
+
+<section class="legal-block">
+    <h2>§ 4 Mitwirkung &amp; Information</h2>
+    <p>
+        Der Auftraggeber informiert Kaplan Solutions unverzüglich über den Abschluss, die Ablehnung
+        oder den wesentlichen Stand von Vertragsverhandlungen mit vermittelten Partnern und stellt
+        auf Anfrage eine Kopie des Hauptvertrags oder eine Auftragssummen-Bestätigung zur
+        Provisionsabrechnung bereit.
+    </p>
+</section>
+
+<section class="legal-block">
+    <h2>§ 5 Laufzeit &amp; Kündigung</h2>
+    <p>
+        (1) Der Vertrag beginnt mit Unterzeichnung und läuft auf unbestimmte Zeit.<br />
+        (2) Ordentliche Kündigung mit 14 Tagen Frist zum Monatsende.<br />
+        (3) Provisionsansprüche für während der Vertragslaufzeit vermittelte Kontakte bleiben
+        gemäß § 3 bestehen.
+    </p>
+</section>
+
+<section class="legal-block">
+    <h2>§ 6 Haftung &amp; Gewährleistung</h2>
+    <p>
+        Es gelten die Haftungsregelungen der <a href="/agb">AGB</a>. Kaplan Solutions schuldet keine
+        Gewähr für die Bonität, Leistungsfähigkeit oder Qualität vermittelter Unternehmen — die
+        Auswahl und Beauftragung obliegt dem Auftraggeber.
+    </p>
+</section>
+
+<section class="legal-block">
+    <h2>§ 7 Datenschutz</h2>
+    <p>
+        Personenbezogene Daten werden gemäß der <a href="/datenschutz">Datenschutzerklärung</a>
+        verarbeitet.
+    </p>
+</section>
+
+<section class="legal-block">
+    <h2>§ 8 Schlussbestimmungen</h2>
+    <p>
+        (1) Änderungen und Ergänzungen bedürfen der Schriftform.<br />
+        (2) Es gilt deutsches Recht. Gerichtsstand ist Berlin, sofern der Auftraggeber Kaufmann,
+        juristische Person des öffentlichen Rechts oder öffentlich-rechtliches Sondervermögen ist.<br />
+        (3) Es gelten ergänzend die <a href="/agb">AGB</a> von Kaplan Solutions.
+    </p>
+</section>
+
+<section class="legal-block">
+    <h2>Unterschriften</h2>
+    <p>
+        Ort, Datum: _________________________________
+    </p>
+    <p>
+        _______________________________________________<br />
+        {{ c.legal_name }} (Kaplan Solutions)
+    </p>
+    <p style="margin-top:2rem">
+        _______________________________________________<br />
+        Auftraggeber
+    </p>
+</section>
+{% endblock %}

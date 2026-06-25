@@ -1189,6 +1189,13 @@ textarea { resize: none; min-height: 8rem; }
 .legal-block p + p { margin-top: 0.75rem; }
 .legal-block a { color: var(--gold); text-decoration: underline; text-underline-offset: 3px; }
 .legal-block a:hover { color: var(--text); }
+.legal-lead {
+    font-size: 1.05rem;
+    line-height: 1.75;
+    color: var(--text);
+    margin-bottom: 1.5rem;
+    max-width: 52rem;
+}
 .legal-notice {
     padding: 1rem 1.25rem;
     border: 1px solid var(--border);

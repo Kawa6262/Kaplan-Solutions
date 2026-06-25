@@ -413,44 +413,11 @@ def _domain_age_years(domain: str) -> tuple[int | None, str]:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _google_places(company: str, city: str) -> tuple[float | None, int, str]:
-    key = os.getenv("GOOGLE_PLACES_API_KEY", "").strip()
-    if not key or not company:
+    if not company:
         return None, 0, ""
-    query = f"{company} {city}".strip()
     try:
-        find_url = (
-            "https://maps.googleapis.com/maps/api/place/findplacefromtext/json?"
-            + urllib.parse.urlencode({
-                "input": query,
-                "inputtype": "textquery",
-                "fields": "place_id,name",
-                "language": "de",
-                "key": key,
-            })
-        )
-        data = json.loads(_fetch_url(find_url, timeout=10) or "{}")
-        cands = data.get("candidates") or []
-        if not cands:
-            return None, 0, ""
-        place_id = cands[0].get("place_id")
-        if not place_id:
-            return None, 0, ""
-        det_url = (
-            "https://maps.googleapis.com/maps/api/place/details/json?"
-            + urllib.parse.urlencode({
-                "place_id": place_id,
-                "fields": "rating,user_ratings_total,url",
-                "language": "de",
-                "key": key,
-            })
-        )
-        det = json.loads(_fetch_url(det_url, timeout=10) or "{}")
-        result = det.get("result") or {}
-        rating = result.get("rating")
-        count = result.get("user_ratings_total", 0)
-        maps_url = result.get("url", "")
-        if rating is not None:
-            return float(rating), int(count), maps_url
+        from places_api import lookup_ratings
+        return lookup_ratings(company, city)
     except Exception as exc:
         print(f"[trust] Places-Fehler: {exc}", flush=True)
     return None, 0, ""

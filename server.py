@@ -24,6 +24,8 @@ load_dotenv()
 from flask import Flask, abort, jsonify, render_template, request, send_from_directory
 
 from company_config import COMPANY, company_footer_text
+from email_deliverability import deliverability_headers
+from provisions_config import PROVISIONS
 
 BASE_DIR = Path(__file__).parent
 INBOX_DIR = BASE_DIR / "data" / "inbox"
@@ -511,9 +513,7 @@ def _send_resend(
     reply = reply_to or REPLY_EMAIL
     if reply:
         payload["reply_to"] = reply
-    payload["headers"] = {
-        "List-Unsubscribe": f"<mailto:{REPLY_EMAIL}?subject=Abmeldung%20Kaplan%20Solutions>",
-    }
+    payload["headers"] = deliverability_headers(recipient=to)
     if attachments:
         payload["attachments"] = attachments
     req = urllib.request.Request(
@@ -675,6 +675,12 @@ Alternativ: {REPLY_EMAIL} · {COMPANY_PHONE}
 def send_customer_confirmation(data: dict, role_label: str, now: str) -> None:
     subject, text_body, html_body = build_customer_confirmation(data, role_label, now)
     send_email(data["email"], subject, text_body, html_body, reply_to=REPLY_EMAIL)
+    try:
+        from lead_followup import schedule_followup
+
+        schedule_followup(data, role_label)
+    except Exception as exc:
+        print(f"[lead_followup] Follow-up nicht geplant: {exc}", flush=True)
 
 
 def _sheet_fields(payload: dict) -> dict:
@@ -917,8 +923,9 @@ def stats_view():
 def legal_context(active: str) -> dict:
     return {
         "c": COMPANY,
+        "p": PROVISIONS,
         "active": active,
-        "updated": "19. Mai 2026",
+        "updated": "24. Juni 2026",
         "year": datetime.now().year,
     }
 
@@ -936,6 +943,50 @@ def datenschutz():
 @app.route("/agb")
 def agb():
     return render_template("agb.html", **legal_context("agb"))
+
+
+@app.route("/provisionsmodell")
+def provisionsmodell():
+    return render_template("provisionsmodell.html", **legal_context("provisionsmodell"))
+
+
+@app.route("/vermittlungsvertrag")
+def vermittlungsvertrag():
+    return render_template("vermittlungsvertrag.html", **legal_context("vermittlungsvertrag"))
+
+
+def _valid_email(email: str) -> bool:
+    return bool(re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email))
+
+
+def _record_unsubscribe(email: str) -> None:
+    try:
+        from outreach import storage
+        storage.init_db()
+        storage.add_unsubscribe(email)
+    except Exception as exc:
+        print(f"[abmelden] Outreach-DB übersprungen: {exc}", flush=True)
+
+
+@app.route("/abmelden", methods=["GET", "POST"])
+def abmelden():
+    """Abmeldung von Outreach-Mails (inkl. Gmail One-Click per RFC 8058)."""
+    ctx = legal_context("abmelden")
+    email = (request.args.get("email") or request.form.get("email") or "").strip().lower()
+
+    if request.method == "POST":
+        one_click = (
+            request.headers.get("List-Unsubscribe") == "One-Click"
+            or request.form.get("List-Unsubscribe") == "One-Click"
+        )
+        if one_click and email and _valid_email(email):
+            _record_unsubscribe(email)
+            return "", 200
+        if email and _valid_email(email):
+            _record_unsubscribe(email)
+            return render_template("abmelden.html", success=True, email=email, **ctx)
+
+    return render_template("abmelden.html", success=False, email=email, **ctx)
 
 
 @app.post("/api/send-confirmation")
@@ -1066,6 +1117,24 @@ def contact():
         "folder_url": payload.get("folder_url"),
         "matches": payload.get("matches") or [],
     })
+
+
+@app.post("/api/cron/lead-followups")
+def cron_lead_followups():
+    """Backup-Job (Render Cron / extern): Follow-ups nachplanen & fällige senden."""
+    secret = os.getenv("CRON_SECRET", "").strip()
+    if not secret:
+        abort(503)
+    token = (
+        request.headers.get("X-Cron-Secret", "").strip()
+        or request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+    )
+    if token != secret:
+        abort(401)
+    from lead_followup.reconcile import run_maintenance
+
+    result = run_maintenance()
+    return jsonify({"ok": True, **result})
 
 
 if __name__ == "__main__":

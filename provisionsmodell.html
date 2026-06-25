@@ -1,0 +1,73 @@
+{% extends "legal_base.html" %}
+{% block title %}Provisionsmodell — Kaplan Solutions{% endblock %}
+{% block page_title %}Provisionsmodell &amp; Konditionen{% endblock %}
+{% block content %}
+<p class="legal-lead">
+    Transparent, fair und erfolgsbasiert — ohne versteckte Listengebühren.
+    Die Erstberatung und Anfrage über unsere Website sind <strong>unverbindlich und kostenfrei</strong>.
+</p>
+
+<section class="legal-block">
+    <h2>Für Bauherren &amp; Investoren</h2>
+    <ul class="legal-list">
+        <li><strong>Erstberatung:</strong> kostenfrei</li>
+        <li><strong>Vermittlung passender Bauunternehmen:</strong> in der Regel kostenfrei</li>
+        <li><strong>Erfolgsprovision:</strong> {{ p.bauherr_percent }}&nbsp;% — nur wenn individuell schriftlich vereinbart</li>
+        <li><strong>Keine Vorabgebühr</strong> für die standardmäßige Vermittlungsleistung</li>
+    </ul>
+    <p>
+        Sie zahlen also typischerweise <strong>nichts</strong>, solange nicht ausdrücklich etwas anderes
+        schriftlich bestätigt wurde. Unser Honorar wird in der Regel vom Partner-Unternehmen getragen.
+    </p>
+</section>
+
+<section class="legal-block">
+    <h2>Für Partner-Unternehmen (Auftragnehmer)</h2>
+    <ul class="legal-list">
+        <li><strong>Netzwerk-Aufnahme:</strong> unverbindlich, ohne Listengebühr</li>
+        <li><strong>Erfolgsprovision:</strong> {{ p.partner_percent }}&nbsp;% der vermittelten Netto-Auftragssumme</li>
+        <li><strong>Mindestprovision:</strong> {{ p.partner_min }}&nbsp;€</li>
+        <li><strong>Obergrenze (Standard):</strong> {{ p.partner_max }}&nbsp;€ — abweichende Regelungen möglich</li>
+        <li><strong>Fälligkeit:</strong> mit Unterzeichnung des Bauhauptvertrags bzw. nach vereinbarter Anzahlung</li>
+    </ul>
+    <p>
+        Die Provision wird nur fällig, wenn ein Bauhauptvertrag mit einem durch Kaplan Solutions
+        nachgewiesenen oder vermittelten Auftraggeber zustande kommt.
+    </p>
+</section>
+
+<section class="legal-block">
+    <h2>Was zählt als „vermittelt“?</h2>
+    <p>Eine Provision ist geschuldet, wenn:</p>
+    <ul class="legal-list">
+        <li>der Erstkontakt über Kaplan Solutions zustande kam, oder</li>
+        <li>wir Ihnen den Auftraggeber nachweislich benannt haben, und</li>
+        <li>innerhalb von <strong>{{ p.partner_followup_months }} Monaten</strong> ein Bauhauptvertrag mit diesem Auftraggeber geschlossen wird (Nachvertragliche Provision).</li>
+    </ul>
+    <p>
+        Eigenständige Kontakte ohne unseren Nachweis bleiben provisionsfrei — Details regelt der
+        <a href="/vermittlungsvertrag">Vermittlungsvertrag</a>.
+    </p>
+</section>
+
+<section class="legal-block">
+    <h2>Was ist in der Provision enthalten?</h2>
+    <ul class="legal-list">
+        <li>Aufnahme und Prüfung Ihrer Unternehmensdaten</li>
+        <li>Matching mit qualifizierten Projektanfragen</li>
+        <li>Koordination des Erstkontakts und Follow-up</li>
+        <li>Diskrete, professionelle Begleitung bis zum Vertragsabschluss</li>
+    </ul>
+</section>
+
+<section class="legal-block legal-notice">
+    <p>
+        <strong>Hinweis:</strong> Individuelle Konditionen (z.&nbsp;B. bei Großprojekten, Rahmenverträgen
+        oder exklusiver Vermittlung) werden vor Vertragsschluss schriftlich bestätigt.
+        Es gelten unsere <a href="/agb">AGB</a> und der <a href="/vermittlungsvertrag">Vermittlungsvertrag</a>.
+    </p>
+    <p>
+        <em>Diese Übersicht dient der Transparenz und ersetzt keine individuelle Rechts- oder Steuerberatung.</em>
+    </p>
+</section>
+{% endblock %}

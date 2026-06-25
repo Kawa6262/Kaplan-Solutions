@@ -13,6 +13,8 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import TYPE_CHECKING
 
+from email_deliverability import deliverability_headers
+
 if TYPE_CHECKING:
     import types
 
@@ -49,7 +51,8 @@ def send_resend(
     html_body: str,
     reply_to: str | None = None,
     attachments: list[dict] | None = None,
-) -> None:
+    scheduled_at: str | None = None,
+) -> str | None:
     payload: dict = {
         "from": RESEND_FROM,
         "to": [to],
@@ -60,12 +63,11 @@ def send_resend(
     reply = reply_to or os.getenv("REPLY_EMAIL", "").strip()
     if reply:
         payload["reply_to"] = reply
-    if reply:
-        payload["headers"] = {
-            "List-Unsubscribe": f"<mailto:{reply}?subject=Abmeldung%20Kaplan%20Solutions>",
-        }
+    payload["headers"] = deliverability_headers(recipient=to)
     if attachments:
         payload["attachments"] = attachments
+    if scheduled_at:
+        payload["scheduled_at"] = scheduled_at
     req = urllib.request.Request(
         "https://api.resend.com/emails",
         data=json.dumps(payload).encode("utf-8"),
@@ -80,8 +82,14 @@ def send_resend(
     )
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
+            body = resp.read().decode("utf-8", errors="replace")
             if resp.status >= 300:
-                raise RuntimeError(resp.read().decode("utf-8", errors="replace"))
+                raise RuntimeError(body)
+            try:
+                data = json.loads(body) if body else {}
+                return data.get("id")
+            except json.JSONDecodeError:
+                return None
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
         raise RuntimeError(f"Resend Fehler ({exc.code}): {body}") from exc
@@ -119,6 +127,33 @@ def send_email(
         send_resend(to, subject, text_body, html_body, reply_to=reply_to, attachments=attachments)
     else:
         send_smtp(to, subject, text_body, html_body, reply_to=reply_to)
+
+
+def send_email_scheduled(
+    to: str,
+    subject: str,
+    text_body: str,
+    html_body: str,
+    scheduled_for,
+    reply_to: str | None = None,
+) -> str | None:
+    """Plant E-Mail via Resend (ISO-Zeit). Nur mit Resend verfügbar."""
+    if not uses_resend():
+        raise RuntimeError("Geplante Mails erfordern Resend.")
+    from zoneinfo import ZoneInfo
+
+    dt = scheduled_for
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=ZoneInfo("Europe/Berlin"))
+    scheduled_at = dt.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return send_resend(
+        to,
+        subject,
+        text_body,
+        html_body,
+        reply_to=reply_to,
+        scheduled_at=scheduled_at,
+    )
 
 
 def _friendly_error(exc: Exception) -> str:

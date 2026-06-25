@@ -7,7 +7,7 @@ services:
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn server:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120
+    startCommand: gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120
     healthCheckPath: /
     envVars:
       - key: PYTHON_VERSION
@@ -15,5 +15,17 @@ services:
       - key: COMPANY_WEBSITE
         value: https://kaplan-solutions.de
       # Diese Werte im Render-Dashboard setzen (Secret):
-      # ADMIN_EMAIL, SMTP_USER, SMTP_PASS, FROM_EMAIL, REPLY_EMAIL
+      # RESEND_API_KEY, ADMIN_EMAIL, REPLY_EMAIL, CRON_SECRET
       # COMPANY_OPERATOR, COMPANY_STREET, COMPANY_ZIP, COMPANY_CITY, COMPANY_PHONE
+
+  - type: cron
+    name: kaplan-lead-followup
+    runtime: python
+    plan: free
+    schedule: "*/15 * * * *"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m lead_followup.runner maintain
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.8"
+      # Gleiche Secrets wie Web-Service: RESEND_API_KEY, ADMIN_EMAIL, REPLY_EMAIL
