@@ -817,6 +817,78 @@ def apply_sheet_meta(payload: dict) -> None:
     except Exception as exc:
         print(f"[trust] Hintergrund-Prüfung nicht gestartet: {exc}", flush=True)
 
+    _maybe_alert_hot_matches(payload)
+
+
+def _build_match_payload(payload: dict, m: dict, ref: str, role: str) -> dict:
+    ag_ref = ref if role == "bauherr" else (m.get("ref") or "")
+    an_ref = (m.get("ref") or "") if role == "bauherr" else ref
+    if role == "bauherr":
+        ag_name = payload.get("name") or ""
+        ag_email = payload.get("email") or ""
+        ag_firma = payload.get("company") or ag_name
+        ag_phone = payload.get("phone") or ""
+        an_name = m.get("name") or ""
+        an_email = m.get("email") or ""
+        an_firma = m.get("name") or ""
+        an_phone = ""
+    else:
+        an_name = payload.get("name") or ""
+        an_email = payload.get("email") or ""
+        an_firma = payload.get("company") or an_name
+        an_phone = payload.get("phone") or ""
+        ag_name = m.get("name") or ""
+        ag_email = m.get("email") or ""
+        ag_firma = m.get("name") or ""
+        ag_phone = ""
+    match_id = "__".join(sorted([ag_ref, an_ref]))
+    return {
+        "match_id": match_id,
+        "score": int(m.get("score") or 0),
+        "ag_ref": ag_ref,
+        "ag_name": ag_name,
+        "ag_firma": ag_firma,
+        "ag_email": ag_email,
+        "ag_phone": ag_phone,
+        "an_ref": an_ref,
+        "an_name": an_name,
+        "an_firma": an_firma,
+        "an_email": an_email,
+        "an_phone": an_phone,
+        "stadt": payload.get("stadt") or m.get("stadt") or "",
+        "branche": payload.get("branche") or m.get("branche") or "",
+        "reasons": m.get("reason") or m.get("reasons") or "",
+        "folder_url": payload.get("folder_url") or "",
+    }
+
+
+def _maybe_alert_hot_matches(payload: dict) -> None:
+    """Sofort-Alert wenn Sheet bei Lead-Eingang heiße Matches meldet."""
+    matches = payload.get("matches") or []
+    if not matches:
+        return
+    role = payload.get("role") or ""
+    ref = payload.get("ref") or ""
+    if not ref or role not in ("bauherr", "partner"):
+        return
+
+    from matching.alerts import process_match_alert
+    from matching.config import MATCH_ALERT_MIN_SCORE, MATCH_BRIEFING_EMAIL
+
+    admin = MATCH_BRIEFING_EMAIL or os.getenv("ADMIN_EMAIL", "").strip()
+    if not admin:
+        return
+
+    for m in matches:
+        if int(m.get("score") or 0) < MATCH_ALERT_MIN_SCORE:
+            continue
+        match = _build_match_payload(payload, m, ref, role)
+        try:
+            result = process_match_alert(match, admin_email=admin)
+            print(f"[match-alert] {match['match_id']}: {result}", flush=True)
+        except Exception as exc:
+            print(f"[match-alert] Fehler {match.get('match_id')}: {exc}", flush=True)
+
 
 def validate_inquiry(data: dict) -> str | None:
     role = (data.get("role") or "").strip()
@@ -953,6 +1025,22 @@ def provisionsmodell():
 @app.route("/vermittlungsvertrag")
 def vermittlungsvertrag():
     return render_template("vermittlungsvertrag.html", **legal_context("vermittlungsvertrag"))
+
+
+@app.route("/vermittlungsvertrag/partner")
+def vermittlungsvertrag_partner():
+    return render_template(
+        "vermittlungsvertrag_partner.html",
+        **legal_context("vermittlungsvertrag"),
+    )
+
+
+@app.route("/vermittlungsvertrag/bauherr")
+def vermittlungsvertrag_bauherr():
+    return render_template(
+        "vermittlungsvertrag_bauherr.html",
+        **legal_context("vermittlungsvertrag"),
+    )
 
 
 def _valid_email(email: str) -> bool:
@@ -1117,6 +1205,35 @@ def contact():
         "folder_url": payload.get("folder_url"),
         "matches": payload.get("matches") or [],
     })
+
+
+@app.post("/api/match-alert")
+def api_match_alert():
+    """Sofort-Alert bei heißem Match (Google Apps Script / intern)."""
+    from matching.config import MATCH_ALERT_SECRET, MATCH_BRIEFING_EMAIL
+    from matching.alerts import process_match_alert
+
+    secret = MATCH_ALERT_SECRET
+    if not secret:
+        abort(503)
+    token = (
+        request.headers.get("X-Match-Alert-Secret", "").strip()
+        or request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+    )
+    if token != secret:
+        abort(401)
+
+    data = request.get_json(silent=True) or {}
+    match = data.get("match") or data
+    admin = (data.get("admin_email") or MATCH_BRIEFING_EMAIL or os.getenv("ADMIN_EMAIL", "")).strip()
+    if not admin:
+        return jsonify({"ok": False, "error": "admin_email fehlt"}), 400
+
+    try:
+        result = process_match_alert(match, admin_email=admin)
+        return jsonify(result)
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
 
 
 @app.post("/api/cron/lead-followups")

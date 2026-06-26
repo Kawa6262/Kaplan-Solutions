@@ -11,9 +11,11 @@ DB_PATH = DATA_DIR / "lead_followups.db"
 
 FOLLOWUP_HOUR = int(os.getenv("LEAD_FOLLOWUP_HOUR", "8"))
 FOLLOWUP_MINUTE = int(os.getenv("LEAD_FOLLOWUP_MINUTE", "0"))
-# Tagesfazit nach den 8-Uhr-Follow-ups (Standard: 9:00 Uhr)
+# Tagesfazit: erst wenn alle 8-Uhr-Follow-ups fertig sind (Fallback siehe unten)
 DIGEST_HOUR = int(os.getenv("LEAD_DIGEST_HOUR", "9"))
 DIGEST_MINUTE = int(os.getenv("LEAD_DIGEST_MINUTE", "0"))
+DIGEST_FALLBACK_HOUR = int(os.getenv("LEAD_DIGEST_FALLBACK_HOUR", "10"))
+DIGEST_GRACE_MINUTES = int(os.getenv("LEAD_DIGEST_GRACE_MINUTES", "15"))
 AGENT_NAME = os.getenv(
     "LEAD_AGENT_NAME",
     "Kaplan Solutions · Partnervermittlung",

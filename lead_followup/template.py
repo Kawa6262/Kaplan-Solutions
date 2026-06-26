@@ -57,7 +57,9 @@ def _role_body(role: str, name: str, company: str) -> tuple[str, str]:
         )
         p2 = (
             "Sobald eine passende Anfrage vorliegt, setzen wir uns persönlich mit Ihnen in Verbindung "
-            "und besprechen die nächsten Schritte. Bis dahin arbeiten wir im Hintergrund für Sie."
+            "und besprechen die nächsten Schritte. Für die Zusammenarbeit senden wir Ihnen vor dem "
+            "ersten Projektintro unseren Vermittlungsvertrag zur Unterzeichnung — "
+            "erfolgsbasiert, ohne Vorabkosten."
         )
     return headline, p1, p2
 

@@ -1,0 +1,1 @@
+"""Kaplan Solutions — Businessmodell & Briefings."""

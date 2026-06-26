@@ -46,6 +46,9 @@ def discover_batch() -> int:
         name = item["name"]
         website = item["website"]
         phone = item["phone"]
+        # Nur Firmen mit Website oder Telefon — seriöser, anreicherbar
+        if not website and not phone:
+            continue
         if storage.upsert_prospect(
             place_id=place_id,
             company_name=name,
@@ -67,6 +70,20 @@ def discover_batch() -> int:
     if inserted:
         print(f"[outreach] +{inserted} Firmen ({query})", flush=True)
     return inserted
+
+
+def discover_batches(max_batches: int | None = None) -> int:
+    """Mehrere Discovery-Durchläufe pro Zyklus für schnelleres Portfolio-Wachstum."""
+    total = 0
+    batches = max_batches or config.DISCOVER_BATCHES_PER_CYCLE
+    for _ in range(batches):
+        n = discover_batch()
+        total += n
+        if n == 0:
+            break
+        if storage.get_counter("discovered") >= config.DAILY_DISCOVER_LIMIT:
+            break
+    return total
 
 
 def _advance_cursor(trade_idx: int, city_idx: int, token: str | None) -> None:

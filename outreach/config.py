@@ -10,18 +10,20 @@ DATA_DIR = ROOT / "data"
 DB_PATH = DATA_DIR / "outreach.db"
 LOG_PATH = DATA_DIR / "outreach.log"
 
-# Tageslimit — Resend Free erlaubt 100/Tag; konservativ starten (Domain-Reputation).
+# Tageslimit — bei neuer Domain zuerst 30–40/Tag (Warm-up), dann steigern.
 DAILY_SEND_LIMIT = int(os.getenv("OUTREACH_DAILY_LIMIT", "40"))
-DAILY_DISCOVER_LIMIT = int(os.getenv("OUTREACH_DISCOVER_LIMIT", "120"))
-ENRICH_BATCH = int(os.getenv("OUTREACH_ENRICH_BATCH", "15"))
+DAILY_DISCOVER_LIMIT = int(os.getenv("OUTREACH_DISCOVER_LIMIT", "200"))
+ENRICH_BATCH = int(os.getenv("OUTREACH_ENRICH_BATCH", "30"))
+SEND_BATCH_PER_CYCLE = int(os.getenv("OUTREACH_SEND_BATCH", "8"))
+DISCOVER_BATCHES_PER_CYCLE = int(os.getenv("OUTREACH_DISCOVER_BATCH", "3"))
+
+# Pause zwischen Zyklen im Daemon-Modus (Sekunden)
+DAEMON_INTERVAL = int(os.getenv("OUTREACH_INTERVAL", "300"))  # 5 Min.
 
 # Versand nur werktags 09:00–18:00 Europe/Berlin
 SEND_HOUR_START = int(os.getenv("OUTREACH_HOUR_START", "9"))
 SEND_HOUR_END = int(os.getenv("OUTREACH_HOUR_END", "18"))
 SEND_WEEKDAYS_ONLY = os.getenv("OUTREACH_WEEKDAYS_ONLY", "1").strip() not in ("0", "false", "no")
-
-# Pause zwischen Zyklen im Daemon-Modus (Sekunden)
-DAEMON_INTERVAL = int(os.getenv("OUTREACH_INTERVAL", "600"))  # 10 Min.
 
 GOOGLE_PLACES_KEY = os.getenv("GOOGLE_PLACES_API_KEY", "").strip()
 

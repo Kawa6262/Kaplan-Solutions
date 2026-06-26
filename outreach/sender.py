@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+import os
+
 from outreach import config
 from outreach import storage
 from outreach.templates import build_bodies, build_subject
@@ -47,10 +49,18 @@ def send_one() -> bool:
         return False
 
     subject = build_subject(company, city)
-    text_body, html_body = build_bodies(company, city, trade)
+    text_body, html_body = build_bodies(company, city, trade, recipient_email=email)
+    reply_to = os.getenv("REPLY_EMAIL", "kontakt@kaplan-solutions.de").strip()
 
     try:
-        send_email(email, subject, text_body, html_body)  # type: ignore
+        send_email(
+            email,
+            subject,
+            text_body,
+            html_body,
+            reply_to=reply_to,
+            tags=[{"name": "category", "value": "outreach"}],
+        )  # type: ignore
         storage.mark_sent(row["id"])
         storage.bump_counter("sent")
         print(f"[outreach] ✓ Gesendet an {company} <{email}>", flush=True)
@@ -59,3 +69,15 @@ def send_one() -> bool:
         storage.mark_failed(row["id"], str(exc))
         print(f"[outreach] ✗ Fehler {company}: {exc}", flush=True)
         return False
+
+
+def send_batch(max_per_cycle: int | None = None) -> int:
+    """Sendet mehrere Mails pro Zyklus (bis Tageslimit). Returns Anzahl gesendet."""
+    cap = max_per_cycle if max_per_cycle is not None else config.SEND_BATCH_PER_CYCLE
+    sent = 0
+    for _ in range(max(1, cap)):
+        if send_one():
+            sent += 1
+        else:
+            break
+    return sent

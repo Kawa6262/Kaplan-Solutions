@@ -1,0 +1,284 @@
+{% extends "contract_base.html" %}
+{% block title %}Vermittlungsvertrag Partner-Unternehmen — Kaplan Solutions{% endblock %}
+{% block contract %}
+<div class="brand-bar">
+    <p class="brand">Kaplan Solutions</p>
+    <h1>Vermittlungsvertrag</h1>
+    <p class="sub">Partner-Unternehmen (Auftragnehmer) · Erfolgsbasierte Bauauftragsvermittlung</p>
+</div>
+
+<div class="notice">
+    <strong>Mustervertrag.</strong> Verbindlich erst nach Unterzeichnung beider Parteien.
+    Vor Ersteinsatz durch einen Fachanwalt für Handels- und Gesellschaftsrecht prüfen lassen.
+    Es gelten ergänzend die <a href="/agb">AGB</a> von Kaplan Solutions.
+</div>
+
+<h2>Vertragsparteien</h2>
+
+<div class="party-box">
+    <strong>Vermittler</strong><br />
+    {{ c.legal_name }}<br />
+    {{ c.street }}, {{ c.zip_city }}, {{ c.country }}<br />
+    E-Mail: {{ c.email }} · Telefon: {{ c.phone }}<br />
+    {% if c.vat_id %}USt-IdNr.: {{ c.vat_id }}<br />{% endif %}
+    (nachfolgend „<strong>Kaplan Solutions</strong>“)
+</div>
+
+<div class="party-box">
+    <strong>Partner-Unternehmen (Auftragnehmer)</strong><br />
+    Firma: <span class="fill-line"></span>
+    Rechtsform: <span class="fill-line"></span>
+    Vertretungsberechtigt: <span class="fill-line"></span>
+    Anschrift: <span class="fill-line"></span>
+    E-Mail: <span class="fill-line"></span>
+    Telefon: <span class="fill-line"></span>
+    USt-IdNr. / Steuernr.: <span class="fill-line"></span>
+    (nachfolgend „<strong>Partner</strong>“)
+</div>
+
+<p>Kaplan Solutions und der Partner werden nachfolgend gemeinsam „<strong>Parteien</strong>“ genannt.</p>
+
+<h2>Präambel</h2>
+<p>
+    Kaplan Solutions vermittelt qualifizierte Bauaufträge und Projektanfragen im B2B-Bereich.
+    Der Partner ist ein Bau- bzw. Handwerksunternehmen und wünscht die Vermittlung passender
+    Auftraggeber. Die Parteien schließen daher folgenden Vertrag.
+</p>
+
+<h2>§ 1 Vertragsgegenstand</h2>
+<ol>
+    <li>
+        Kaplan Solutions erbringt gegenüber dem Partner <strong>Nachweis- und Vermittlungsleistungen</strong>
+        im Bauwesen im Sinne der §§ 652, 652a BGB. Gegenstand ist insbesondere die Benennung
+        geeigneter Auftraggeber (Bauherren, Investoren, Generalunternehmer) sowie die Koordination
+        des Erstkontakts bis zum Abschluss eines Bauhauptvertrags.
+    </li>
+    <li>
+        Kaplan Solutions ist <strong>kein ausführendes Bauunternehmen</strong>. Es wird kein bestimmter
+        wirtschaftlicher Erfolg, kein Zuschlag und keine Auftragsvergabe geschuldet.
+    </li>
+    <li>
+        Der Partner stellt Kaplan Solutions alle für das Matching erforderlichen Angaben
+        (Gewerke, Region, Kapazität, Referenzen, Auftragsvolumen) <strong>wahrheitsgemäß und vollständig</strong> zur Verfügung.
+    </li>
+    <li>
+        Beauftragte Leistungsart (bitte ankreuzen — mindestens eine Option):<br />
+        <span class="checkbox-line"><span class="checkbox"></span> Nachweis gemäß § 652 BGB — Benennung geeigneter Auftraggeber</span><br />
+        <span class="checkbox-line"><span class="checkbox"></span> Vermittlung gemäß § 652a BGB — Herbeiführung des Vertragsschlusses</span><br />
+        <em>Standard bei Kaplan Solutions: Vermittlung (§ 652a BGB).</em>
+    </li>
+    <li>
+        <strong>Definition Bauhauptvertrag:</strong> Werkvertrag, Generalunternehmervertrag oder
+        vergleichbarer Vertrag über Bauleistungen am vermittelten Objekt/Projekt, einschließlich
+        vereinbarter Nachträge und Mehrleistungen, die innerhalb von 12 Monaten nach
+        Hauptvertragsunterzeichnung auf dem vermittelten Projekt beruhen.
+    </li>
+</ol>
+
+<h2>§ 2 Vergütung (Erfolgsprovision)</h2>
+<ol>
+    <li>
+        Der Partner schuldet Kaplan Solutions eine <strong>Erfolgsprovision</strong> in Höhe von
+        <strong>{{ p.partner_percent }}&nbsp;%</strong> der vereinbarten <strong>Netto-Auftragssumme</strong>
+        des zwischen dem Partner und einem vermittelten Auftraggeber geschlossenen Bauhauptvertrags.
+    </li>
+    <li>
+        Die Provision beträgt <strong>mindestens {{ p.partner_min }}&nbsp;€</strong> und
+        <strong>höchstens {{ p.partner_max }}&nbsp;€</strong> je vermitteltem Hauptvertrag,
+        sofern nicht schriftlich abweichend vereinbart.
+    </li>
+    <li>
+        <strong>Berechnungsgrundlage</strong> ist die vertraglich vereinbarte Netto-Auftragssumme
+        des Bauhauptvertrags <strong>ohne Umsatzsteuer</strong>. Nachträge und Mehraufträge
+        werden einbezogen, wenn sie innerhalb von 12 Monaten nach Hauptvertragsunterzeichnung
+        vereinbart werden und auf dem vermittelten Projekt beruhen.
+    </li>
+    <li>
+        Alle Beträge verstehen sich zuzüglich der gesetzlichen Umsatzsteuer.
+    </li>
+    <li>
+        <strong>Fälligkeit:</strong> Die Provision ist zahlbar innerhalb von <strong>14 Kalendertagen</strong>
+        nach dem früheren der folgenden Ereignisse: (a) Unterzeichnung des Bauhauptvertrags durch beide Parteien,
+        (b) Beginn der Bauleistung, (c) Eingang der ersten vereinbarten Anzahlung beim Partner.
+    </li>
+    <li>
+        Kaplan Solutions stellt dem Partner eine ordnungsgemäße Rechnung. Bei Zahlungsverzug
+        gelten die gesetzlichen Verzugszinsen; für Unternehmer im Sinne des § 14 BGB zusätzlich
+        eine Pauschale gemäß § 288 Abs. 5 BGB.
+    </li>
+    <li>
+        Es fällt <strong>keine Listengebühr</strong> und keine Aufnahmegebühr für die standardmäßige
+        Netzwerk-Aufnahme an, sofern nicht gesondert schriftlich vereinbart.
+    </li>
+</ol>
+
+<h2>§ 3 Entstehen des Provisionsanspruchs</h2>
+<ol>
+    <li>
+        Der Provisionsanspruch entsteht, wenn infolge der Tätigkeit von Kaplan Solutions ein
+        <strong>Bauhauptvertrag</strong> zwischen dem Partner und einem von Kaplan Solutions
+        nachgewiesenen oder vermittelten Auftraggeber zustande kommt.
+    </li>
+    <li>
+        <strong>Nachvertragliche Provision:</strong> Kommt innerhalb von
+        <strong>{{ p.partner_followup_months }} Monaten</strong> nach schriftlichem Nachweis
+        (E-Mail genügt) eines Auftraggebers ein Bauhauptvertrag zwischen dem Partner und
+        diesem Auftraggeber zustande, ist die Provision gleichfalls geschuldet — auch wenn
+        der Erstkontakt zunächst nicht zum Abschluss führte.
+    </li>
+    <li>
+        Als Nachweis gilt insbesondere die Benennung des Auftraggebers unter Angabe von
+        Name/Firma, Projekt, Anfrage-Nr. (z.&nbsp;B. KS-2026-XXXX) und Datum der Erstbenennung.
+    </li>
+    <li>
+        <strong>Umgehungsschutz:</strong> Wird ein vermittelter Auftrag über verbundene Unternehmen,
+        Ehegatten, nahe Angehörige oder sonstige Dritte abgewickelt, um die Provision zu umgehen,
+        besteht der Provisionsanspruch gleichwohl.
+    </li>
+    <li>
+        <strong>Ausschluss:</strong> Keine Provision, wenn der Partner Kaplan Solutions
+        <strong>vor dem Nachweis</strong> schriftlich mitteilt, dass bereits aktive Vertragsverhandlungen
+        mit dem betreffenden Auftraggeber bestehen, und dies nachweisbar ist.
+    </li>
+</ol>
+
+<h2>§ 4 Mitwirkungs- und Informationspflichten des Partners</h2>
+<ol>
+    <li>
+        Der Partner informiert Kaplan Solutions <strong>unverzüglich</strong> (innerhalb von 7 Werktagen)
+        über den Abschluss, die Ablehnung oder den wesentlichen Stand von Vertragsverhandlungen
+        mit vermittelten Auftraggebern. Bei verspäteter Meldung (&gt; 7 Werktage nach Vertragsschluss)
+        ist Kaplan Solutions berechtigt, eine <strong>Meldepauschale von 250&nbsp;€</strong> zusätzlich
+        zur Provision geltend zu machen.
+    </li>
+    <li>
+        Zur Provisionsabrechnung stellt der Partner auf Anfrage innerhalb von 10 Werktagen eine Kopie
+        des Bauhauptvertrags, eine Auftragsbestätigung oder eine schriftliche Bestätigung der
+        Netto-Auftragssumme bereit. Kaplan Solutions behandelt diese Unterlagen vertraulich.
+        Weigert sich der Partner ohne sachlichen Grund, darf Kaplan Solutions die Netto-Auftragssumme
+        nach billigem Ermessen schätzen.
+    </li>
+    <li>
+        Der Partner erteilt Kaplan Solutions das Recht, gegenüber dem Auftraggeber den
+        erfolgreichen Erstkontakt als vermittelt durch Kaplan Solutions nachzuweisen.
+    </li>
+    <li>
+        <strong>Abwerbeschutz:</strong> Der Partner verpflichtet sich, benannte Auftraggeber
+        (siehe Anlage) innerhalb von {{ p.partner_followup_months }} Monaten nach Erstbenennung
+        nicht ohne Beteiligung von Kaplan Solutions direkt zu kontaktieren oder zu beauftragen,
+        soweit der Erstkontakt auf die Tätigkeit von Kaplan Solutions zurückzuführen ist.
+    </li>
+</ol>
+
+<h2>§ 5 Datenschutz und Auftragsverarbeitung</h2>
+<ol>
+    <li>
+        Personenbezogene Daten werden gemäß der <a href="/datenschutz">Datenschutzerklärung</a>
+        von Kaplan Solutions verarbeitet.
+    </li>
+    <li>
+        Der Partner sichert zu, bei Weitergabe von Mitarbeiter- oder Kundendaten über eine
+        Rechtsgrundlage zu verfügen. Erhält der Partner Lead-Daten von Kaplan Solutions, verarbeitet
+        er diese ausschließlich zur Bearbeitung der vermittelten Anfrage und löscht sie auf
+        Anforderung, sofern kein Auftrag zustande kommt.
+    </li>
+</ol>
+
+<h2>§ 6 Laufzeit und Kündigung</h2>
+<ol>
+    <li>Der Vertrag beginnt mit Unterzeichnung durch beide Parteien und läuft auf unbestimmte Zeit.</li>
+    <li>
+        Beide Parteien können den Vertrag mit einer Frist von <strong>14 Tagen zum Monatsende</strong> ordentlich kündigen.
+        Die Kündigung bedarf der Textform (E-Mail ausreichend).
+    </li>
+    <li>
+        Das Recht zur außerordentlichen Kündigung aus wichtigem Grund bleibt unberührt.
+    </li>
+    <li>
+        Provisionsansprüche für während der Vertragslaufzeit nachgewiesene Auftraggeber bleiben
+        gemäß § 3 auch nach Vertragsende bestehen.
+    </li>
+</ol>
+
+<h2>§ 7 Haftung und Gewährleistung</h2>
+<ol>
+    <li>
+        Kaplan Solutions haftet unbeschränkt bei Vorsatz, grober Fahrlässigkeit sowie bei Schäden
+        an Leben, Körper oder Gesundheit.
+    </li>
+    <li>
+        Bei leicht fahrlässiger Verletzung wesentlicher Vertragspflichten (Kardinalpflichten) ist
+        die Haftung auf den vorhersehbaren, vertragstypischen Schaden begrenzt.
+    </li>
+    <li>
+        Kaplan Solutions übernimmt <strong>keine Gewähr</strong> für die Bonität, Leistungsfähigkeit,
+        Qualität oder Termintreue von Auftraggebern. Auswahl, Prüfung und Beauftragung obliegen
+        allein dem Partner.
+    </li>
+    <li>
+        Im Übrigen gelten die Haftungsregelungen der <a href="/agb">AGB</a>.
+    </li>
+</ol>
+
+<h2>§ 8 Vertraulichkeit</h2>
+<p>
+    Beide Parteien behandeln nicht öffentlich zugängliche Informationen der jeweils anderen Partei
+    sowie von vermittelten Dritten vertraulich und geben diese nicht an unbefugte Dritte weiter,
+    soweit keine gesetzliche Offenlegungspflicht besteht.
+</p>
+
+<h2>§ 9 Schlussbestimmungen</h2>
+<ol>
+    <li>Änderungen und Ergänzungen dieses Vertrags bedürfen der <strong>Schriftform</strong>.</li>
+    <li>
+        Es gilt das Recht der Bundesrepublik Deutschland unter Ausschluss des UN-Kaufrechts (CISG).
+    </li>
+    <li>
+        Ausschließlicher Gerichtsstand für alle Streitigkeiten aus oder im Zusammenhang mit
+        diesem Vertrag ist <strong>Berlin</strong>, sofern der Partner Kaufmann, juristische Person
+        des öffentlichen Rechts oder öffentlich-rechtliches Sondervermögen ist.
+    </li>
+    <li>
+        Sollten einzelne Bestimmungen unwirksam sein oder werden, bleibt die Wirksamkeit der
+        übrigen Bestimmungen unberührt (Salvatorische Klausel).
+    </li>
+    <li>
+        Es gelten ergänzend die <a href="/agb">Allgemeinen Geschäftsbedingungen</a> von Kaplan Solutions
+        in der jeweils aktuellen Fassung. Bei Widersprüchen hat dieser Vermittlungsvertrag Vorrang.
+    </li>
+</ol>
+
+<h2>Anlage: Vermittelter Kontakt (Pflicht bei jedem Erstkontakt)</h2>
+<p class="notice" style="margin-bottom:16px">
+    Diese Anlage wird bei jeder Benennung eines Auftraggebers ausgefüllt und dem Partner
+    per E-Mail übermittelt. Sie dient als Nachweis gemäß § 3 und Grundlage der Provisionsabrechnung.
+</p>
+<table class="meta">
+    <tr><td>Anfrage-Nr. Kaplan Solutions</td><td>&nbsp;</td></tr>
+    <tr><td>Auftraggeber (Name/Firma)</td><td>&nbsp;</td></tr>
+    <tr><td>Projekt / Region</td><td>&nbsp;</td></tr>
+    <tr><td>Datum Erstbenennung</td><td>&nbsp;</td></tr>
+    <tr><td>Netto-Auftragssumme (Plan)</td><td>&nbsp;</td></tr>
+</table>
+
+<div class="signatures">
+    <h2>Unterschriften</h2>
+    <p>Ort, Datum: <span class="fill-line" style="max-width:280px;display:inline-block"></span></p>
+    <div class="sig-grid">
+        <div class="sig-block">
+            <div class="fill-line"></div>
+            <p class="sig-label">{{ c.legal_name }}<br />(Kaplan Solutions)</p>
+        </div>
+        <div class="sig-block">
+            <div class="fill-line"></div>
+            <p class="sig-label">Partner-Unternehmen<br />(Firma, vertretungsberechtigte Person)</p>
+        </div>
+    </div>
+</div>
+
+<p class="footer-note">
+    Kaplan Solutions · Vermittlungsvertrag Partner · Stand {{ updated }} ·
+    Konditionen: {{ p.partner_percent }}&nbsp;% (min. {{ p.partner_min }}&nbsp;€, max. {{ p.partner_max }}&nbsp;€) ·
+    Nachvertragliche Provision: {{ p.partner_followup_months }} Monate
+</p>
+{% endblock %}

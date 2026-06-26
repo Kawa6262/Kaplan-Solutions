@@ -52,6 +52,7 @@ def send_resend(
     reply_to: str | None = None,
     attachments: list[dict] | None = None,
     scheduled_at: str | None = None,
+    tags: list[dict[str, str]] | None = None,
 ) -> str | None:
     payload: dict = {
         "from": RESEND_FROM,
@@ -68,6 +69,8 @@ def send_resend(
         payload["attachments"] = attachments
     if scheduled_at:
         payload["scheduled_at"] = scheduled_at
+    if tags:
+        payload["tags"] = tags
     req = urllib.request.Request(
         "https://api.resend.com/emails",
         data=json.dumps(payload).encode("utf-8"),
@@ -122,9 +125,13 @@ def send_email(
     html_body: str,
     reply_to: str | None = None,
     attachments: list[dict] | None = None,
+    tags: list[dict[str, str]] | None = None,
 ) -> None:
     if uses_resend():
-        send_resend(to, subject, text_body, html_body, reply_to=reply_to, attachments=attachments)
+        send_resend(
+            to, subject, text_body, html_body,
+            reply_to=reply_to, attachments=attachments, tags=tags,
+        )
     else:
         send_smtp(to, subject, text_body, html_body, reply_to=reply_to)
 

@@ -46,9 +46,9 @@ def _log(msg: str) -> None:
 
 def run_cycle() -> None:
     storage.init_db()
-    discovered = discover.discover_batch()
+    discovered = discover.discover_batches()
     enriched = enrich.enrich_batch(config.ENRICH_BATCH)
-    sent = sender.send_one()
+    sent = sender.send_batch()
     reported = daily_report.maybe_send_report()
     followups = 0
     try:
@@ -60,6 +60,15 @@ def run_cycle() -> None:
             followups += 1
     except Exception as exc:
         _log(f"[lead_followup] Fehler: {exc}")
+    try:
+        from matching import maybe_run_match_cycle, maybe_send_briefing
+
+        if maybe_run_match_cycle():
+            followups += 1
+        if maybe_send_briefing():
+            followups += 1
+    except Exception as exc:
+        _log(f"[matching] Fehler: {exc}")
     if not any((discovered, enriched, sent, reported, followups)):
         _log("[outreach] Zyklus: nichts zu tun (Limit erreicht oder außerhalb Geschäftszeiten).")
 

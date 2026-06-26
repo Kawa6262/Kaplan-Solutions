@@ -1,0 +1,104 @@
+{% extends "contract_base.html" %}
+{% block title %}Vermittlungsvertrag Bauherr — Kaplan Solutions{% endblock %}
+{% block contract %}
+<div class="brand-bar">
+    <p class="brand">Kaplan Solutions</p>
+    <h1>Vermittlungsvertrag</h1>
+    <p class="sub">Auftraggeber (Bauherr / Investor) · Kostenfreie Partnervermittlung</p>
+</div>
+
+<div class="notice">
+    <strong>Mustervertrag.</strong> Für Bauherren und Investoren — in der Regel ohne Erfolgsprovision.
+    Vor Unterzeichnung bei Bedarf rechtlich prüfen lassen. Es gelten ergänzend die <a href="/agb">AGB</a>.
+</div>
+
+<h2>Vertragsparteien</h2>
+
+<div class="party-box">
+    <strong>Vermittler</strong><br />
+    {{ c.legal_name }}<br />
+    {{ c.street }}, {{ c.zip_city }}, {{ c.country }}<br />
+    E-Mail: {{ c.email }} · Telefon: {{ c.phone }}<br />
+    (nachfolgend „<strong>Kaplan Solutions</strong>“)
+</div>
+
+<div class="party-box">
+    <strong>Auftraggeber (Bauherr / Investor)</strong><br />
+    Name / Firma: <span class="fill-line"></span>
+    Anschrift: <span class="fill-line"></span>
+    E-Mail: <span class="fill-line"></span>
+    Telefon: <span class="fill-line"></span>
+    (nachfolgend „<strong>Auftraggeber</strong>“)
+</div>
+
+<h2>§ 1 Vertragsgegenstand</h2>
+<ol>
+    <li>
+        Kaplan Solutions vermittelt dem Auftraggeber geeignete Bau- und Handwerksunternehmen
+        (Partner) für das im Projektgespräch beschriebene Vorhaben. Die Leistung umfasst
+        Nachweis, Vorauswahl, Seriositätsprüfung und Koordination des Erstkontakts.
+    </li>
+    <li>
+        Kaplan Solutions führt keine Bauleistungen aus und übernimmt keine Gewährleistung
+        für die Ausführung durch vermittelte Unternehmen.
+    </li>
+    <li>
+        Der Auftraggeber stellt alle projektrelevanten Angaben (Standort, Gewerke, Budget,
+        Zeitrahmen) wahrheitsgemäß zur Verfügung.
+    </li>
+</ol>
+
+<h2>§ 2 Vergütung</h2>
+<ol>
+    <li>
+        Die Erstberatung und standardmäßige Vermittlung sind für den Auftraggeber
+        <strong>kostenfrei</strong>.
+    </li>
+    <li>
+        Eine Erfolgsprovision wird <strong>nicht</strong> erhoben, sofern nicht ausdrücklich
+        schriftlich abweichend vereinbart (Standard: {{ p.bauherr_percent }}&nbsp;%).
+    </li>
+    <li>
+        Das Honorar von Kaplan Solutions wird in der Regel durch die vermittelten
+        Partner-Unternehmen getragen (siehe deren Vermittlungsvertrag).
+    </li>
+</ol>
+
+<h2>§ 3 Mitwirkung</h2>
+<ol>
+    <li>
+        Der Auftraggeber informiert Kaplan Solutions über den Verlauf der Gespräche mit
+        vorgestellten Partnern und über einen etwaigen Vertragsabschluss.
+    </li>
+    <li>
+        Auswahl und Beauftragung eines Partner-Unternehmens obliegen allein dem Auftraggeber.
+    </li>
+</ol>
+
+<h2>§ 4 Haftung, Datenschutz, Laufzeit</h2>
+<ol>
+    <li>Es gelten die Haftungsregelungen der <a href="/agb">AGB</a>.</li>
+    <li>Datenschutz gemäß <a href="/datenschutz">Datenschutzerklärung</a>.</li>
+    <li>Der Vertrag läuft auf unbestimmte Zeit und kann mit 14 Tagen Frist zum Monatsende gekündigt werden.</li>
+    <li>Es gilt deutsches Recht; Gerichtsstand Berlin, soweit zulässig.</li>
+</ol>
+
+<div class="signatures">
+    <h2>Unterschriften</h2>
+    <p>Ort, Datum: <span class="fill-line" style="max-width:280px;display:inline-block"></span></p>
+    <div class="sig-grid">
+        <div class="sig-block">
+            <div class="fill-line"></div>
+            <p class="sig-label">{{ c.legal_name }}<br />(Kaplan Solutions)</p>
+        </div>
+        <div class="sig-block">
+            <div class="fill-line"></div>
+            <p class="sig-label">Auftraggeber</p>
+        </div>
+    </div>
+</div>
+
+<p class="footer-note">
+    Kaplan Solutions · Vermittlungsvertrag Bauherr · Stand {{ updated }}
+</p>
+{% endblock %}

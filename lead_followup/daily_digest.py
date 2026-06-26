@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 try:
@@ -91,6 +91,7 @@ def gather_digest_data(for_day: date | None = None) -> dict:
     rows = storage.followups_on_day(day_iso)
 
     companies = []
+    sent_list = []
     sent = scheduled = failed = pending = 0
     for row in rows:
         st = row["status"]
@@ -103,18 +104,22 @@ def gather_digest_data(for_day: date | None = None) -> dict:
         else:
             pending += 1
         label, _ = _status_label(st)
-        companies.append(
-            {
-                "ref": row["ref"],
-                "company": _display_company(row),
-                "name": row["name"],
-                "email": row["email"],
-                "role": _role_short(row),
-                "status": label,
-                "status_raw": st,
-                "time": (row["scheduled_for"] or "")[11:16],
-            }
-        )
+        entry = {
+            "ref": row["ref"],
+            "company": _display_company(row),
+            "name": row["name"],
+            "email": row["email"],
+            "role": _role_short(row),
+            "status": label,
+            "status_raw": st,
+            "time": (row["scheduled_for"] or "")[11:16],
+        }
+        companies.append(entry)
+        if st == "sent":
+            sent_list.append(entry)
+
+    in_progress = scheduled + pending
+    all_complete = len(rows) > 0 and in_progress == 0
 
     return {
         "date_label": _date_label(day),
@@ -124,117 +129,213 @@ def gather_digest_data(for_day: date | None = None) -> dict:
         "scheduled": scheduled,
         "failed": failed,
         "pending": pending,
+        "in_progress": in_progress,
+        "all_complete": all_complete,
         "companies": companies,
+        "sent_companies": sent_list,
         "followup_hour": config.FOLLOWUP_HOUR,
     }
 
 
+def _earliest_digest_time(for_day: date | None = None) -> datetime:
+    """Erst nach Follow-up-Zeit + kurzer Puffer (z. B. 8:15)."""
+    day = for_day or _today()
+    base = datetime(
+        day.year, day.month, day.day,
+        config.FOLLOWUP_HOUR, config.FOLLOWUP_MINUTE, 0,
+        tzinfo=TZ,
+    )
+    return base + timedelta(minutes=config.DIGEST_GRACE_MINUTES)
+
+
+def _fallback_digest_time(for_day: date | None = None) -> datetime:
+    day = for_day or _today()
+    return datetime(
+        day.year, day.month, day.day,
+        config.DIGEST_FALLBACK_HOUR, 0, 0,
+        tzinfo=TZ,
+    )
+
+
 def should_send_digest() -> bool:
+    """Fazit senden, wenn alle Follow-ups fertig — spätestens zum Fallback (10:00)."""
+    storage.init_db()
     now = datetime.now(TZ)
-    if (now.hour, now.minute) < (config.DIGEST_HOUR, config.DIGEST_MINUTE):
+    day_iso = _today().isoformat()
+
+    if storage.digest_was_sent(day_iso):
         return False
-    return not storage.digest_was_sent(_today().isoformat())
+    if now < _earliest_digest_time():
+        return False
+
+    data = gather_digest_data()
+    if data["total"] == 0:
+        return False
+
+    if data["all_complete"]:
+        return True
+
+    return now >= _fallback_digest_time()
 
 
 def build_digest_email(data: dict) -> tuple[str, str, str]:
     total = data["total"]
     sent = data["sent"]
-    subject = (
-        f"Lead-Follow-up Fazit · {data['date_label']} · {sent} von {total} versendet"
-        if total
-        else f"Lead-Follow-up Fazit · {data['date_label']} · keine Versände"
-    )
+    sent_list = data["sent_companies"]
+
+    if data["all_complete"] and sent == total:
+        subject = (
+            f"Follow-ups abgeschlossen · {data['date_label']} · "
+            f"{sent} Firma{'en' if sent != 1 else ''} erhalten"
+        )
+    else:
+        subject = (
+            f"Lead-Follow-up Fazit · {data['date_label']} · {sent} von {total} versendet"
+            if total
+            else f"Lead-Follow-up Fazit · {data['date_label']} · keine Versände"
+        )
 
     lines = [
-        f"Lead-Follow-up Fazit — {data['date_label']}",
-        "",
-        f"Versandfenster heute: {data['followup_hour']:02d}:00 Uhr (Europe/Berlin)",
-        "",
-        f"Gesamt geplant heute:  {total}",
-        f"Erfolgreich versendet: {sent}",
-        f"Noch unterwegs:        {data['scheduled']}",
-        f"Ausstehend:            {data['pending']}",
-        f"Fehler:                {data['failed']}",
+        f"Lead-Follow-up — Abschlussbericht",
+        f"{data['date_label']}",
         "",
     ]
 
-    if data["companies"]:
-        lines.append("── Firmen / Leads ──")
+    if sent_list:
+        lines.append("DIESE FIRMEN HABEN DIE FOLLOW-UP-NACHRICHT ERHALTEN:")
+        lines.append("=" * 50)
+        for i, c in enumerate(sent_list, 1):
+            lines.append(
+                f"{i}. {c['company']} ({c['name']}) — {c['email']} — {c['role']} — {c['ref']}"
+            )
+        lines.append("")
+
+    lines.extend([
+        f"Versand geplant um:     {data['followup_hour']:02d}:00 Uhr (Europe/Berlin)",
+        f"Gesamt geplant:         {total}",
+        f"Erfolgreich versendet:  {sent}",
+        f"Noch ausstehend:        {data['in_progress']}",
+        f"Fehler:                 {data['failed']}",
+        "",
+    ])
+
+    if data["companies"] and not sent_list:
+        lines.append("── Alle geplanten Leads ──")
         for i, c in enumerate(data["companies"], 1):
             lines.append(
                 f"{i}. {c['company']} | {c['name']} | {c['email']} | "
                 f"{c['role']} | {c['status']} | {c['ref']}"
             )
-    else:
-        lines.append("Heute wurden keine Follow-up-Mails geplant.")
+    elif data["companies"] and (data["failed"] or data["in_progress"]):
+        others = [c for c in data["companies"] if c["status_raw"] != "sent"]
+        if others:
+            lines.append("── Noch nicht / fehlgeschlagen ──")
+            for i, c in enumerate(others, 1):
+                lines.append(
+                    f"{i}. {c['company']} | {c['email']} | {c['status']} | {c['ref']}"
+                )
 
     lines.extend(["", company_footer_text()])
     text_body = "\n".join(lines)
 
-    if not data["companies"]:
-        table_html = (
-            f'<p style="margin:0;font-family:Arial,sans-serif;font-size:14px;color:{MUTED}">'
-            f"Heute wurden keine Follow-up-Mails für {data['followup_hour']:02d}:00 Uhr geplant.</p>"
+    if sent_list:
+        sent_rows = []
+        for i, c in enumerate(sent_list, 1):
+            sent_rows.append(
+                f"""<tr>
+  <td style="padding:12px 14px;border-bottom:1px solid #eee;font-size:13px;color:{MUTED}">{i}</td>
+  <td style="padding:12px 14px;border-bottom:1px solid #eee;font-size:14px;color:{TEXT}"><strong>{_safe(c['company'])}</strong></td>
+  <td style="padding:12px 14px;border-bottom:1px solid #eee;font-size:12px;color:{MUTED}">{_safe(c['name'])}</td>
+  <td style="padding:12px 14px;border-bottom:1px solid #eee;font-size:12px;color:{GOLD}">{_safe(c['email'])}</td>
+  <td style="padding:12px 14px;border-bottom:1px solid #eee;font-size:12px;color:{MUTED}">{_safe(c['role'])}</td>
+  <td style="padding:12px 14px;border-bottom:1px solid #eee;font-size:11px;color:#999">{_safe(c['ref'])}</td>
+</tr>"""
+            )
+        sent_table = f"""
+<p style="margin:0 0 12px;font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:{SUCCESS};font-weight:600">
+  Diese Firmen haben die Follow-up-Nachricht erhalten
+</p>
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border:1px solid #d1e7dd;margin-bottom:24px">
+<tr style="background:#ecfdf5">
+  <th style="padding:10px 14px;text-align:left;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:{SUCCESS}">#</th>
+  <th style="padding:10px 14px;text-align:left;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:{SUCCESS}">Firma</th>
+  <th style="padding:10px 14px;text-align:left;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:{SUCCESS}">Ansprechpartner</th>
+  <th style="padding:10px 14px;text-align:left;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:{SUCCESS}">E-Mail</th>
+  <th style="padding:10px 14px;text-align:left;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:{SUCCESS}">Typ</th>
+  <th style="padding:10px 14px;text-align:left;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:{SUCCESS}">Ref</th>
+</tr>
+{"".join(sent_rows)}
+</table>"""
+    else:
+        sent_table = (
+            f'<p style="margin:0 0 20px;font-size:14px;color:{MUTED}">'
+            f"Noch keine bestätigten Versände für heute.</p>"
         )
+
+    if not data["companies"]:
+        table_html = sent_table
     else:
         rows_html = []
         for i, c in enumerate(data["companies"], 1):
+            if c["status_raw"] == "sent":
+                continue
             _, color = _status_label(c["status_raw"])
             rows_html.append(
                 f"""<tr>
   <td style="padding:10px 12px;border-bottom:1px solid #eee;font-size:13px;color:{MUTED}">{i}</td>
-  <td style="padding:10px 12px;border-bottom:1px solid #eee;font-size:13px;color:{TEXT}"><strong>{_safe(c['company'])}</strong><br><span style="color:{MUTED};font-size:12px">{_safe(c['name'])}</span></td>
+  <td style="padding:10px 12px;border-bottom:1px solid #eee;font-size:13px;color:{TEXT}"><strong>{_safe(c['company'])}</strong></td>
   <td style="padding:10px 12px;border-bottom:1px solid #eee;font-size:12px;color:{GOLD}">{_safe(c['email'])}</td>
-  <td style="padding:10px 12px;border-bottom:1px solid #eee;font-size:12px;color:{MUTED}">{_safe(c['role'])}</td>
   <td style="padding:10px 12px;border-bottom:1px solid #eee;font-size:12px;color:{color};font-weight:600">{_safe(c['status'])}</td>
-  <td style="padding:10px 12px;border-bottom:1px solid #eee;font-size:11px;color:#999">{_safe(c['ref'])}</td>
 </tr>"""
             )
-        table_html = f"""
-<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border:1px solid #ebebeb;margin-top:12px">
+        other_table = ""
+        if rows_html:
+            other_table = f"""
+<p style="margin:24px 0 8px;font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:{WARN}">Ausstehend / Fehler</p>
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border:1px solid #ebebeb">
 <tr style="background:#f7f7f7">
-  <th style="padding:10px 12px;text-align:left;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:{GOLD}">#</th>
-  <th style="padding:10px 12px;text-align:left;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:{GOLD}">Firma / Name</th>
-  <th style="padding:10px 12px;text-align:left;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:{GOLD}">E-Mail</th>
-  <th style="padding:10px 12px;text-align:left;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:{GOLD}">Typ</th>
-  <th style="padding:10px 12px;text-align:left;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:{GOLD}">Status</th>
-  <th style="padding:10px 12px;text-align:left;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:{GOLD}">Ref</th>
+  <th style="padding:10px 12px;text-align:left;font-size:10px;color:{GOLD}">#</th>
+  <th style="padding:10px 12px;text-align:left;font-size:10px;color:{GOLD}">Firma</th>
+  <th style="padding:10px 12px;text-align:left;font-size:10px;color:{GOLD}">E-Mail</th>
+  <th style="padding:10px 12px;text-align:left;font-size:10px;color:{GOLD}">Status</th>
 </tr>
 {"".join(rows_html)}
 </table>"""
+        table_html = sent_table + other_table
+
+    headline = (
+        "Alle Follow-ups abgeschlossen"
+        if data["all_complete"]
+        else "Lead-Follow-up Status"
+    )
 
     inner = f"""<tr><td style="padding:40px 40px 24px;border-bottom:1px solid #e8e8e8">
   <p style="margin:0 0 16px;font-family:Arial,sans-serif;font-size:11px;letter-spacing:0.35em;text-transform:uppercase;color:{GOLD}">Kaplan Solutions</p>
-  <p style="margin:0;font-family:Georgia,serif;font-size:26px;color:{TEXT}">Lead-Follow-up Tagesfazit</p>
+  <p style="margin:0;font-family:Georgia,serif;font-size:26px;color:{TEXT}">{headline}</p>
   <p style="margin:8px 0 0;font-family:Arial,sans-serif;font-size:14px;color:{MUTED}">{_safe(data['date_label'])} · Versand um {data['followup_hour']:02d}:00 Uhr</p>
 </td></tr>
 <tr><td style="padding:32px 40px;font-family:Arial,sans-serif;color:{MUTED}">
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr>
-    <td width="25%" style="padding:8px;text-align:center;background:#f7f7f7;border:1px solid #ebebeb">
+    <td width="33%" style="padding:8px;text-align:center;background:#f7f7f7;border:1px solid #ebebeb">
       <p style="margin:0;font-size:28px;font-weight:700;color:{GOLD}">{total}</p>
       <p style="margin:4px 0 0;font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:{MUTED}">Geplant</p>
     </td>
-    <td width="25%" style="padding:8px;text-align:center;background:#f7f7f7;border:1px solid #ebebeb">
+    <td width="33%" style="padding:8px;text-align:center;background:#ecfdf5;border:1px solid #d1e7dd">
       <p style="margin:0;font-size:28px;font-weight:700;color:{SUCCESS}">{sent}</p>
-      <p style="margin:4px 0 0;font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:{MUTED}">Versendet</p>
+      <p style="margin:4px 0 0;font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:{MUTED}">Erhalten</p>
     </td>
-    <td width="25%" style="padding:8px;text-align:center;background:#f7f7f7;border:1px solid #ebebeb">
-      <p style="margin:0;font-size:28px;font-weight:700;color:{WARN}">{data['scheduled']}</p>
-      <p style="margin:4px 0 0;font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:{MUTED}">Unterwegs</p>
-    </td>
-    <td width="25%" style="padding:8px;text-align:center;background:#f7f7f7;border:1px solid #ebebeb">
+    <td width="33%" style="padding:8px;text-align:center;background:#f7f7f7;border:1px solid #ebebeb">
       <p style="margin:0;font-size:28px;font-weight:700;color:{ERROR}">{data['failed']}</p>
       <p style="margin:4px 0 0;font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:{MUTED}">Fehler</p>
     </td>
   </tr></table>
-  <p style="margin:24px 0 8px;font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:{GOLD}">Empfänger heute</p>
-  {table_html}
+  <div style="margin-top:28px">{table_html}</div>
 </td></tr>
 <tr><td style="padding:0 40px 40px;font-size:12px;color:#aaa;border-top:1px solid #e8e8e8">
   <p style="margin:24px 0 0">{_safe(company_footer_text()).replace(chr(10), '<br>')}</p>
 </td></tr>"""
 
-    html_body = f"""<!DOCTYPE html><html lang="de"><body style="margin:0;background:#f0f0f0">
+    html_body = f"""<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"></head><body style="margin:0;background:#f0f0f0">
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f0f0f0;padding:32px 16px">
 <tr><td align="center"><table role="presentation" width="600" style="max-width:600px;background:#fff">{inner}</table></td></tr>
 </table></body></html>"""
