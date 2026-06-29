@@ -17,6 +17,7 @@
         lastSyncAt: null,
         syncErrors: 0,
         pendingNewLeads: [],
+        refFilter: '',
     };
     let syncTimer = null;
     let syncing = false;
@@ -185,13 +186,79 @@
     }
 
     function contactLink(type, value) {
-        if (!value || value === '—') return '—';
+        if (!value || value === '—' || value === '-') return '—';
         if (type === 'email') return `<a class="sf-link-action" href="mailto:${esc(value)}">${esc(value)}</a>`;
         if (type === 'phone') {
             const tel = value.replace(/\s/g, '');
             return `<a class="sf-link-action" href="tel:${esc(tel)}">${esc(value)}</a>`;
         }
         return esc(value);
+    }
+
+    function refBadge(ref, opts = {}) {
+        if (!ref) return '';
+        const small = opts.small ? ' sm' : '';
+        const inner = opts.link === false
+            ? esc(ref)
+            : `<a href="#/leads/${esc(ref)}">${esc(ref)}</a>`;
+        return `<span class="sf-ref-badge${small}">${inner}<button type="button" class="sf-ref-copy" data-copy-ref="${esc(ref)}" title="Anfrage-Nr. kopieren">⎘</button></span>`;
+    }
+
+    function recordHeader(icon, iconClass, title, ref, metaParts = []) {
+        const meta = metaParts.filter(Boolean).map(p => `<span>${p}</span>`).join('<span class="dot">·</span>');
+        return `<div class="sf-record-header">
+            <div class="sf-record-header-top">
+                <span class="sf-object-icon ${iconClass}">${icon}</span>
+                <div class="sf-record-header-main">
+                    ${ref ? `<div style="margin-bottom:8px">${refBadge(ref)}</div>` : ''}
+                    <h1>${esc(title)}</h1>
+                    ${meta ? `<div class="sf-record-header-meta">${meta}</div>` : ''}
+                </div>
+            </div>
+        </div>`;
+    }
+
+    function highlightField(label, valueHtml, truncate = false) {
+        return `<div class="sf-highlight-item">
+            <label>${esc(label)}</label>
+            <span class="sf-highlight-value${truncate ? ' truncate' : ''}" title="${typeof valueHtml === 'string' && !valueHtml.includes('<') ? esc(valueHtml) : ''}">${valueHtml}</span>
+        </div>`;
+    }
+
+    function formatRating(l) {
+        const match = l.best_match && !/^[-—]$/.test(String(l.best_match).trim()) ? String(l.best_match).trim() : '';
+        const ser = l.seriositaet && !/^[-—]$/.test(String(l.seriositaet).trim()) ? String(l.seriositaet).trim() : '';
+        if (match && ser) return match + ' · ' + ser;
+        return match || ser || '—';
+    }
+
+    function formatTermin(val) {
+        if (!val || val === '—' || val === '-') return '';
+        const s = String(val).trim();
+        if (/^https?:\/\//i.test(s) || s.includes('drive.google')) return '';
+        return s;
+    }
+
+    function leadMatchesQuery(l, q) {
+        if (!q) return true;
+        const norm = q.toLowerCase().replace(/\s+/g, '');
+        const parts = [l.ref, l.name, l.company, l.email, l.telefon, l.stadt, l.quelle, l.lead_status, l.stage]
+            .map(x => String(x || '').toLowerCase());
+        return parts.some(p => p.includes(norm) || p.replace(/\s+/g, '').includes(norm));
+    }
+
+    function resolveSearchNav(q) {
+        const leads = state.data?.leads || [];
+        const exact = leads.find(l => l.ref.toLowerCase() === q.toLowerCase());
+        if (exact) {
+            navigate('leads', exact.ref);
+            return true;
+        }
+        return false;
+    }
+
+    function getSearchQuery() {
+        return ($('#global-search')?.value || '').trim();
     }
 
     // ── Auth ──────────────────────────────────────────────────────────────
@@ -208,13 +275,14 @@
 
     // ── Path component ───────────────────────────────────────────────────
 
-    function renderPath(stages, current, onClick) {
-        const idx = stages.indexOf(current);
-        return `<ul class="sf-path">${stages.map((s, i) => {
+    function renderPath(stages, current) {
+        const idx = Math.max(0, stages.indexOf(current));
+        return `<p class="sf-path-hint">Sales Path · Schritt ${idx + 1} von ${stages.length}: ${esc(current)}</p>
+            <ul class="sf-path">${stages.map((s, i) => {
             let cls = '';
             if (i < idx) cls = 'complete';
             else if (i === idx) cls = 'current';
-            return `<li class="${cls}" data-stage="${esc(s)}">${esc(s)}</li>`;
+            return `<li class="${cls}" data-stage="${esc(s)}" title="${esc(s)}">${esc(s)}</li>`;
         }).join('')}</ul>`;
     }
 
@@ -255,6 +323,7 @@
                     <div class="sf-widget-header">Today's Events</div>
                     <div class="sf-widget-body">${(events.length ? events : termine).map(e => `
                         <div class="sf-widget-item">
+                            ${e.ref ? refBadge(e.ref, { small: true }) + ' ' : ''}
                             <a href="#/leads/${esc(e.ref || e.related_id)}">${esc(e.name || e.subject || e.ref)}</a>
                             <div>${esc(e.naechster_termin || e.due || '')}</div>
                         </div>`).join('') || '<div class="sf-empty">No events today</div>'}
@@ -279,6 +348,7 @@
                     <div class="sf-widget-header">Recent Records</div>
                     <div class="sf-widget-body">${recent.map(r => `
                         <div class="sf-widget-item">
+                            ${r.type === 'leads' ? refBadge(r.id, { small: true }) + ' ' : ''}
                             <a href="#/${esc(r.type)}/${esc(r.id)}">${esc(r.name)}</a>
                         </div>`).join('') || '<div class="sf-empty">No recent records</div>'}
                 </div>
@@ -288,11 +358,13 @@
 
     function filterLeads(leads) {
         const v = state.listView;
-        if (v === 'bauherr') return leads.filter(l => l.role_type === 'bauherr');
-        if (v === 'partner') return leads.filter(l => l.role_type === 'partner');
-        if (v === 'open') return leads.filter(l => !l.terminal);
-        if (v === 'hot') return leads.filter(l => (parseInt(String(l.best_match).replace('%', ''), 10) || 0) >= 75 && !l.terminal);
-        return leads;
+        let filtered = leads;
+        if (v === 'bauherr') filtered = filtered.filter(l => l.role_type === 'bauherr');
+        else if (v === 'partner') filtered = filtered.filter(l => l.role_type === 'partner');
+        else if (v === 'open') filtered = filtered.filter(l => !l.terminal);
+        else if (v === 'hot') filtered = filtered.filter(l => (parseInt(String(l.best_match).replace('%', ''), 10) || 0) >= 75 && !l.terminal);
+        if (state.refFilter) filtered = filtered.filter(l => leadMatchesQuery(l, state.refFilter));
+        return filtered;
     }
 
     function listToolbar(objectName, views, showKanban = true) {
@@ -300,6 +372,9 @@
             <select id="list-view-select">${views.map(v => `
                 <option value="${esc(v.id)}"${state.listView === v.id ? ' selected' : ''}>${esc(v.label)}</option>
             `).join('')}</select>
+            <div class="sf-ref-search-wrap">
+                <input type="search" id="ref-filter" placeholder="Anfrage-Nr. filtern…" value="${esc(state.refFilter)}" autocomplete="off" />
+            </div>
             <span style="color:var(--sf-muted);margin-left:auto">${esc(objectName)}</span>
             ${showKanban ? `<div class="sf-display-toggle">
                 <button type="button" data-mode="table"${state.displayMode === 'table' ? ' class="active"' : ''}>Table</button>
@@ -331,21 +406,22 @@
         } else {
             body = `<div class="sf-list-wrap"><div class="sf-table-wrap"><table class="sf-table">
                 <thead><tr>
-                    <th>Name</th><th>Company</th><th>Lead Status</th><th>Stage</th>
+                    <th class="col-ref">Anfrage-Nr.</th><th>Name</th><th>Company</th><th>Lead Status</th><th>Stage</th>
                     <th>City</th><th>Rating</th><th>Source</th>
                 </tr></thead>
                 <tbody>${leads.map(l => {
                     const hot = (parseInt(String(l.best_match).replace('%', ''), 10) || 0) >= 75;
                     return `<tr data-ref="${esc(l.ref)}">
+                    <td class="col-ref"><a href="#/leads/${esc(l.ref)}">${esc(l.ref)}</a></td>
                     <td><a href="#/leads/${esc(l.ref)}">${esc(l.name)}</a>${hot ? '<span class="badge-hot">HOT</span>' : ''}</td>
                     <td>${esc(l.company || l.name)}</td>
                     <td>${esc(l.lead_status)}</td>
                     <td>${esc(l.stage)}</td>
                     <td>${esc(l.stadt)}</td>
-                    <td>${esc(l.best_match || l.seriositaet || '—')}</td>
+                    <td>${esc(formatRating(l))}</td>
                     <td>${esc(l.quelle)}</td>
                 </tr>`;
-                }).join('') || '<tr><td colspan="7" class="sf-empty">Keine Einträge</td></tr>'}
+                }).join('') || '<tr><td colspan="8" class="sf-empty">Keine Einträge</td></tr>'}
                 </tbody></table></div></div>`;
         }
 
@@ -356,8 +432,9 @@
     function kanbanLeadCard(l) {
         const hot = (parseInt(String(l.best_match).replace('%', ''), 10) || 0) >= 75;
         return `<div class="sf-kanban-card" draggable="true" data-ref="${esc(l.ref)}" data-type="lead">
+            <div style="margin-bottom:4px">${refBadge(l.ref, { small: true })}</div>
             <h4>${esc(l.name)}</h4>
-            <div>${esc(l.ref)} · ${esc(l.stadt)}</div>
+            <div>${esc(l.stadt)} · ${esc(l.stage)}</div>
             ${hot ? '<div class="warn">⚠ Hot Match</div>' : ''}
         </div>`;
     }
@@ -380,33 +457,49 @@
         const opps = (state.data?.opportunities || []).filter(o => o.ag_ref === ref || o.an_ref === ref);
         const upcoming = activities.filter(a => a.status !== 'Completed');
         const past = activities.filter(a => a.status === 'Completed');
+        const termin = formatTermin(l.naechster_termin);
+        const driveLink = l.ordner_link || (/^https?:\/\//i.test(String(l.naechster_termin || '')) ? l.naechster_termin : '');
 
-        return pageHeader('🎯', 'leads', l.name, `${l.ref} · ${l.record_type} · ${l.lead_status}`) +
+        return recordHeader('🎯', 'leads', l.name, l.ref, [
+            esc(l.record_type),
+            esc(l.lead_status),
+            l.stadt ? esc(l.stadt) : '',
+        ]) +
             `<div class="sf-path-wrap">${renderPath(l.stages || [], l.stage)}</div>
             <div class="sf-record">
                 <div class="sf-highlights">
-                    <div class="sf-highlight-item"><label>Lead Status</label><span>${esc(l.lead_status)}</span></div>
-                    <div class="sf-highlight-item"><label>Telefon</label><span>${contactLink('phone', l.telefon)}</span></div>
-                    <div class="sf-highlight-item"><label>E-Mail</label><span>${contactLink('email', l.email)}</span></div>
-                    <div class="sf-highlight-item"><label>Rating</label><span>${esc(l.best_match || l.seriositaet || '—')}</span></div>
-                    <div class="sf-highlight-item"><label>Quelle</label><span>${esc(l.quelle)}</span></div>
-                    <div class="sf-highlight-item"><label>Firma</label><span>${esc(l.company || l.name)}</span></div>
+                    ${highlightField('Status', esc(l.lead_status), true)}
+                    ${highlightField('Telefon', contactLink('phone', l.telefon), true)}
+                    ${highlightField('E-Mail', contactLink('email', l.email), true)}
+                    ${highlightField('Match / Rating', esc(formatRating(l)), true)}
+                    ${highlightField('Quelle', esc(l.quelle || '—'), true)}
+                    ${highlightField('Firma', esc(l.company || l.name), false)}
                 </div>
                 <div class="sf-record-grid">
                     <div class="sf-panel">
                         <div class="sf-panel-header">Details</div>
                         <div class="sf-panel-body" id="lead-details-form">
-                            ${detailField('Stage', 'stage', l.stage, 'select', l.stages)}
-                            ${detailField('Next Step', 'naechster_schritt', l.naechster_schritt)}
-                            ${detailField('Next Appointment', 'naechster_termin', l.naechster_termin)}
-                            ${detailField('Vertrag', 'vertrag', l.vertrag, 'select', ['Nein', 'Ja'])}
-                            ${detailField('Intro Sent', 'intro_gesendet', l.intro_gesendet, 'select', ['Nein', 'Ja'])}
-                            ${detailField('Net Amount €', 'netto', l.netto)}
-                            ${detailField('Provision €', 'provision', l.provision)}
-                            ${detailField('Invoice', 'rechnung', l.rechnung)}
-                            ${detailField('Paid', 'bezahlt', l.bezahlt, 'select', ['Nein', 'Ja'])}
-                            ${detailField('Lost Reason', 'verloren_grund', l.verloren_grund)}
-                            ${detailField('Notes', 'notiz', l.notiz, 'textarea')}
+                            <div class="sf-details-section">
+                                <h4>Anfrage & Pipeline</h4>
+                                <div class="sf-detail-field"><label>Anfrage-Nr.</label><input readonly value="${esc(l.ref)}" /></div>
+                                ${detailField('Stage', 'stage', l.stage, 'select', l.stages)}
+                                ${detailField('Nächster Schritt', 'naechster_schritt', l.naechster_schritt)}
+                                ${detailField('Nächster Termin', 'naechster_termin', termin)}
+                            </div>
+                            <div class="sf-details-section">
+                                <h4>Vertrag & Abrechnung</h4>
+                                ${detailField('Vertrag', 'vertrag', l.vertrag, 'select', ['Nein', 'Ja'])}
+                                ${detailField('Intro gesendet', 'intro_gesendet', l.intro_gesendet, 'select', ['Nein', 'Ja'])}
+                                ${detailField('Netto €', 'netto', l.netto)}
+                                ${detailField('Provision €', 'provision', l.provision)}
+                                ${detailField('Rechnung', 'rechnung', l.rechnung)}
+                                ${detailField('Bezahlt', 'bezahlt', l.bezahlt, 'select', ['Nein', 'Ja'])}
+                            </div>
+                            <div class="sf-details-section">
+                                <h4>Notizen</h4>
+                                ${detailField('Verloren — Grund', 'verloren_grund', l.verloren_grund)}
+                                ${detailField('Notiz', 'notiz', l.notiz, 'textarea')}
+                            </div>
                             <button type="button" class="slds-button slds-button_brand" id="save-lead-btn">Speichern</button>
                         </div>
                     </div>
@@ -428,7 +521,7 @@
                         <div class="sf-panel-body">
                             <strong>Opportunities (${opps.length})</strong>
                             ${opps.map(o => `<div class="sf-related-item"><a href="#/opportunities/${esc(o.id)}">${esc(o.name)}</a><br/>${esc(o.stage)} · ${o.probability}%</div>`).join('') || '<div class="sf-related-item">None</div>'}
-                            ${l.ordner_link ? `<div class="sf-related-item"><a href="${esc(l.ordner_link)}" target="_blank" rel="noopener">Google Drive Folder</a></div>` : ''}
+                            ${driveLink ? `<div class="sf-related-item"><a href="${esc(driveLink)}" target="_blank" rel="noopener">Google Drive Ordner</a></div>` : ''}
                         </div>
                     </div>
                 </div>
@@ -506,14 +599,20 @@
         if (!o) return pageHeader('💰', 'opps', 'Not found') + '<div class="sf-empty">Record not found</div>';
         trackRecent('opportunities', id, o.name);
 
-        return pageHeader('💰', 'opps', o.name, `${o.id} · ${o.stage} · ${o.probability}%`) +
+        return recordHeader('💰', 'opps', o.name, o.ag_ref || o.an_ref || '', [
+            esc(o.id),
+            esc(o.stage),
+            o.probability + '%',
+        ]) +
             `<div class="sf-path-wrap">${renderPath(o.stages || [], o.stage)}</div>
             <div class="sf-record">
                 <div class="sf-highlights">
-                    <div class="sf-highlight-item"><label>Stage</label><span>${esc(o.stage)}</span></div>
-                    <div class="sf-highlight-item"><label>Probability</label><span>${o.probability}%</span></div>
-                    <div class="sf-highlight-item"><label>Account</label><span>${esc(o.account_name)}</span></div>
-                    <div class="sf-highlight-item"><label>Partner</label><span>${esc(o.partner_name)}</span></div>
+                    ${highlightField('Stage', esc(o.stage), true)}
+                    ${highlightField('Probability', esc(o.probability + '%'), true)}
+                    ${highlightField('Bauherr', esc(o.account_name || '—'), true)}
+                    ${highlightField('Partner', esc(o.partner_name || '—'), true)}
+                    ${highlightField('Bauherr-Nr.', o.ag_ref ? refBadge(o.ag_ref, { small: true }) : '—', true)}
+                    ${highlightField('Partner-Nr.', o.an_ref ? refBadge(o.an_ref, { small: true }) : '—', true)}
                 </div>
                 <div class="sf-record-grid">
                     <div class="sf-panel">
@@ -605,18 +704,27 @@
     }
 
     function renderSearch(q) {
-        const ql = q.toLowerCase();
-        const leads = (state.data?.leads || []).filter(l =>
-            l.name.toLowerCase().includes(ql) || l.ref.toLowerCase().includes(ql) || (l.stadt || '').toLowerCase().includes(ql));
+        const ql = q.trim();
+        const leads = (state.data?.leads || []).filter(l => leadMatchesQuery(l, ql));
         const opps = (state.data?.opportunities || []).filter(o =>
-            o.name.toLowerCase().includes(ql) || o.id.toLowerCase().includes(ql));
-        return pageHeader('🔍', 'home', `Search: ${q}`, `${leads.length + opps.length} results`) +
+            o.name.toLowerCase().includes(ql.toLowerCase()) ||
+            o.id.toLowerCase().includes(ql.toLowerCase()) ||
+            (o.ag_ref || '').toLowerCase().includes(ql.toLowerCase()) ||
+            (o.an_ref || '').toLowerCase().includes(ql.toLowerCase()));
+        return pageHeader('🔍', 'home', 'Suche', `${leads.length + opps.length} Ergebnisse für „${esc(ql)}“`) +
             `<div class="sf-home">
-                <div class="sf-widget"><div class="sf-widget-header">Leads</div><div class="sf-widget-body">
-                    ${leads.map(l => `<div class="sf-widget-item"><a href="#/leads/${esc(l.ref)}">${esc(l.name)}</a> · ${esc(l.ref)}</div>`).join('') || 'None'}
+                <div class="sf-widget"><div class="sf-widget-header">Leads (${leads.length})</div><div class="sf-widget-body">
+                    ${leads.map(l => `<div class="sf-widget-item">
+                        ${refBadge(l.ref, { small: true })}
+                        <a href="#/leads/${esc(l.ref)}" style="margin-left:8px;font-weight:600">${esc(l.name)}</a>
+                        <div>${esc(l.company || '')} · ${esc(l.stadt || '')} · ${esc(l.lead_status)}</div>
+                    </div>`).join('') || '<div class="sf-empty">Keine Leads gefunden</div>'}
                 </div></div>
-                <div class="sf-widget"><div class="sf-widget-header">Opportunities</div><div class="sf-widget-body">
-                    ${opps.map(o => `<div class="sf-widget-item"><a href="#/opportunities/${esc(o.id)}">${esc(o.name)}</a></div>`).join('') || 'None'}
+                <div class="sf-widget"><div class="sf-widget-header">Opportunities (${opps.length})</div><div class="sf-widget-body">
+                    ${opps.map(o => `<div class="sf-widget-item">
+                        <a href="#/opportunities/${esc(o.id)}">${esc(o.name)}</a>
+                        <div>${esc(o.stage)} · ${o.ag_ref ? esc(o.ag_ref) : ''}${o.an_ref ? ' / ' + esc(o.an_ref) : ''}</div>
+                    </div>`).join('') || '<div class="sf-empty">Keine Opportunities gefunden</div>'}
                 </div></div>
             </div>`;
     }
@@ -624,14 +732,14 @@
     function render() {
         state.route = parseRoute();
         const { page, id } = state.route;
-        const q = $('#global-search')?.value?.trim();
+        const q = getSearchQuery();
 
         $$('.sf-nav a').forEach(a => {
-            a.classList.toggle('active', a.dataset.route === page || (page === 'leads' && a.dataset.route === 'leads'));
+            a.classList.toggle('active', a.dataset.route === page || (page === 'search' && a.dataset.route === 'home'));
         });
 
         let html = '';
-        if (q && page === 'home') html = renderSearch(q);
+        if (page === 'search' && q) html = renderSearch(q);
         else if (page === 'home') html = renderHome();
         else if (page === 'leads' && id) html = renderLeadRecord(decodeURIComponent(id));
         else if (page === 'leads') html = renderLeadsList();
@@ -704,6 +812,31 @@
         $$('.sf-composer button[data-action]').forEach(btn => {
             btn.onclick = () => openActivityModal(btn.dataset.action, btn.dataset.related, btn.dataset.id);
         });
+
+        $$('[data-copy-ref]').forEach(btn => {
+            btn.onclick = e => {
+                e.preventDefault();
+                e.stopPropagation();
+                navigator.clipboard.writeText(btn.dataset.copyRef).then(
+                    () => showToast('Anfrage-Nr. kopiert: ' + btn.dataset.copyRef, 'success'),
+                    () => showToast('Kopieren fehlgeschlagen', 'warn')
+                );
+            };
+        });
+
+        const refFilter = $('#ref-filter');
+        if (refFilter) {
+            refFilter.oninput = () => {
+                const pos = refFilter.selectionStart;
+                state.refFilter = refFilter.value.trim();
+                render();
+                const el = $('#ref-filter');
+                if (el) {
+                    el.focus();
+                    el.setSelectionRange(pos, pos);
+                }
+            };
+        }
     }
 
     function setupKanban() {
@@ -794,7 +927,24 @@
     window.addEventListener('hashchange', render);
 
     $('#global-search')?.addEventListener('keydown', e => {
-        if (e.key === 'Enter') { location.hash = '#/home'; render(); }
+        if (e.key !== 'Enter') return;
+        e.preventDefault();
+        const q = e.target.value.trim();
+        if (!q) {
+            location.hash = '#/home';
+            render();
+            return;
+        }
+        if (resolveSearchNav(q)) return;
+        location.hash = '#/search';
+        render();
+    });
+
+    $('#global-search')?.addEventListener('search', e => {
+        if (!e.target.value.trim()) {
+            location.hash = '#/home';
+            render();
+        }
     });
 
     $('#nav-toggle')?.addEventListener('click', () => $('#sf-nav').classList.toggle('open'));

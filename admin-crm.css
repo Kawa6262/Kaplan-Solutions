@@ -193,7 +193,83 @@ body {
 .sf-object-icon.contacts { background: #a094ed; color: #fff; }
 .sf-object-icon.home { background: var(--sf-blue); color: #fff; }
 .sf-page-title { font-size: 18px; font-weight: 700; margin: 0; display: inline; vertical-align: middle; }
-.sf-page-meta { color: var(--sf-muted); font-size: 12px; margin-top: 4px; }
+.sf-page-meta { color: var(--sf-muted); font-size: 12px; margin-top: 4px; line-height: 1.4; }
+
+/* Anfrage-Nr. Badge (KS-xxxx) */
+.sf-ref-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #032d60;
+    color: #fff;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    padding: 4px 10px;
+    border-radius: 4px;
+    white-space: nowrap;
+}
+.sf-ref-badge.sm { font-size: 11px; padding: 2px 8px; }
+.sf-ref-badge a { color: #fff; text-decoration: none; }
+.sf-ref-badge a:hover { text-decoration: underline; }
+.sf-ref-copy {
+    background: rgba(255,255,255,0.15);
+    border: none;
+    color: #fff;
+    border-radius: 3px;
+    padding: 2px 6px;
+    font-size: 10px;
+    cursor: pointer;
+}
+.sf-ref-copy:hover { background: rgba(255,255,255,0.3); }
+
+/* Record header (Salesforce workspace) */
+.sf-record-header {
+    background: #fff;
+    border-bottom: 1px solid var(--sf-border-light);
+    padding: 16px;
+}
+.sf-record-header-top {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+.sf-record-header-main { flex: 1; min-width: 0; }
+.sf-record-header-main h1 {
+    margin: 0 0 6px;
+    font-size: 20px;
+    font-weight: 700;
+    line-height: 1.2;
+    word-break: break-word;
+}
+.sf-record-header-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    color: var(--sf-muted);
+    font-size: 12px;
+}
+.sf-record-header-meta .dot { opacity: 0.5; }
+
+.sf-ref-search-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    max-width: 280px;
+}
+.sf-ref-search-wrap input {
+    flex: 1;
+    height: 32px;
+    border: 1px solid var(--sf-border);
+    border-radius: 4px;
+    padding: 0 10px;
+    font-size: 13px;
+    font-family: ui-monospace, Menlo, monospace;
+}
 
 .sf-view-toolbar {
     display: flex;
@@ -231,40 +307,100 @@ body {
 .sf-table a:hover { text-decoration: underline; }
 
 /* Path (Salesforce chevrons) */
-.sf-path-wrap { background: #fff; padding: 12px 16px; border-bottom: 1px solid var(--sf-border-light); overflow-x: auto; }
+.sf-path-wrap {
+    background: #fff;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--sf-border-light);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+.sf-path-hint {
+    font-size: 11px;
+    color: var(--sf-muted);
+    margin: 0 0 6px;
+}
 .sf-path {
-    display: flex; list-style: none; margin: 0; padding: 0; min-width: max-content;
+    display: flex;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    min-width: max-content;
+    gap: 2px;
 }
 .sf-path li {
     position: relative;
-    padding: 8px 24px 8px 32px;
+    padding: 7px 20px 7px 26px;
     background: #ecebea;
     color: var(--sf-muted);
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 600;
-    clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 50%, calc(100% - 12px) 100%, 0 100%, 12px 50%);
-    margin-right: 4px;
+    clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 50%, calc(100% - 10px) 100%, 0 100%, 10px 50%);
     cursor: pointer;
     white-space: nowrap;
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
-.sf-path li:first-child { clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 50%, calc(100% - 12px) 100%, 0 100%); padding-left: 16px; }
+.sf-path li:first-child {
+    clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 50%, calc(100% - 10px) 100%, 0 100%);
+    padding-left: 12px;
+}
 .sf-path li.complete { background: #cfe9fe; color: var(--sf-blue-dark); }
-.sf-path li.current { background: var(--sf-blue); color: #fff; }
+.sf-path li.current {
+    background: var(--sf-blue);
+    color: #fff;
+    max-width: 180px;
+}
 
 /* Record page */
-.sf-record { padding: 0 16px 24px; }
+.sf-record { padding: 12px 16px 24px; }
 .sf-highlights {
     background: #fff;
     border: 1px solid var(--sf-border-light);
     border-radius: 4px;
-    padding: 16px;
+    padding: 0;
     margin-bottom: 12px;
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-    gap: 12px;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0;
+    overflow: hidden;
 }
-.sf-highlight-item label { display: block; font-size: 11px; color: var(--sf-muted); text-transform: uppercase; letter-spacing: 0.04em; }
-.sf-highlight-item span { font-size: 14px; font-weight: 600; }
+@media (min-width: 768px) {
+    .sf-highlights { grid-template-columns: repeat(3, 1fr); }
+}
+@media (min-width: 1100px) {
+    .sf-highlights { grid-template-columns: repeat(6, 1fr); }
+}
+.sf-highlight-item {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--sf-border-light);
+    border-right: 1px solid var(--sf-border-light);
+    min-width: 0;
+    overflow: hidden;
+}
+.sf-highlight-item label {
+    display: block;
+    font-size: 10px;
+    color: var(--sf-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 4px;
+    white-space: nowrap;
+}
+.sf-highlight-item .sf-highlight-value {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.35;
+    word-break: break-word;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.sf-highlight-item .sf-highlight-value.truncate {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
 
 .sf-record-grid {
     display: grid;
@@ -315,11 +451,49 @@ body {
 .sf-timeline-body span { font-size: 12px; color: var(--sf-muted); }
 .sf-timeline-section { padding: 8px 12px; font-weight: 700; font-size: 12px; color: var(--sf-muted); background: #fafaf9; }
 
-.sf-detail-field { margin-bottom: 12px; }
-.sf-detail-field label { display: block; font-size: 11px; color: var(--sf-muted); margin-bottom: 2px; }
-.sf-detail-field input, .sf-detail-field select, .sf-detail-field textarea {
-    width: 100%; padding: 6px 8px; border: 1px solid var(--sf-border); border-radius: 4px; font-size: 13px;
+.sf-detail-field { margin-bottom: 14px; }
+.sf-detail-field label {
+    display: block;
+    font-size: 11px;
+    color: var(--sf-muted);
+    margin-bottom: 4px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
 }
+.sf-detail-field input, .sf-detail-field select, .sf-detail-field textarea {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--sf-border);
+    border-radius: 4px;
+    font-size: 13px;
+    background: #fafaf9;
+}
+.sf-detail-field input:focus, .sf-detail-field select:focus, .sf-detail-field textarea:focus {
+    outline: none;
+    border-color: var(--sf-blue);
+    box-shadow: 0 0 0 1px var(--sf-blue);
+    background: #fff;
+}
+.sf-detail-field input[readonly] { background: #f3f3f3; color: var(--sf-muted); }
+
+.sf-details-section {
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--sf-border-light);
+}
+.sf-details-section:last-of-type { border-bottom: none; margin-bottom: 0; }
+.sf-details-section h4 {
+    margin: 0 0 10px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--sf-blue-dark);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.sf-table .col-ref { width: 130px; white-space: nowrap; }
+.sf-table .col-ref a { font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
 
 .sf-related-item {
     padding: 8px 0; border-bottom: 1px solid var(--sf-border-light);
