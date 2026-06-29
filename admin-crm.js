@@ -42,7 +42,16 @@
                     : 'Sitzung abgelaufen — bitte erneut anmelden.'
             );
         }
-        return res.json();
+        let data;
+        try {
+            data = await res.json();
+        } catch {
+            throw new Error('Server-Antwort ungültig (HTTP ' + res.status + ')');
+        }
+        if (!res.ok && data && !data.error) {
+            data.error = 'HTTP ' + res.status;
+        }
+        return data;
     }
 
     function esc(s) {
@@ -286,6 +295,24 @@
         }).join('')}</ul>`;
     }
 
+    function getNextStage(stages, current) {
+        const idx = stages.indexOf(current);
+        if (idx < 0 || idx >= stages.length - 1) return null;
+        return stages[idx + 1];
+    }
+
+    function renderPathActions(stages, current) {
+        const next = getNextStage(stages, current);
+        if (!next) {
+            return '<div class="sf-path-actions"><span class="sf-path-done">Letzter Schritt im Pfad</span></div>';
+        }
+        return `<div class="sf-path-actions">
+            <button type="button" class="slds-button slds-button_brand" id="path-advance-btn" data-next="${esc(next)}">
+                Nächster Schritt → ${esc(next)}
+            </button>
+        </div>`;
+    }
+
     // ── Views ────────────────────────────────────────────────────────────
 
     function pageHeader(icon, iconClass, title, meta, actions = '') {
@@ -313,6 +340,8 @@
         (renderNewLeadsBanner() || '') + `
         <div class="sf-home">
             <div class="sf-kpi-row">
+                <div class="sf-kpi"><strong>${s.total || 0}</strong><span>Leads gesamt</span></div>
+                <div class="sf-kpi"><strong>${s.cold || 0}</strong><span>Cold / Outreach</span></div>
                 <div class="sf-kpi"><strong>${s.open || 0}</strong><span>Open Leads</span></div>
                 <div class="sf-kpi"><strong>${s.open_opportunities || 0}</strong><span>Open Opps</span></div>
                 <div class="sf-kpi"><strong>${s.hot_matches || 0}</strong><span>Hot Matches</span></div>
@@ -360,7 +389,9 @@
         const v = state.listView;
         let filtered = leads;
         if (v === 'bauherr') filtered = filtered.filter(l => l.role_type === 'bauherr');
-        else if (v === 'partner') filtered = filtered.filter(l => l.role_type === 'partner');
+        else if (v === 'partner') filtered = filtered.filter(l => l.role_type === 'partner' && !l.cold_lead);
+        else if (v === 'cold') filtered = filtered.filter(l => l.cold_lead);
+        else if (v === 'inbound') filtered = filtered.filter(l => !l.cold_lead);
         else if (v === 'open') filtered = filtered.filter(l => !l.terminal);
         else if (v === 'hot') filtered = filtered.filter(l => (parseInt(String(l.best_match).replace('%', ''), 10) || 0) >= 75 && !l.terminal);
         if (state.refFilter) filtered = filtered.filter(l => leadMatchesQuery(l, state.refFilter));
@@ -386,8 +417,10 @@
     function renderLeadsList() {
         const leads = filterLeads(state.data?.leads || []);
         const views = [
-            { id: 'all', label: 'All Open Leads' },
-            { id: 'open', label: 'My Open Leads' },
+            { id: 'all', label: 'Alle Leads' },
+            { id: 'inbound', label: 'Website-Anfragen' },
+            { id: 'cold', label: 'Cold / Outreach' },
+            { id: 'open', label: 'Offene Leads' },
             { id: 'bauherr', label: 'Bauherr Leads' },
             { id: 'partner', label: 'Partner Leads' },
             { id: 'hot', label: 'Hot Matches' },
@@ -406,14 +439,16 @@
         } else {
             body = `<div class="sf-list-wrap"><div class="sf-table-wrap"><table class="sf-table">
                 <thead><tr>
-                    <th class="col-ref">Anfrage-Nr.</th><th>Name</th><th>Company</th><th>Lead Status</th><th>Stage</th>
+                    <th class="col-ref">Anfrage-Nr.</th><th>Name</th><th>Typ</th><th>Company</th><th>Lead Status</th><th>Stage</th>
                     <th>City</th><th>Rating</th><th>Source</th>
                 </tr></thead>
                 <tbody>${leads.map(l => {
                     const hot = (parseInt(String(l.best_match).replace('%', ''), 10) || 0) >= 75;
+                    const typeBadge = l.cold_lead ? '<span class="badge-cold">COLD</span>' : '';
                     return `<tr data-ref="${esc(l.ref)}">
                     <td class="col-ref"><a href="#/leads/${esc(l.ref)}">${esc(l.ref)}</a></td>
                     <td><a href="#/leads/${esc(l.ref)}">${esc(l.name)}</a>${hot ? '<span class="badge-hot">HOT</span>' : ''}</td>
+                    <td>${typeBadge || esc(l.record_type || 'Lead')}</td>
                     <td>${esc(l.company || l.name)}</td>
                     <td>${esc(l.lead_status)}</td>
                     <td>${esc(l.stage)}</td>
@@ -421,7 +456,7 @@
                     <td>${esc(formatRating(l))}</td>
                     <td>${esc(l.quelle)}</td>
                 </tr>`;
-                }).join('') || '<tr><td colspan="8" class="sf-empty">Keine Einträge</td></tr>'}
+                }).join('') || '<tr><td colspan="9" class="sf-empty">Keine Einträge</td></tr>'}
                 </tbody></table></div></div>`;
         }
 
@@ -461,11 +496,12 @@
         const driveLink = l.ordner_link || (/^https?:\/\//i.test(String(l.naechster_termin || '')) ? l.naechster_termin : '');
 
         return recordHeader('🎯', 'leads', l.name, l.ref, [
+            l.cold_lead ? '<span class="badge-cold inline">Cold Outreach</span>' : '',
             esc(l.record_type),
             esc(l.lead_status),
             l.stadt ? esc(l.stadt) : '',
-        ]) +
-            `<div class="sf-path-wrap">${renderPath(l.stages || [], l.stage)}</div>
+        ].filter(Boolean)) +
+            `<div class="sf-path-wrap">${renderPath(l.stages || [], l.stage)}${renderPathActions(l.stages || [], l.stage)}</div>
             <div class="sf-record">
                 <div class="sf-highlights">
                     ${highlightField('Status', esc(l.lead_status), true)}
@@ -500,16 +536,19 @@
                                 ${detailField('Verloren — Grund', 'verloren_grund', l.verloren_grund)}
                                 ${detailField('Notiz', 'notiz', l.notiz, 'textarea')}
                             </div>
-                            <button type="button" class="slds-button slds-button_brand" id="save-lead-btn">Speichern</button>
+                            <div class="sf-form-actions">
+                                ${l.cold_lead ? `<button type="button" class="slds-button slds-button_neutral" id="activate-cold-btn">In Pipeline aktivieren</button>` : ''}
+                                <button type="button" class="slds-button slds-button_brand" id="save-lead-btn">Speichern</button>
+                            </div>
                         </div>
                     </div>
                     <div class="sf-panel">
                         <div class="sf-panel-header">Activity</div>
                         <div class="sf-composer">
-                            <button type="button" data-action="Call" data-related="Lead" data-id="${esc(ref)}">Log a Call</button>
-                            <button type="button" data-action="Task" data-related="Lead" data-id="${esc(ref)}">New Task</button>
-                            <button type="button" data-action="Event" data-related="Lead" data-id="${esc(ref)}">New Event</button>
-                            <button type="button" data-action="Email" data-related="Lead" data-id="${esc(ref)}">Email</button>
+                            <button type="button" data-action="Call" data-related="Lead" data-id="${esc(ref)}">Anruf protokollieren</button>
+                            <button type="button" data-action="Task" data-related="Lead" data-id="${esc(ref)}">Neue Aufgabe</button>
+                            <button type="button" data-action="Event" data-related="Lead" data-id="${esc(ref)}">Neuer Termin</button>
+                            <button type="button" data-action="Email" data-related="Lead" data-id="${esc(ref)}">E-Mail</button>
                         </div>
                         <div class="sf-timeline-section">Upcoming & Overdue</div>
                         <ul class="sf-timeline">${upcoming.map(actItem).join('') || '<li class="sf-empty">No activities</li>'}</ul>
@@ -530,8 +569,10 @@
 
     function detailField(label, name, value, type = 'text', options = []) {
         if (type === 'select') {
+            const opts = [...options];
+            if (value && !opts.includes(value)) opts.unshift(value);
             return `<div class="sf-detail-field"><label>${esc(label)}</label>
-                <select data-field="${esc(name)}">${options.map(o => `
+                <select data-field="${esc(name)}">${opts.map(o => `
                     <option value="${esc(o)}"${o === value ? ' selected' : ''}>${esc(o)}</option>
                 `).join('')}</select></div>`;
         }
@@ -777,13 +818,33 @@
             li.onclick = async () => {
                 const stage = li.dataset.stage;
                 const route = state.route;
-                if (route.page === 'leads' && route.id) {
-                    await saveLead(route.id, { stage });
-                } else if (route.page === 'opportunities' && route.id) {
-                    await saveOpp(route.id, stage);
+                try {
+                    if (route.page === 'leads' && route.id) {
+                        await saveLead(route.id, { stage });
+                    } else if (route.page === 'opportunities' && route.id) {
+                        await saveOpp(route.id, stage);
+                    }
+                } catch (err) {
+                    showToast(err.message, 'warn');
                 }
             };
         });
+
+        const pathAdvance = $('#path-advance-btn');
+        if (pathAdvance) {
+            pathAdvance.onclick = async () => {
+                const next = pathAdvance.dataset.next;
+                if (!next || !state.route.id) return;
+                pathAdvance.disabled = true;
+                try {
+                    await saveLead(state.route.id, { stage: next });
+                } catch (err) {
+                    showToast(err.message, 'warn');
+                } finally {
+                    pathAdvance.disabled = false;
+                }
+            };
+        }
 
         // Kanban drag-drop
         setupKanban();
@@ -792,19 +853,49 @@
         const saveLeadBtn = $('#save-lead-btn');
         if (saveLeadBtn) {
             saveLeadBtn.onclick = async () => {
-                const fields = {};
-                $$('#lead-details-form [data-field]').forEach(el => {
-                    fields[el.dataset.field] = el.value;
-                });
-                await saveLead(state.route.id, fields);
+                saveLeadBtn.disabled = true;
+                try {
+                    const fields = {};
+                    $$('#lead-details-form [data-field]').forEach(el => {
+                        if (el.dataset.field === 'naechster_termin' && !el.value.trim()) return;
+                        fields[el.dataset.field] = el.value;
+                    });
+                    await saveLead(state.route.id, fields);
+                } catch (err) {
+                    showToast(err.message, 'warn');
+                } finally {
+                    saveLeadBtn.disabled = false;
+                }
+            };
+        }
+
+        const activateColdBtn = $('#activate-cold-btn');
+        if (activateColdBtn) {
+            activateColdBtn.onclick = async () => {
+                activateColdBtn.disabled = true;
+                try {
+                    await saveLead(state.route.id, { stage: 'Lead', naechster_schritt: 'Cold Lead aktiviert — Erstkontakt planen' });
+                    showToast('Lead in Pipeline aktiviert', 'success');
+                } catch (err) {
+                    showToast(err.message, 'warn');
+                } finally {
+                    activateColdBtn.disabled = false;
+                }
             };
         }
 
         const saveOppBtn = $('#save-opp-btn');
         if (saveOppBtn) {
             saveOppBtn.onclick = async () => {
-                const stage = $(`[data-field="stage"]`)?.value;
-                if (stage) await saveOpp(saveOppBtn.dataset.id, stage);
+                saveOppBtn.disabled = true;
+                try {
+                    const stage = $(`[data-field="stage"]`)?.value;
+                    if (stage) await saveOpp(saveOppBtn.dataset.id, stage);
+                } catch (err) {
+                    showToast(err.message, 'warn');
+                } finally {
+                    saveOppBtn.disabled = false;
+                }
             };
         }
 
@@ -865,30 +956,40 @@
     async function saveLead(ref, fields) {
         ref = decodeURIComponent(ref);
         const res = await api('/api/crm/update', { method: 'POST', body: JSON.stringify({ ref, fields }) });
-        if (!res.ok) { showToast(res.error || 'Speichern fehlgeschlagen', 'warn'); return; }
+        if (!res.ok) throw new Error(res.error || 'Speichern fehlgeschlagen');
         showSaved();
         await refreshData({ silent: true });
-        navigate('leads', ref);
+        render();
     }
 
     async function saveOpp(id, stage) {
         const res = await api('/api/crm/opportunity', { method: 'POST', body: JSON.stringify({ id, stage }) });
-        if (!res.ok) { showToast(res.error || 'Speichern fehlgeschlagen', 'warn'); return; }
+        if (!res.ok) throw new Error(res.error || 'Speichern fehlgeschlagen');
         showSaved();
         await refreshData({ silent: true });
-        navigate('opportunities', id);
+        render();
     }
 
     function openActivityModal(type, relatedType, relatedId) {
-        const titles = { Task: 'New Task', Call: 'Log a Call', Event: 'New Event', Email: 'Log Email' };
-        $('#activity-title').textContent = titles[type] || 'New Activity';
+        const titles = {
+            Task: 'Neue Aufgabe',
+            Call: 'Anruf protokollieren',
+            Event: 'Neuer Termin',
+            Email: 'E-Mail protokollieren',
+        };
+        const dialog = $('#activity-dialog');
+        if (!dialog || typeof dialog.showModal !== 'function') {
+            showToast('Dialog nicht unterstützt — Browser aktualisieren', 'warn');
+            return;
+        }
+        $('#activity-title').textContent = titles[type] || 'Neue Aktivität';
         $('#act-type').value = type;
         $('#act-related-type').value = relatedType;
         $('#act-related-id').value = relatedId;
-        $('#act-subject').value = '';
+        $('#act-subject').value = type === 'Call' ? 'Telefonat' : type === 'Event' ? 'Termin' : '';
         $('#act-due').value = '';
         $('#act-desc').value = '';
-        $('#activity-dialog').showModal();
+        dialog.showModal();
     }
 
     async function loadData(opts = {}) {
@@ -949,28 +1050,42 @@
 
     $('#nav-toggle')?.addEventListener('click', () => $('#sf-nav').classList.toggle('open'));
 
-    $$('[data-close]').forEach(btn => btn.addEventListener('click', () => $('#activity-dialog').close()));
+    $$('[data-close]').forEach(btn => btn.addEventListener('click', () => $('#activity-dialog')?.close()));
 
     $('#activity-form')?.addEventListener('submit', async e => {
         e.preventDefault();
-        const type = $('#act-type').value;
-        const res = await api('/api/crm/activity', {
-            method: 'POST',
-            body: JSON.stringify({
-                type,
-                related_type: $('#act-related-type').value,
-                related_id: $('#act-related-id').value,
-                subject: $('#act-subject').value,
-                due: $('#act-due').value,
-                description: $('#act-desc').value,
-                sync_termin: type === 'Event',
-            }),
-        });
-        if (!res.ok) { showToast(res.error || 'Fehler', 'warn'); return; }
-        $('#activity-dialog').close();
-        showSaved();
-        await refreshData({ silent: true });
-        render();
+        const submitBtn = $('#activity-save-btn');
+        const subject = $('#act-subject')?.value?.trim();
+        if (!subject) {
+            showToast('Bitte Betreff eingeben', 'warn');
+            $('#act-subject')?.focus();
+            return;
+        }
+        if (submitBtn) submitBtn.disabled = true;
+        try {
+            const type = $('#act-type').value;
+            const res = await api('/api/crm/activity', {
+                method: 'POST',
+                body: JSON.stringify({
+                    type,
+                    related_type: $('#act-related-type').value,
+                    related_id: $('#act-related-id').value,
+                    subject,
+                    due: $('#act-due').value,
+                    description: $('#act-desc').value,
+                    sync_termin: type === 'Event',
+                }),
+            });
+            if (!res.ok) throw new Error(res.error || 'Speichern fehlgeschlagen');
+            $('#activity-dialog').close();
+            showSaved();
+            await refreshData({ silent: true });
+            render();
+        } catch (err) {
+            showToast(err.message, 'warn');
+        } finally {
+            if (submitBtn) submitBtn.disabled = false;
+        }
     });
 
     if (secret()) {

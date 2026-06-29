@@ -2190,7 +2190,7 @@ function handleCrmOpportunityUpdate_(data) {
 
 function buildLeadDetailMap_(ss) {
   var map = {};
-  [TAB_ALL, TAB_AUFTRAGGEBER, TAB_AUFTRAGNEHMER].forEach(function (tabName) {
+  [TAB_ALL, TAB_AUFTRAGGEBER, TAB_AUFTRAGNEHMER, TAB_PORTFOLIO].forEach(function (tabName) {
     var sheet = ss.getSheetByName(tabName);
     if (!sheet || sheet.getLastRow() < 2) return;
     var values = sheet.getDataRange().getValues();
@@ -2224,6 +2224,97 @@ function enrichLeadFromDetail_(lead, detailMap) {
   return lead;
 }
 
+function portfolioRowToCrmObject_(row) {
+  var ref = String(row[0] || '');
+  var stage = String(row[21] || '').trim();
+  if (!stage || stage === 'Outreach' || stage === '-') stage = 'Im Portfolio';
+  var lead = {
+    ref: ref,
+    eingegangen: String(row[1] || ''),
+    name: String(row[3] || ''),
+    rolle: String(row[2] || 'Auftragnehmer'),
+    branche: String(row[7] || ''),
+    stadt: String(row[8] || ''),
+    stage: stage,
+    seriositaet: String(row[19] || '-'),
+    matches: row[20] || 0,
+    best_match: '-',
+    naechster_termin: '',
+    quelle: 'Outreach',
+    naechster_schritt: 'Cold Lead kontaktieren / qualifizieren',
+    vertrag: 'Nein',
+    intro_gesendet: 'Nein',
+    netto: '',
+    provision: '',
+    rechnung: '',
+    bezahlt: 'Nein',
+    verloren_grund: '',
+    notiz: String(row[17] || '').substring(0, 300),
+    ordner_link: String(row[24] || ''),
+    role_type: 'partner',
+    stages: PARTNER_STAGES,
+    terminal: isTerminalCrmStage_(row[2], stage),
+    cold_lead: true,
+    email: String(row[4] || ''),
+    telefon: String(row[5] || ''),
+    company: String(row[6] || row[3] || '')
+  };
+  lead.lead_status = sfLeadStatusFromStage_(lead);
+  lead.record_type = 'Cold Outreach Lead';
+  return lead;
+}
+
+function buildColdLeadsFromPortfolio_(ss, pipelineRefSet, detailMap) {
+  var sheet = ss.getSheetByName(TAB_PORTFOLIO);
+  var out = [];
+  if (!sheet || sheet.getLastRow() < 2) return out;
+  var values = sheet.getDataRange().getValues();
+  for (var r = 1; r < values.length; r++) {
+    var ref = String(values[r][0] || '');
+    if (!ref || pipelineRefSet[ref]) continue;
+    out.push(enrichLeadFromDetail_(portfolioRowToCrmObject_(values[r]), detailMap));
+  }
+  return out;
+}
+
+function ensurePipelineRowForColdLead_(ss, ref) {
+  var pipeSheet = ss.getSheetByName(TAB_PIPELINE);
+  var existing = findRowByRef_(pipeSheet, ref, 1);
+  if (existing > 0) return existing;
+
+  var portSheet = ss.getSheetByName(TAB_PORTFOLIO);
+  var portRow = findRowByRef_(portSheet, ref, 1);
+  if (portRow < 1) return -1;
+
+  var row = portSheet.getRange(portRow, 1, 1, LEAD_HEADERS.length).getValues()[0];
+  var data = {
+    role_code: 'unternehmen',
+    eingegangen: String(row[1] || ''),
+    rolle: String(row[2] || 'Auftragnehmer'),
+    name: String(row[3] || ''),
+    email: String(row[4] || ''),
+    telefon: String(row[5] || ''),
+    firma: String(row[6] || ''),
+    branche: String(row[7] || ''),
+    stadt: String(row[8] || ''),
+    source: 'outreach'
+  };
+  var folderUrl = String(row[24] || '');
+  var matchCount = Number(row[20]) || 0;
+  var serios = String(row[19] || '-');
+  var stage = String(row[21] || '').trim();
+  if (!stage || stage === 'Outreach' || stage === '-') stage = 'Im Portfolio';
+
+  pipeSheet.appendRow([
+    ref, data.eingegangen, data.name || data.firma, data.rolle,
+    data.branche, data.stadt, stage, serios, matchCount, '-',
+    '', 'Outreach', crmNextStepForStage_('unternehmen', stage, 0),
+    'Nein', 'Nein', '', '', '', 'Nein', '', String(row[17] || '').substring(0, 300),
+    folderUrl
+  ]);
+  return pipeSheet.getLastRow();
+}
+
 function computeCrmFingerprint_(leads, opportunities, activities) {
   var parts = [
     leads.length,
@@ -2243,13 +2334,17 @@ function handleCrmSnapshot_(data) {
   var detailMap = buildLeadDetailMap_(ss);
   var sheet = ss.getSheetByName(TAB_PIPELINE);
   var leads = [];
+  var pipelineRefSet = {};
   if (sheet && sheet.getLastRow() > 1) {
     var values = sheet.getRange(2, 1, sheet.getLastRow() - 1, PIPELINE_HEADERS.length).getValues();
     values.forEach(function (row) {
       if (!row[0]) return;
+      pipelineRefSet[String(row[0])] = true;
       leads.push(enrichLeadFromDetail_(pipelineRowToCrmObject_(row), detailMap));
     });
   }
+  var coldLeads = buildColdLeadsFromPortfolio_(ss, pipelineRefSet, detailMap);
+  leads = leads.concat(coldLeads);
   var today = Utilities.formatDate(new Date(), TZ, 'dd.MM.yyyy');
   var termine_heute = leads.filter(function (l) {
     return l.naechster_termin && l.naechster_termin.indexOf(today) >= 0;
@@ -2288,6 +2383,7 @@ function handleCrmSnapshot_(data) {
       open: leads.filter(function (l) { return !l.terminal; }).length,
       bauherr: leads.filter(function (l) { return l.role_type === 'bauherr'; }).length,
       partner: leads.filter(function (l) { return l.role_type === 'partner'; }).length,
+      cold: leads.filter(function (l) { return l.cold_lead; }).length,
       termine_heute: termine_heute.length,
       hot_matches: hot.length,
       opportunities: opportunities.length,
@@ -2315,7 +2411,10 @@ function handleCrmUpdate_(data) {
   ensureStructure_(ss);
   var sheet = ss.getSheetByName(TAB_PIPELINE);
   var rowNum = findRowByRef_(sheet, ref, 1);
-  if (rowNum < 1) return jsonResponse_({ ok: false, error: 'Lead nicht in Pipeline' });
+  if (rowNum < 1) {
+    rowNum = ensurePipelineRowForColdLead_(ss, ref);
+    if (rowNum < 1) return jsonResponse_({ ok: false, error: 'Lead nicht gefunden' });
+  }
 
   var fields = data.fields || data.updates || {};
   var colMap = {
@@ -2371,7 +2470,7 @@ function handleCrmUpdate_(data) {
 }
 
 function syncLeadPipelineStatus_(ss, ref, stage) {
-  [TAB_ALL, TAB_AUFTRAGGEBER, TAB_AUFTRAGNEHMER].forEach(function (tabName) {
+  [TAB_ALL, TAB_AUFTRAGGEBER, TAB_AUFTRAGNEHMER, TAB_PORTFOLIO].forEach(function (tabName) {
     var sheet = ss.getSheetByName(tabName);
     var rowNum = findRowByRef_(sheet, ref, 1);
     if (rowNum > 0) sheet.getRange(rowNum, 22).setValue(stage);
