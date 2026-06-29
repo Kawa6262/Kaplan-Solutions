@@ -5,13 +5,21 @@
     'use strict';
 
     const STORAGE_KEY = 'ks_crm_secret';
+    const SYNC_MS = 30000;
+    const SYNC_MS_ACTIVE = 15000;
     const state = {
         data: null,
         route: parseRoute(),
         listView: 'all',
-        displayMode: 'table', // table | kanban
+        displayMode: 'table',
         recentRecords: JSON.parse(localStorage.getItem('ks_recent') || '[]'),
+        lastFingerprint: '',
+        lastSyncAt: null,
+        syncErrors: 0,
+        pendingNewLeads: [],
     };
+    let syncTimer = null;
+    let syncing = false;
 
     const $ = (sel, root = document) => root.querySelector(sel);
     const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -55,6 +63,135 @@
     function trackRecent(type, id, name) {
         state.recentRecords = [{ type, id, name, at: Date.now() }, ...state.recentRecords.filter(r => !(r.type === type && r.id === id))].slice(0, 8);
         localStorage.setItem('ks_recent', JSON.stringify(state.recentRecords));
+    }
+
+    // ── Live Sync ─────────────────────────────────────────────────────────
+
+    function setSyncUI(mode, label) {
+        const dot = $('#sync-dot');
+        const lbl = $('#sync-label');
+        if (!dot) return;
+        dot.className = 'sf-sync-dot ' + mode;
+        if (lbl) lbl.textContent = label;
+    }
+
+    function showToast(msg, type = '') {
+        const root = $('#toast-root');
+        if (!root) return;
+        const el = document.createElement('div');
+        el.className = 'sf-toast' + (type ? ' ' + type : '');
+        el.textContent = msg;
+        root.appendChild(el);
+        setTimeout(() => el.remove(), 5000);
+    }
+
+    function showSaved() {
+        const el = document.createElement('div');
+        el.className = 'sf-save-toast';
+        el.textContent = 'Gespeichert';
+        document.body.appendChild(el);
+        setTimeout(() => el.remove(), 2000);
+    }
+
+    function detectChanges(prev, next) {
+        if (!prev || !next) return;
+        const prevRefs = new Set((prev.leads || []).map(l => l.ref));
+        const newLeads = (next.leads || []).filter(l => !prevRefs.has(l.ref));
+        if (newLeads.length) {
+            newLeads.forEach(l => showToast('Neuer Lead: ' + l.name + ' (' + l.ref + ')', 'success'));
+            state.pendingNewLeads = newLeads;
+            if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
+                new Notification('Kaplan Sales', { body: newLeads.length + ' neuer Lead(s)' });
+            }
+        }
+        const prevHot = prev.stats?.hot_matches || 0;
+        const nextHot = next.stats?.hot_matches || 0;
+        if (nextHot > prevHot) {
+            showToast('Neuer Hot Match (' + nextHot + ' gesamt)', 'warn');
+        }
+    }
+
+    function startAutoSync() {
+        stopAutoSync();
+        const tick = () => {
+            if (document.hidden) return;
+            refreshData({ silent: true });
+        };
+        syncTimer = setInterval(tick, SYNC_MS);
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) refreshData({ silent: true });
+        });
+        if ('Notification' in window && Notification.permission === 'default') {
+            Notification.requestPermission().catch(() => {});
+        }
+    }
+
+    function stopAutoSync() {
+        if (syncTimer) clearInterval(syncTimer);
+        syncTimer = null;
+    }
+
+    async function refreshData(opts = {}) {
+        if (syncing && opts.silent) return;
+        syncing = true;
+        if (!opts.silent) $('#loading-bar')?.classList.add('active');
+        setSyncUI('syncing', 'Sync…');
+        try {
+            const prev = state.data;
+            await loadData(opts);
+            if (prev && state.data?.snapshot_fingerprint !== state.lastFingerprint) {
+                detectChanges(prev, state.data);
+            }
+            state.lastFingerprint = state.data?.snapshot_fingerprint || '';
+            state.lastSyncAt = Date.now();
+            state.syncErrors = 0;
+            setSyncUI('live', 'Live · ' + (state.data?.updated || ''));
+            if (!opts.silent) render();
+            else {
+                updateNavBadges();
+                const banner = $('#new-leads-banner');
+                if (state.pendingNewLeads.length && !banner) renderNewLeadsBanner();
+            }
+        } catch (e) {
+            state.syncErrors++;
+            setSyncUI(state.syncErrors > 2 ? 'error' : 'stale', 'Sync-Fehler');
+            if (!opts.silent) showToast(e.message, 'warn');
+        } finally {
+            syncing = false;
+            $('#loading-bar')?.classList.remove('active');
+        }
+    }
+
+    function updateNavBadges() {
+        const hot = state.data?.stats?.hot_matches || 0;
+        const open = state.data?.stats?.open || 0;
+        $$('.sf-nav a').forEach(a => {
+            a.querySelector('.sf-badge')?.remove();
+            if (a.dataset.route === 'leads' && open) {
+                a.insertAdjacentHTML('beforeend', `<span class="sf-badge">${open}</span>`);
+            }
+            if (a.dataset.route === 'opportunities' && hot) {
+                a.insertAdjacentHTML('beforeend', `<span class="sf-badge hot">${hot}</span>`);
+            }
+        });
+    }
+
+    function renderNewLeadsBanner() {
+        if (!state.pendingNewLeads.length) return '';
+        return `<div class="sf-new-banner" id="new-leads-banner">
+            <span>${state.pendingNewLeads.length} neue Anfrage(n) — ${state.pendingNewLeads.map(l => l.name).join(', ')}</span>
+            <button type="button" id="view-new-leads">Anzeigen</button>
+        </div>`;
+    }
+
+    function contactLink(type, value) {
+        if (!value || value === '—') return '—';
+        if (type === 'email') return `<a class="sf-link-action" href="mailto:${esc(value)}">${esc(value)}</a>`;
+        if (type === 'phone') {
+            const tel = value.replace(/\s/g, '');
+            return `<a class="sf-link-action" href="tel:${esc(tel)}">${esc(value)}</a>`;
+        }
+        return esc(value);
     }
 
     // ── Auth ──────────────────────────────────────────────────────────────
@@ -104,7 +241,8 @@
         const termine = state.data?.termine_heute || [];
         const recent = state.recentRecords;
 
-        return pageHeader('🏠', 'home', 'Home', `Salesforce Home · ${state.data?.updated || ''}`) + `
+        return pageHeader('🏠', 'home', 'Home', `Kaplan Sales · ${state.data?.updated || ''}`) +
+        (renderNewLeadsBanner() || '') + `
         <div class="sf-home">
             <div class="sf-kpi-row">
                 <div class="sf-kpi"><strong>${s.open || 0}</strong><span>Open Leads</span></div>
@@ -196,15 +334,18 @@
                     <th>Name</th><th>Company</th><th>Lead Status</th><th>Stage</th>
                     <th>City</th><th>Rating</th><th>Source</th>
                 </tr></thead>
-                <tbody>${leads.map(l => `<tr data-ref="${esc(l.ref)}">
-                    <td><a href="#/leads/${esc(l.ref)}">${esc(l.name)}</a></td>
+                <tbody>${leads.map(l => {
+                    const hot = (parseInt(String(l.best_match).replace('%', ''), 10) || 0) >= 75;
+                    return `<tr data-ref="${esc(l.ref)}">
+                    <td><a href="#/leads/${esc(l.ref)}">${esc(l.name)}</a>${hot ? '<span class="badge-hot">HOT</span>' : ''}</td>
                     <td>${esc(l.company || l.name)}</td>
                     <td>${esc(l.lead_status)}</td>
                     <td>${esc(l.stage)}</td>
                     <td>${esc(l.stadt)}</td>
                     <td>${esc(l.best_match || l.seriositaet || '—')}</td>
                     <td>${esc(l.quelle)}</td>
-                </tr>`).join('') || '<tr><td colspan="7" class="sf-empty">No records</td></tr>'}
+                </tr>`;
+                }).join('') || '<tr><td colspan="7" class="sf-empty">Keine Einträge</td></tr>'}
                 </tbody></table></div></div>`;
         }
 
@@ -245,10 +386,11 @@
             <div class="sf-record">
                 <div class="sf-highlights">
                     <div class="sf-highlight-item"><label>Lead Status</label><span>${esc(l.lead_status)}</span></div>
-                    <div class="sf-highlight-item"><label>Phone</label><span>—</span></div>
-                    <div class="sf-highlight-item"><label>Email</label><span>—</span></div>
+                    <div class="sf-highlight-item"><label>Telefon</label><span>${contactLink('phone', l.telefon)}</span></div>
+                    <div class="sf-highlight-item"><label>E-Mail</label><span>${contactLink('email', l.email)}</span></div>
                     <div class="sf-highlight-item"><label>Rating</label><span>${esc(l.best_match || l.seriositaet || '—')}</span></div>
-                    <div class="sf-highlight-item"><label>Source</label><span>${esc(l.quelle)}</span></div>
+                    <div class="sf-highlight-item"><label>Quelle</label><span>${esc(l.quelle)}</span></div>
+                    <div class="sf-highlight-item"><label>Firma</label><span>${esc(l.company || l.name)}</span></div>
                 </div>
                 <div class="sf-record-grid">
                     <div class="sf-panel">
@@ -265,7 +407,7 @@
                             ${detailField('Paid', 'bezahlt', l.bezahlt, 'select', ['Nein', 'Ja'])}
                             ${detailField('Lost Reason', 'verloren_grund', l.verloren_grund)}
                             ${detailField('Notes', 'notiz', l.notiz, 'textarea')}
-                            <button type="button" class="slds-button slds-button_brand" id="save-lead-btn">Save</button>
+                            <button type="button" class="slds-button slds-button_brand" id="save-lead-btn">Speichern</button>
                         </div>
                     </div>
                     <div class="sf-panel">
@@ -422,13 +564,14 @@
         const contacts = state.data?.contacts || [];
         return pageHeader('👤', 'contacts', 'Contacts', `${contacts.length} items`) +
             `<div class="sf-list-wrap"><div class="sf-table-wrap"><table class="sf-table">
-                <thead><tr><th>Name</th><th>Account</th><th>Title</th><th>City</th></tr></thead>
+                <thead><tr><th>Name</th><th>Account</th><th>E-Mail</th><th>Telefon</th><th>Stadt</th></tr></thead>
                 <tbody>${contacts.map(c => `<tr>
                     <td><a href="#/leads/${esc(c.lead_ref)}">${esc(c.name)}</a></td>
                     <td>${esc(c.account_name)}</td>
-                    <td>${esc(c.title)}</td>
+                    <td>${contactLink('email', c.email)}</td>
+                    <td>${contactLink('phone', c.phone)}</td>
                     <td>${esc(c.city)}</td>
-                </tr>`).join('') || '<tr><td colspan="4" class="sf-empty">No contacts</td></tr>'}
+                </tr>`).join('') || '<tr><td colspan="5" class="sf-empty">Keine Kontakte</td></tr>'}
                 </tbody></table></div></div>`;
     }
 
@@ -502,6 +645,12 @@
 
         $('#sf-main').innerHTML = html;
         bindPageEvents();
+        updateNavBadges();
+        $('#view-new-leads')?.addEventListener('click', () => {
+            state.pendingNewLeads = [];
+            state.listView = 'all';
+            navigate('leads');
+        });
     }
 
     // ── Events ───────────────────────────────────────────────────────────
@@ -583,15 +732,17 @@
     async function saveLead(ref, fields) {
         ref = decodeURIComponent(ref);
         const res = await api('/api/crm/update', { method: 'POST', body: JSON.stringify({ ref, fields }) });
-        if (!res.ok) { alert(res.error || 'Save failed'); return; }
-        await loadData();
+        if (!res.ok) { showToast(res.error || 'Speichern fehlgeschlagen', 'warn'); return; }
+        showSaved();
+        await refreshData({ silent: true });
         navigate('leads', ref);
     }
 
     async function saveOpp(id, stage) {
         const res = await api('/api/crm/opportunity', { method: 'POST', body: JSON.stringify({ id, stage }) });
-        if (!res.ok) { alert(res.error || 'Save failed'); return; }
-        await loadData();
+        if (!res.ok) { showToast(res.error || 'Speichern fehlgeschlagen', 'warn'); return; }
+        showSaved();
+        await refreshData({ silent: true });
         navigate('opportunities', id);
     }
 
@@ -618,6 +769,7 @@
             throw new Error(data.error || 'Laden fehlgeschlagen');
         }
         state.data = data;
+        state.lastFingerprint = data.snapshot_fingerprint || '';
     }
 
     // ── Init ─────────────────────────────────────────────────────────────
@@ -629,6 +781,7 @@
         try {
             await loadData({ loginAttempt: true });
             showApp();
+            startAutoSync();
             render();
         } catch (err) {
             sessionStorage.removeItem(STORAGE_KEY);
@@ -637,7 +790,7 @@
         }
     });
 
-    $('#refresh-btn')?.addEventListener('click', () => loadData().then(render).catch(e => alert(e.message)));
+    $('#refresh-btn')?.addEventListener('click', () => refreshData().catch(e => showToast(e.message, 'warn')));
     window.addEventListener('hashchange', render);
 
     $('#global-search')?.addEventListener('keydown', e => {
@@ -663,14 +816,20 @@
                 sync_termin: type === 'Event',
             }),
         });
-        if (!res.ok) { alert(res.error || 'Failed'); return; }
+        if (!res.ok) { showToast(res.error || 'Fehler', 'warn'); return; }
         $('#activity-dialog').close();
-        await loadData();
+        showSaved();
+        await refreshData({ silent: true });
         render();
     });
 
     if (secret()) {
-        loadData().then(() => { showApp(); render(); }).catch(showLogin);
+        loadData().then(() => {
+            showApp();
+            startAutoSync();
+            setSyncUI('live', 'Live');
+            render();
+        }).catch(showLogin);
     } else {
         showLogin();
     }

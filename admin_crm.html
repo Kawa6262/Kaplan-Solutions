@@ -36,12 +36,17 @@
             <div class="sf-global-search-wrap">
                 <input type="search" id="global-search" placeholder="Search..." autocomplete="off" />
             </div>
+            <div id="sync-status" class="sf-sync-status" title="Live-Sync mit Google Sheet">
+                <span class="sf-sync-dot live" id="sync-dot"></span>
+                <span id="sync-label">Live</span>
+            </div>
             <div class="sf-header-utils">
                 <button type="button" id="refresh-btn" class="sf-icon-btn" title="Refresh">↻</button>
                 <div class="sf-avatar" title="Ferhat Kaplan">FK</div>
             </div>
         </header>
 
+        <div class="sf-loading-bar" id="loading-bar"></div>
         <div class="sf-body">
             <nav id="sf-nav" class="sf-nav">
                 <a href="#/home" data-route="home"><span class="sf-nav-icon">🏠</span>Home</a>
@@ -84,6 +89,8 @@
             </footer>
         </form>
     </dialog>
+
+    <div id="toast-root" class="sf-toast-root" aria-live="polite"></div>
 
     <script src="/admin-crm.js"></script>
 </body>

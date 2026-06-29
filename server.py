@@ -1449,7 +1449,10 @@ def admin_crm_page():
 def api_crm_snapshot():
     if not _crm_auth_ok():
         abort(401)
-    return jsonify(_sheet_action("crm_snapshot"))
+    resp = jsonify(_sheet_action("crm_snapshot"))
+    r = app.make_response(resp)
+    r.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    return r
 
 
 @app.post("/api/crm/update")

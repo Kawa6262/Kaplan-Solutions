@@ -2068,8 +2068,8 @@ function buildCrmContacts_(leads) {
       id: 'CON-' + l.ref,
       name: l.name,
       account_name: l.company || l.name,
-      email: '',
-      phone: '',
+      email: l.email || '',
+      phone: l.telefon || '',
       lead_ref: l.ref,
       title: l.rolle,
       city: l.stadt
@@ -2188,19 +2188,66 @@ function handleCrmOpportunityUpdate_(data) {
   return jsonResponse_({ ok: true, action: 'crm_opportunity_update', id: id, stage: stage, status: newStatus });
 }
 
+function buildLeadDetailMap_(ss) {
+  var map = {};
+  [TAB_ALL, TAB_AUFTRAGGEBER, TAB_AUFTRAGNEHMER].forEach(function (tabName) {
+    var sheet = ss.getSheetByName(tabName);
+    if (!sheet || sheet.getLastRow() < 2) return;
+    var values = sheet.getDataRange().getValues();
+    var idx = indexMapLead_(values[0]);
+    for (var r = 1; r < values.length; r++) {
+      var row = values[r];
+      var ref = String(row[idx.ref] || '');
+      if (!ref) continue;
+      map[ref] = {
+        email: String(row[idx.email] || ''),
+        telefon: String(row[idx.telefon] || ''),
+        firma: String(row[idx.firma] || ''),
+        budget: idx.budget >= 0 ? String(row[idx.budget] || '') : '',
+        projekt: idx.projekt >= 0 ? String(row[idx.projekt] || '') : '',
+        nachricht: idx.nachricht >= 0 ? String(row[idx.nachricht] || '') : ''
+      };
+    }
+  });
+  return map;
+}
+
+function enrichLeadFromDetail_(lead, detailMap) {
+  var d = detailMap[lead.ref];
+  if (!d) return lead;
+  if (d.email) lead.email = d.email;
+  if (d.telefon && d.telefon !== '\u2014') lead.telefon = d.telefon;
+  if (d.firma && d.firma !== '\u2014') lead.company = d.firma;
+  if (d.budget) lead.budget = d.budget;
+  if (d.projekt) lead.projekt = d.projekt;
+  if (d.nachricht) lead.nachricht = d.nachricht;
+  return lead;
+}
+
+function computeCrmFingerprint_(leads, opportunities, activities) {
+  var parts = [
+    leads.length,
+    opportunities.length,
+    activities.length,
+    leads.map(function (l) { return l.ref + ':' + l.stage; }).join('|'),
+    opportunities.map(function (o) { return o.id + ':' + o.stage; }).join('|')
+  ];
+  return Utilities.base64EncodeWebSafe(String(parts.join('::')).substring(0, 500));
+}
+
 function handleCrmSnapshot_(data) {
   if (!verifyCrmSecret_(data)) {
     return jsonResponse_({ ok: false, error: 'unauthorized' });
   }
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  ensureStructure_(ss);
+  var detailMap = buildLeadDetailMap_(ss);
   var sheet = ss.getSheetByName(TAB_PIPELINE);
   var leads = [];
   if (sheet && sheet.getLastRow() > 1) {
     var values = sheet.getRange(2, 1, sheet.getLastRow() - 1, PIPELINE_HEADERS.length).getValues();
     values.forEach(function (row) {
       if (!row[0]) return;
-      leads.push(pipelineRowToCrmObject_(row));
+      leads.push(enrichLeadFromDetail_(pipelineRowToCrmObject_(row), detailMap));
     });
   }
   var today = Utilities.formatDate(new Date(), TZ, 'dd.MM.yyyy');
@@ -2226,6 +2273,7 @@ function handleCrmSnapshot_(data) {
     action: 'crm_snapshot',
     platform: 'Salesforce Lightning (Kaplan)',
     updated: Utilities.formatDate(new Date(), TZ, 'dd.MM.yyyy HH:mm'),
+    snapshot_fingerprint: computeCrmFingerprint_(leads, opportunities, activities),
     bauherr_stages: BAUHERR_STAGES,
     partner_stages: PARTNER_STAGES,
     opp_stages: SF_OPP_STAGES,
