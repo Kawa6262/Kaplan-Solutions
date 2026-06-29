@@ -376,6 +376,49 @@ body {
     letter-spacing: 0.04em;
 }
 .badge-cold.inline { margin-left: 0; }
+.badge-warm {
+    display: inline-block;
+    background: #2e844a;
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 3px;
+    margin-left: 6px;
+    letter-spacing: 0.04em;
+}
+.sf-badge.cold { background: #706e6b; margin-left: 4px; }
+
+.sf-stale-banner {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    background: #fef3cd;
+    color: #856404;
+    padding: 8px 16px;
+    font-size: 13px;
+    border-bottom: 1px solid #ffc107;
+}
+.sf-stale-banner button {
+    background: #fff;
+    border: 1px solid #856404;
+    border-radius: 4px;
+    padding: 4px 12px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.sf-cal-day { margin-bottom: 20px; }
+.sf-cal-day-header {
+    margin: 0 0 8px;
+    padding: 8px 12px;
+    background: var(--sf-blue-light);
+    color: var(--sf-blue-dark);
+    font-size: 13px;
+    border-radius: 4px;
+}
 
 .sf-form-actions {
     display: flex;

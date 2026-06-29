@@ -1914,24 +1914,11 @@ function syncCrmPipelineFromMatches_(ss, pairs) {
     });
     if (matchCount > 0) sheet.getRange(rowNum, 9).setValue(matchCount);
 
-    var targetStage = '';
-    if (best >= 75) {
-      targetStage = roleCode === 'bauherr' ? 'Match vorgeschlagen' : 'Match erhalten';
-    } else if (best >= 50 && matchCount > 0) {
-      targetStage = roleCode === 'bauherr' ? 'Matching l\u00e4uft' : stage;
+    // Stage wird NUR manuell im CRM gesetzt — kein Auto-Vorrücken mehr
+    var suggestedStep = crmNextStepForStage_(roleCode, stage, best);
+    if (suggestedStep && !String(values[i][12] || '').trim()) {
+      sheet.getRange(rowNum, 13).setValue(suggestedStep);
     }
-
-    if (targetStage && stageIndex_(stages, targetStage) > stageIndex_(stages, stage)) {
-      stage = targetStage;
-      sheet.getRange(rowNum, 7).setValue(stage);
-    }
-
-    if (String(values[i][18] || '') === 'Ja' && roleCode === 'unternehmen') {
-      stage = 'Provision bezahlt';
-      sheet.getRange(rowNum, 7).setValue(stage).setBackground(C_GREEN);
-    }
-
-    sheet.getRange(rowNum, 13).setValue(crmNextStepForStage_(roleCode, stage, best));
   }
 }
 
@@ -2214,13 +2201,27 @@ function buildLeadDetailMap_(ss) {
 
 function enrichLeadFromDetail_(lead, detailMap) {
   var d = detailMap[lead.ref];
-  if (!d) return lead;
-  if (d.email) lead.email = d.email;
-  if (d.telefon && d.telefon !== '\u2014') lead.telefon = d.telefon;
-  if (d.firma && d.firma !== '\u2014') lead.company = d.firma;
-  if (d.budget) lead.budget = d.budget;
-  if (d.projekt) lead.projekt = d.projekt;
-  if (d.nachricht) lead.nachricht = d.nachricht;
+  if (!d) return sanitizeLeadFields_(lead);
+  if (d.email) lead.email = sanitizeFieldValue_(d.email);
+  if (d.telefon && d.telefon !== '\u2014') lead.telefon = sanitizeFieldValue_(d.telefon);
+  if (d.firma && d.firma !== '\u2014') lead.company = sanitizeFieldValue_(d.firma);
+  if (d.budget) lead.budget = sanitizeFieldValue_(d.budget);
+  if (d.projekt) lead.projekt = sanitizeFieldValue_(d.projekt);
+  if (d.nachricht) lead.nachricht = sanitizeFieldValue_(d.nachricht);
+  return sanitizeLeadFields_(lead);
+}
+
+function sanitizeFieldValue_(val) {
+  var s = String(val || '').trim();
+  if (!s || s === '\u2014' || s === '-' || s.indexOf('#ERROR') === 0 || s === '#N/A') return '';
+  return s;
+}
+
+function sanitizeLeadFields_(lead) {
+  lead.telefon = sanitizeFieldValue_(lead.telefon);
+  lead.email = sanitizeFieldValue_(lead.email);
+  lead.company = sanitizeFieldValue_(lead.company || lead.name);
+  lead.naechster_termin = sanitizeFieldValue_(lead.naechster_termin);
   return lead;
 }
 
@@ -2381,9 +2382,11 @@ function handleCrmSnapshot_(data) {
     stats: {
       total: leads.length,
       open: leads.filter(function (l) { return !l.terminal; }).length,
+      open_inbound: leads.filter(function (l) { return !l.terminal && !l.cold_lead && String(l.quelle || '') !== 'Outreach'; }).length,
+      open_cold: leads.filter(function (l) { return !l.terminal && (l.cold_lead || String(l.quelle || '') === 'Outreach'); }).length,
       bauherr: leads.filter(function (l) { return l.role_type === 'bauherr'; }).length,
       partner: leads.filter(function (l) { return l.role_type === 'partner'; }).length,
-      cold: leads.filter(function (l) { return l.cold_lead; }).length,
+      cold: leads.filter(function (l) { return l.cold_lead || String(l.quelle || '') === 'Outreach'; }).length,
       termine_heute: termine_heute.length,
       hot_matches: hot.length,
       opportunities: opportunities.length,
@@ -2443,7 +2446,7 @@ function handleCrmUpdate_(data) {
   var stage = String(fields.stage || row[6] || '');
   var best = parseInt(String(row[9] || '0').replace('%', ''), 10) || 0;
 
-  if (fields.bezahlt === 'Ja' && roleCode === 'unternehmen') {
+  if (fields.bezahlt === 'Ja' && String(fields.vertrag || row[13] || '') === 'Ja' && roleCode === 'unternehmen') {
     stage = 'Provision bezahlt';
     sheet.getRange(rowNum, 7).setValue(stage).setBackground(C_GREEN);
   }

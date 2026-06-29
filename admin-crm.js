@@ -5,19 +5,23 @@
     'use strict';
 
     const STORAGE_KEY = 'ks_crm_secret';
-    const SYNC_MS = 30000;
+    const SYNC_MS = 60000;
     const SYNC_MS_ACTIVE = 15000;
     const state = {
         data: null,
         route: parseRoute(),
-        listView: 'all',
+        listView: localStorage.getItem('ks_list_view') || 'inbound',
         displayMode: 'table',
         recentRecords: JSON.parse(localStorage.getItem('ks_recent') || '[]'),
         lastFingerprint: '',
+        renderedFingerprint: '',
         lastSyncAt: null,
         syncErrors: 0,
         pendingNewLeads: [],
         refFilter: '',
+        formDirty: false,
+        staleData: false,
+        undoLead: null,
     };
     let syncTimer = null;
     let syncing = false;
@@ -95,6 +99,34 @@
         setTimeout(() => el.remove(), 5000);
     }
 
+    function isUserEditing() {
+        const ae = document.activeElement;
+        if (state.formDirty) return true;
+        if (ae?.closest('#lead-details-form, #activity-dialog, #ref-filter, #global-search')) return true;
+        return false;
+    }
+
+    function showStaleBanner() {
+        let el = $('#stale-data-banner');
+        if (el) return;
+        el = document.createElement('div');
+        el.id = 'stale-data-banner';
+        el.className = 'sf-stale-banner';
+        el.innerHTML = '<span>Neue Daten im Sheet verfügbar</span><button type="button" id="stale-refresh-btn">Jetzt aktualisieren</button>';
+        $('#app-shell')?.prepend(el);
+        el.querySelector('#stale-refresh-btn').onclick = () => {
+            state.staleData = false;
+            state.formDirty = false;
+            el.remove();
+            refreshData({ forceRender: true }).catch(e => showToast(e.message, 'warn'));
+        };
+    }
+
+    function removeStaleBanner() {
+        $('#stale-data-banner')?.remove();
+        state.staleData = false;
+    }
+
     function showSaved() {
         const el = document.createElement('div');
         el.className = 'sf-save-toast';
@@ -148,19 +180,29 @@
         setSyncUI('syncing', 'Sync…');
         try {
             const prev = state.data;
+            const prevFp = prev?.snapshot_fingerprint || '';
             await loadData(opts);
-            if (prev && state.data?.snapshot_fingerprint !== state.lastFingerprint) {
+            if (prev && state.data?.snapshot_fingerprint !== prevFp) {
                 detectChanges(prev, state.data);
             }
             state.lastFingerprint = state.data?.snapshot_fingerprint || '';
             state.lastSyncAt = Date.now();
             state.syncErrors = 0;
             setSyncUI('live', 'Live · ' + (state.data?.updated || ''));
-            if (!opts.silent) render();
-            else {
+
+            const dataChanged = prev && state.data?.snapshot_fingerprint !== prevFp;
+            const shouldRender = opts.forceRender || (!opts.silent && !isUserEditing());
+
+            if (shouldRender) {
+                removeStaleBanner();
+                render();
+                state.renderedFingerprint = state.lastFingerprint;
+            } else if (opts.silent) {
                 updateNavBadges();
-                const banner = $('#new-leads-banner');
-                if (state.pendingNewLeads.length && !banner) renderNewLeadsBanner();
+                if (dataChanged) {
+                    state.staleData = true;
+                    showStaleBanner();
+                }
             }
         } catch (e) {
             state.syncErrors++;
@@ -174,11 +216,15 @@
 
     function updateNavBadges() {
         const hot = state.data?.stats?.hot_matches || 0;
-        const open = state.data?.stats?.open || 0;
+        const openInbound = state.data?.stats?.open_inbound ?? state.data?.stats?.open ?? 0;
+        const openCold = state.data?.stats?.open_cold || 0;
         $$('.sf-nav a').forEach(a => {
             a.querySelector('.sf-badge')?.remove();
-            if (a.dataset.route === 'leads' && open) {
-                a.insertAdjacentHTML('beforeend', `<span class="sf-badge">${open}</span>`);
+            if (a.dataset.route === 'leads' && openInbound) {
+                a.insertAdjacentHTML('beforeend', `<span class="sf-badge">${openInbound}</span>`);
+            }
+            if (a.dataset.route === 'leads' && openCold) {
+                a.insertAdjacentHTML('beforeend', `<span class="sf-badge cold">${openCold}</span>`);
             }
             if (a.dataset.route === 'opportunities' && hot) {
                 a.insertAdjacentHTML('beforeend', `<span class="sf-badge hot">${hot}</span>`);
@@ -194,8 +240,15 @@
         </div>`;
     }
 
+    function sanitizeField(val) {
+        const s = String(val ?? '').trim();
+        if (!s || s === '—' || s === '-' || s.startsWith('#')) return '';
+        return s;
+    }
+
     function contactLink(type, value) {
-        if (!value || value === '—' || value === '-') return '—';
+        value = sanitizeField(value);
+        if (!value) return '—';
         if (type === 'email') return `<a class="sf-link-action" href="mailto:${esc(value)}">${esc(value)}</a>`;
         if (type === 'phone') {
             const tel = value.replace(/\s/g, '');
@@ -301,15 +354,15 @@
         return stages[idx + 1];
     }
 
-    function renderPathActions(stages, current) {
+    function renderPathActions(stages, current, roleType = 'partner') {
+        const idx = stages.indexOf(current);
         const next = getNextStage(stages, current);
-        if (!next) {
-            return '<div class="sf-path-actions"><span class="sf-path-done">Letzter Schritt im Pfad</span></div>';
-        }
+        const prev = idx > 0 ? stages[idx - 1] : null;
+        const resetStage = roleType === 'bauherr' ? 'Neu' : 'Lead';
         return `<div class="sf-path-actions">
-            <button type="button" class="slds-button slds-button_brand" id="path-advance-btn" data-next="${esc(next)}">
-                Nächster Schritt → ${esc(next)}
-            </button>
+            ${prev ? `<button type="button" class="slds-button slds-button_neutral" id="path-prev-btn" data-stage="${esc(prev)}">← ${esc(prev)}</button>` : ''}
+            ${next ? `<button type="button" class="slds-button slds-button_brand" id="path-advance-btn" data-next="${esc(next)}">Nächster Schritt → ${esc(next)}</button>` : '<span class="sf-path-done">Letzter Schritt im Pfad</span>'}
+            <button type="button" class="slds-button slds-button_neutral" id="path-reset-btn" data-stage="${esc(resetStage)}" title="Stage manuell zurücksetzen">↩ ${esc(resetStage)}</button>
         </div>`;
     }
 
@@ -389,9 +442,9 @@
         const v = state.listView;
         let filtered = leads;
         if (v === 'bauherr') filtered = filtered.filter(l => l.role_type === 'bauherr');
-        else if (v === 'partner') filtered = filtered.filter(l => l.role_type === 'partner' && !l.cold_lead);
-        else if (v === 'cold') filtered = filtered.filter(l => l.cold_lead);
-        else if (v === 'inbound') filtered = filtered.filter(l => !l.cold_lead);
+        else if (v === 'partner') filtered = filtered.filter(l => l.role_type === 'partner' && !l.cold_lead && l.quelle !== 'Outreach');
+        else if (v === 'cold') filtered = filtered.filter(l => l.cold_lead || l.quelle === 'Outreach');
+        else if (v === 'inbound') filtered = filtered.filter(l => !l.cold_lead && l.quelle !== 'Outreach');
         else if (v === 'open') filtered = filtered.filter(l => !l.terminal);
         else if (v === 'hot') filtered = filtered.filter(l => (parseInt(String(l.best_match).replace('%', ''), 10) || 0) >= 75 && !l.terminal);
         if (state.refFilter) filtered = filtered.filter(l => leadMatchesQuery(l, state.refFilter));
@@ -417,9 +470,9 @@
     function renderLeadsList() {
         const leads = filterLeads(state.data?.leads || []);
         const views = [
-            { id: 'all', label: 'Alle Leads' },
-            { id: 'inbound', label: 'Website-Anfragen' },
+            { id: 'inbound', label: 'Website-Anfragen (warm)' },
             { id: 'cold', label: 'Cold / Outreach' },
+            { id: 'all', label: 'Alle Leads' },
             { id: 'open', label: 'Offene Leads' },
             { id: 'bauherr', label: 'Bauherr Leads' },
             { id: 'partner', label: 'Partner Leads' },
@@ -444,7 +497,9 @@
                 </tr></thead>
                 <tbody>${leads.map(l => {
                     const hot = (parseInt(String(l.best_match).replace('%', ''), 10) || 0) >= 75;
-                    const typeBadge = l.cold_lead ? '<span class="badge-cold">COLD</span>' : '';
+                    const typeBadge = l.cold_lead || l.quelle === 'Outreach'
+                        ? '<span class="badge-cold">COLD</span>'
+                        : '<span class="badge-warm">WARM</span>';
                     return `<tr data-ref="${esc(l.ref)}">
                     <td class="col-ref"><a href="#/leads/${esc(l.ref)}">${esc(l.ref)}</a></td>
                     <td><a href="#/leads/${esc(l.ref)}">${esc(l.name)}</a>${hot ? '<span class="badge-hot">HOT</span>' : ''}</td>
@@ -501,7 +556,7 @@
             esc(l.lead_status),
             l.stadt ? esc(l.stadt) : '',
         ].filter(Boolean)) +
-            `<div class="sf-path-wrap">${renderPath(l.stages || [], l.stage)}${renderPathActions(l.stages || [], l.stage)}</div>
+            `<div class="sf-path-wrap">${renderPath(l.stages || [], l.stage)}${renderPathActions(l.stages || [], l.stage, l.role_type)}</div>
             <div class="sf-record">
                 <div class="sf-highlights">
                     ${highlightField('Status', esc(l.lead_status), true)}
@@ -538,6 +593,7 @@
                             </div>
                             <div class="sf-form-actions">
                                 ${l.cold_lead ? `<button type="button" class="slds-button slds-button_neutral" id="activate-cold-btn">In Pipeline aktivieren</button>` : ''}
+                                <button type="button" class="slds-button slds-button_neutral" id="undo-lead-btn"${state.undoLead?.ref === l.ref ? '' : ' disabled'}>Rückgängig</button>
                                 <button type="button" class="slds-button slds-button_brand" id="save-lead-btn">Speichern</button>
                             </div>
                         </div>
@@ -730,18 +786,45 @@
     }
 
     function renderCalendar() {
-        const events = (state.data?.activities || []).filter(a => a.type === 'Event');
-        const leads = state.data?.termine_heute || [];
-        const all = [...events, ...leads.map(l => ({ subject: l.name, due: l.naechster_termin, related_id: l.ref, type: 'Event' }))];
-        return pageHeader('📅', 'home', 'Calendar', 'Events & Appointments') +
-            `<div class="sf-list-wrap"><div class="sf-table-wrap"><table class="sf-table">
-                <thead><tr><th>Subject</th><th>Start</th><th>Related To</th></tr></thead>
-                <tbody>${all.map(e => `<tr>
-                    <td>${esc(e.subject)}</td>
-                    <td>${esc(e.due)}</td>
-                    <td><a href="#/leads/${esc(e.related_id)}">${esc(e.related_id)}</a></td>
-                </tr>`).join('') || '<tr><td colspan="3" class="sf-empty">No events</td></tr>'}
-                </tbody></table></div></div>`;
+        const actEvents = (state.data?.activities || []).filter(a => a.type === 'Event' && a.due);
+        const actTasks = (state.data?.activities || []).filter(a => a.type === 'Task' && a.due);
+        const leadTermine = (state.data?.leads || [])
+            .filter(l => formatTermin(l.naechster_termin))
+            .map(l => ({
+                subject: l.name + ' — Termin',
+                due: l.naechster_termin,
+                related_id: l.ref,
+                type: 'Termin',
+                sort: l.naechster_termin,
+            }));
+        const all = [
+            ...actEvents.map(e => ({ ...e, sort: e.due })),
+            ...actTasks.map(t => ({ ...t, subject: t.subject + ' (Task)', sort: t.due })),
+            ...leadTermine,
+        ].sort((a, b) => String(a.sort).localeCompare(String(b.sort), 'de'));
+
+        const grouped = {};
+        all.forEach(e => {
+            const day = String(e.due || '').split(' ')[0] || 'Ohne Datum';
+            if (!grouped[day]) grouped[day] = [];
+            grouped[day].push(e);
+        });
+
+        const body = Object.keys(grouped).map(day => `
+            <div class="sf-cal-day">
+                <h3 class="sf-cal-day-header">${esc(day)}</h3>
+                <table class="sf-table">
+                    <thead><tr><th>Zeit / Typ</th><th>Betreff</th><th>Kunde</th></tr></thead>
+                    <tbody>${grouped[day].map(e => `<tr>
+                        <td>${esc(e.due)} · ${esc(e.type)}</td>
+                        <td>${esc(e.subject)}</td>
+                        <td><a href="#/leads/${esc(e.related_id)}">${refBadge(e.related_id, { small: true })}</a></td>
+                    </tr>`).join('')}</tbody>
+                </table>
+            </div>`).join('');
+
+        return pageHeader('📅', 'home', 'Kalender', `${all.length} Termine & Events`) +
+            `<div class="sf-list-wrap">${body || '<div class="sf-empty">Keine Termine — im Lead-Profil „Neuer Termin“ anlegen</div>'}</div>`;
     }
 
     function renderSearch(q) {
@@ -807,7 +890,11 @@
     function bindPageEvents() {
         const viewSelect = $('#list-view-select');
         if (viewSelect) {
-            viewSelect.onchange = () => { state.listView = viewSelect.value; render(); };
+            viewSelect.onchange = () => {
+                state.listView = viewSelect.value;
+                localStorage.setItem('ks_list_view', state.listView);
+                render();
+            };
         }
         $$('[data-mode]').forEach(btn => {
             btn.onclick = () => { state.displayMode = btn.dataset.mode; render(); };
@@ -846,6 +933,44 @@
             };
         }
 
+        const pathPrev = $('#path-prev-btn');
+        if (pathPrev) {
+            pathPrev.onclick = async () => {
+                const stage = pathPrev.dataset.stage;
+                if (!stage || !state.route.id) return;
+                pathPrev.disabled = true;
+                try {
+                    await saveLead(state.route.id, { stage });
+                } catch (err) {
+                    showToast(err.message, 'warn');
+                } finally {
+                    pathPrev.disabled = false;
+                }
+            };
+        }
+
+        const pathReset = $('#path-reset-btn');
+        if (pathReset) {
+            pathReset.onclick = async () => {
+                const stage = pathReset.dataset.stage;
+                if (!stage || !state.route.id) return;
+                if (!confirm('Stage wirklich auf „' + stage + '“ zurücksetzen?')) return;
+                pathReset.disabled = true;
+                try {
+                    await saveLead(state.route.id, {
+                        stage,
+                        vertrag: 'Nein',
+                        intro_gesendet: 'Nein',
+                        naechster_schritt: stage === 'Lead' ? 'Erstgespräch anbieten' : 'Follow-up senden / anrufen',
+                    });
+                } catch (err) {
+                    showToast(err.message, 'warn');
+                } finally {
+                    pathReset.disabled = false;
+                }
+            };
+        }
+
         // Kanban drag-drop
         setupKanban();
 
@@ -855,11 +980,7 @@
             saveLeadBtn.onclick = async () => {
                 saveLeadBtn.disabled = true;
                 try {
-                    const fields = {};
-                    $$('#lead-details-form [data-field]').forEach(el => {
-                        if (el.dataset.field === 'naechster_termin' && !el.value.trim()) return;
-                        fields[el.dataset.field] = el.value;
-                    });
+                    const fields = collectLeadFormFields();
                     await saveLead(state.route.id, fields);
                 } catch (err) {
                     showToast(err.message, 'warn');
@@ -868,6 +989,28 @@
                 }
             };
         }
+
+        const undoBtn = $('#undo-lead-btn');
+        if (undoBtn && !undoBtn.disabled) {
+            undoBtn.onclick = async () => {
+                if (!state.undoLead) return;
+                undoBtn.disabled = true;
+                try {
+                    await saveLead(state.undoLead.ref, state.undoLead.fields);
+                    showToast('Rückgängig gemacht', 'success');
+                    state.undoLead = null;
+                } catch (err) {
+                    showToast(err.message, 'warn');
+                } finally {
+                    undoBtn.disabled = false;
+                }
+            };
+        }
+
+        $$('#lead-details-form [data-field]').forEach(el => {
+            el.addEventListener('input', () => { state.formDirty = true; });
+            el.addEventListener('change', () => { state.formDirty = true; });
+        });
 
         const activateColdBtn = $('#activate-cold-btn');
         if (activateColdBtn) {
@@ -953,11 +1096,41 @@
         });
     }
 
+    function collectLeadFormFields() {
+        const fields = {};
+        $$('#lead-details-form [data-field]').forEach(el => {
+            if (el.dataset.field === 'naechster_termin' && !el.value.trim()) return;
+            fields[el.dataset.field] = el.value;
+        });
+        return fields;
+    }
+
+    function snapshotLeadFields(ref) {
+        const l = (state.data?.leads || []).find(x => x.ref === decodeURIComponent(ref));
+        if (!l) return null;
+        return {
+            stage: l.stage,
+            naechster_schritt: l.naechster_schritt,
+            naechster_termin: l.naechster_termin,
+            vertrag: l.vertrag,
+            intro_gesendet: l.intro_gesendet,
+            netto: l.netto,
+            provision: l.provision,
+            rechnung: l.rechnung,
+            bezahlt: l.bezahlt,
+            verloren_grund: l.verloren_grund,
+            notiz: l.notiz,
+        };
+    }
+
     async function saveLead(ref, fields) {
         ref = decodeURIComponent(ref);
+        state.undoLead = { ref, fields: snapshotLeadFields(ref) };
         const res = await api('/api/crm/update', { method: 'POST', body: JSON.stringify({ ref, fields }) });
         if (!res.ok) throw new Error(res.error || 'Speichern fehlgeschlagen');
         showSaved();
+        state.formDirty = false;
+        removeStaleBanner();
         await refreshData({ silent: true });
         render();
     }
@@ -1024,7 +1197,10 @@
         }
     });
 
-    $('#refresh-btn')?.addEventListener('click', () => refreshData().catch(e => showToast(e.message, 'warn')));
+    $('#refresh-btn')?.addEventListener('click', () => {
+        state.formDirty = false;
+        refreshData({ forceRender: true }).catch(e => showToast(e.message, 'warn'));
+    });
     window.addEventListener('hashchange', render);
 
     $('#global-search')?.addEventListener('keydown', e => {
