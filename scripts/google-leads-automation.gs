@@ -1,11 +1,16 @@
 /**
  * Kaplan Solutions - Lead Intelligence (Sheet + Drive)
  *
- * Tabs: Dashboard, Alle Leads, Auftraggeber, Auftragnehmer, Matches, Top Matches,
- *       Seriositaet, Pipeline
+ * Tabs: Dashboard, Alle Leads, Auftraggeber, Auftragnehmer, Outreach-Portfolio,
+ *       Matches, Top Matches, Seriositaet, Pipeline
+ *
+ * Auftraggeber / Auftragnehmer = NUR echte Anfragen (Formular, WhatsApp, manuell).
+ * Outreach-Portfolio = Firmen, die nur per Cold-Outreach kontaktiert wurden.
  *
  * Erstes Mal / nach Layout-Update:  Funktion "neuAufsetzen" einmal ausfuehren
  * 24/7 Matching:  Funktion "installTriggers" einmal ausfuehren (stuendlich + Briefing 10:00)
+ * CRM Upgrade:    Funktion "crmPipelineMigrieren" einmal ausfuehren (neue Pipeline-Spalten)
+ * CRM Admin:      kaplan-solutions.de/admin/crm (Secret in _Meta B7 + ADMIN_CRM_SECRET)
  *   (loescht Testdaten + baut alle Tabs sauber & farbig neu auf).
  * Nach jedem Code-Update:  Bereitstellen -> Bereitstellungen verwalten -> Neue Version
  */
@@ -22,11 +27,30 @@ var TAB_DASHBOARD = 'Dashboard';
 var TAB_ALL = 'Alle Leads';
 var TAB_AUFTRAGGEBER = 'Auftraggeber';
 var TAB_AUFTRAGNEHMER = 'Auftragnehmer';
+var TAB_PORTFOLIO = 'Outreach-Portfolio';
 var TAB_MATCHES = 'Matches';
 var TAB_TOP_MATCHES = 'Top Matches';
 var TAB_SERIOSITY = 'Seriosit\u00e4t';
 var TAB_PIPELINE = 'Pipeline';
+var TAB_ACTIVITIES = 'CRM Activities';
 var META_SHEET = '_Meta';
+
+var SF_OPP_STAGES = [
+  'Qualification', 'Needs Analysis', 'Proposal/Price Quote',
+  'Negotiation/Review', 'Closed Won', 'Closed Lost'
+];
+
+var SF_LEAD_STATUS = [
+  'Open - Not Contacted', 'Working - Contacted', 'Closed - Converted', 'Closed - Not Converted'
+];
+
+var ACTIVITY_HEADERS = [
+  'Activity-ID', 'Bezug-Typ', 'Bezug-ID', 'Typ', 'Betreff',
+  'Faellig/Start', 'Ende', 'Status', 'Beschreibung', 'Erstellt'
+];
+
+var ACTIVITY_TYPES = ['Task', 'Call', 'Event', 'Email'];
+var ACTIVITY_STATUS = ['Not Started', 'In Progress', 'Completed', 'Waiting'];
 
 var MIN_MATCH_SCORE_TAB = 50;
 var MIN_MATCH_SCORE_EMAIL = 35;
@@ -36,8 +60,8 @@ var MATCH_ALERT_MIN = 75;
 var TZ = 'Europe/Berlin';
 
 // Farben
-var C_HEAD_BG = '#0b3d2e';
-var C_HEAD_FG = '#d9b75a';
+var C_HEAD_BG = '#e8e8e8';
+var C_HEAD_FG = '#000000';
 var C_GREEN = '#b7e1cd';
 var C_GREEN2 = '#d9ead3';
 var C_YELLOW = '#ffe599';
@@ -74,11 +98,29 @@ var SERIOSITY_HEADERS = [
 
 var PIPELINE_HEADERS = [
   'Anfrage-Nr.', 'Eingegangen', 'Name', 'Rolle', 'Branche', 'Stadt',
-  'Pipeline-Status', 'Seriosit\u00e4t %', 'Matches', 'N\u00e4chster Schritt', 'Ordner-Link'
+  'Stage', 'Seriosit\u00e4t %', 'Matches', 'Best Match %', 'N\u00e4chster Termin',
+  'Quelle', 'N\u00e4chster Schritt', 'Vertrag', 'Intro gesendet', 'Netto \u20ac',
+  'Provision \u20ac', 'Rechnung', 'Bezahlt', 'Verloren-Grund', 'Notiz', 'Ordner-Link'
 ];
 
 var MATCH_STATUS_OPTIONS = ['Neu', 'In Kontakt', 'Vermittelt', 'Abgelehnt'];
-var PIPELINE_STATUS_OPTIONS = ['Neu', 'In Bearbeitung', 'Vermittelt', 'Abgeschlossen', 'Abgelehnt'];
+
+var BAUHERR_STAGES = [
+  'Neu', 'Kontaktiert', 'Erstgespr\u00e4ch geplant', 'Erstgespr\u00e4ch gef\u00fchrt',
+  'Qualifiziert', 'Matching l\u00e4uft', 'Match vorgeschlagen', 'Erstkontakt',
+  'In Verhandlung', 'Auftrag erteilt', 'Abgeschlossen', 'Verloren / Pause'
+];
+
+var PARTNER_STAGES = [
+  'Lead', 'Erstgespr\u00e4ch geplant', 'Erstgespr\u00e4ch gef\u00fchrt', 'Vertrag versendet',
+  'Vertrag unterschrieben', 'Im Portfolio', 'Match erhalten', 'Auftrag \u00fcber Vermittlung',
+  'Provision f\u00e4llig', 'Provision bezahlt', 'Aktiver Partner', 'Verloren / Inaktiv'
+];
+
+var CRM_YES_NO = ['Nein', 'Ja'];
+var CRM_STAGE_ALL = BAUHERR_STAGES.concat(PARTNER_STAGES.filter(function (s) {
+  return BAUHERR_STAGES.indexOf(s) < 0;
+}));
 
 // -- Webhook -----------------------------------------------------------------
 
@@ -97,6 +139,27 @@ function doPost(e) {
     if (data.action === 'import_outreach') {
       return handleImportOutreach_(data);
     }
+    if (data.action === 'migrate_outreach') {
+      return handleMigrateOutreach_(data);
+    }
+    if (data.action === 'purge_junk') {
+      return handlePurgeJunk_(data);
+    }
+    if (data.action === 'crm_snapshot') {
+      return handleCrmSnapshot_(data);
+    }
+    if (data.action === 'crm_update') {
+      return handleCrmUpdate_(data);
+    }
+    if (data.action === 'crm_activity_create') {
+      return handleCrmActivityCreate_(data);
+    }
+    if (data.action === 'crm_activity_update') {
+      return handleCrmActivityUpdate_(data);
+    }
+    if (data.action === 'crm_opportunity_update') {
+      return handleCrmOpportunityUpdate_(data);
+    }
     return handleNewLead_(data);
   } catch (err) {
     return jsonResponse_({ ok: false, error: String(err) });
@@ -110,6 +173,17 @@ function doGet() {
 function handleNewLead_(data) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   ensureStructure_(ss);
+
+  var junk = assessJunkLead_(data);
+  if (junk.junk) {
+    Logger.log('Junk-Lead verworfen (' + junk.reasons.join(', ') + '): ' + (data.name || data.email || ''));
+    return jsonResponse_({
+      ok: true,
+      skipped: true,
+      junk: true,
+      reasons: junk.reasons
+    });
+  }
 
   var ref = nextRef_(ss);
   var folderUrl = createLeadFolder_(data, ref);
@@ -188,11 +262,9 @@ function handleImportOutreach_(data) {
 
   var row = buildLeadRow_(leadData, ref, folderUrl, allMatches.length, '-', 'Outreach');
 
-  appendToTab_(ss, TAB_ALL, row);
-  appendToTab_(ss, TAB_AUFTRAGNEHMER, row);
+  appendToTab_(ss, TAB_PORTFOLIO, row);
   writeMatches_(ss, ref, leadData, allMatches);
   writeSeriosityPending_(ss, ref, leadData, folderUrl);
-  writePipeline_(ss, ref, leadData, folderUrl, allMatches.length);
   updateDashboard_(ss);
 
   var hotPairs = buildHotPairsFromNewLead_(ref, leadData, allMatches);
@@ -210,7 +282,7 @@ function handleImportOutreach_(data) {
 }
 
 function findLeadByEmail_(ss, email) {
-  var tabs = [TAB_ALL, TAB_AUFTRAGGEBER, TAB_AUFTRAGNEHMER];
+  var tabs = [TAB_ALL, TAB_AUFTRAGGEBER, TAB_AUFTRAGNEHMER, TAB_PORTFOLIO];
   email = String(email || '').trim().toLowerCase();
   if (!email) return null;
 
@@ -260,12 +332,16 @@ function ensureStructure_(ss) {
   ensureTab_(ss, TAB_ALL, LEAD_HEADERS);
   ensureTab_(ss, TAB_AUFTRAGGEBER, LEAD_HEADERS);
   ensureTab_(ss, TAB_AUFTRAGNEHMER, LEAD_HEADERS);
+  ensureTab_(ss, TAB_PORTFOLIO, LEAD_HEADERS);
   ensureTab_(ss, TAB_MATCHES, MATCH_HEADERS);
   ensureTab_(ss, TAB_TOP_MATCHES, TOP_MATCH_HEADERS);
   ensureTab_(ss, TAB_SERIOSITY, SERIOSITY_HEADERS);
   ensureTab_(ss, TAB_PIPELINE, PIPELINE_HEADERS);
+  ensureTab_(ss, TAB_ACTIVITIES, ACTIVITY_HEADERS);
+  ensurePipelineCrm_(ss);
   ensureMeta_(ss);
   ensureRootFolders_();
+  restyleAllTabHeaders_(ss);
 }
 
 function ensureTab_(ss, name, headers) {
@@ -294,14 +370,20 @@ function styleHeader_(sheet, cols) {
 }
 
 function setupAppearance_(sheet, name, cols) {
-  // Zebra-Streifen fuer bessere Lesbarkeit
+  // Zebra-Streifen ab Zeile 2 — Kopfzeile bleibt schwarz auf hellgrau
   try {
-    var range = sheet.getRange(1, 1, Math.max(sheet.getMaxRows(), 2), cols);
     var bandings = sheet.getBandings();
-    if (!bandings.length) {
-      range.applyRowBanding(SpreadsheetApp.BandingTheme.LIGHT_GREY, true, false);
+    for (var b = 0; b < bandings.length; b++) {
+      bandings[b].remove();
+    }
+    var lastRow = Math.max(sheet.getLastRow(), 2);
+    if (lastRow > 1) {
+      sheet.getRange(2, 1, lastRow, cols).applyRowBanding(
+        SpreadsheetApp.BandingTheme.LIGHT_GREY, true, false
+      );
     }
   } catch (e) {}
+  styleHeader_(sheet, cols);
 
   if (name === TAB_MATCHES) {
     var wM = [70, 110, 170, 200, 170, 200, 130, 130, 260, 150, 90, 130, 0];
@@ -317,10 +399,13 @@ function setupAppearance_(sheet, name, cols) {
     var wS = [110, 220, 70, 130, 150, 140, 130, 150, 90, 220, 90, 90, 130];
     applyWidths_(sheet, wS);
   } else if (name === TAB_PIPELINE) {
-    var wP = [110, 130, 170, 130, 130, 110, 140, 100, 80, 220, 90];
+    var wP = [110, 130, 170, 130, 130, 110, 160, 90, 70, 90, 130, 120, 220, 80, 100, 90, 90, 100, 80, 140, 200, 90];
     applyWidths_(sheet, wP);
-    setDropdown_(sheet, 7, PIPELINE_STATUS_OPTIONS);
-  } else if (name === TAB_ALL || name === TAB_AUFTRAGGEBER || name === TAB_AUFTRAGNEHMER) {
+    setDropdown_(sheet, 7, CRM_STAGE_ALL);
+    setDropdown_(sheet, 14, CRM_YES_NO);
+    setDropdown_(sheet, 15, CRM_YES_NO);
+    setDropdown_(sheet, 19, CRM_YES_NO);
+  } else if (name === TAB_ALL || name === TAB_AUFTRAGGEBER || name === TAB_AUFTRAGNEHMER || name === TAB_PORTFOLIO) {
     sheet.setColumnWidth(1, 110);
     sheet.setColumnWidth(4, 160);
     sheet.setColumnWidth(7, 160);
@@ -350,12 +435,16 @@ function ensureMeta_(ss) {
     meta.getRange('A4:B4').setValues([['admin_email', 'Kawa.f.Kaplan@gmail.com']]);
     meta.getRange('A5:B5').setValues([['match_alert_url', 'https://kaplan-solutions.de/api/match-alert']]);
     meta.getRange('A6:B6').setValues([['match_alert_secret', '']]);
+    meta.getRange('A7:B7').setValues([['crm_secret', '']]);
   } else {
     if (!meta.getRange('A5').getValue()) {
       meta.getRange('A5:B5').setValues([['match_alert_url', 'https://kaplan-solutions.de/api/match-alert']]);
     }
     if (!meta.getRange('A6').getValue()) {
       meta.getRange('A6:B6').setValues([['match_alert_secret', '']]);
+    }
+    if (!meta.getRange('A7').getValue()) {
+      meta.getRange('A7:B7').setValues([['crm_secret', '']]);
     }
   }
 }
@@ -492,33 +581,38 @@ function moveToPruefenFolder_(ref, name, score, flags) {
 // -- Matching -----------------------------------------------------------------
 
 function findAllMatches_(ss, incoming, currentRef) {
-  var oppositeTab = incoming.role_code === 'bauherr' ? TAB_AUFTRAGNEHMER : TAB_AUFTRAGGEBER;
-  var sheet = ss.getSheetByName(oppositeTab);
-  if (!sheet || sheet.getLastRow() < 2) return [];
-
-  var values = sheet.getDataRange().getValues();
-  var idx = indexMapLead_(values[0]);
+  var candidateTabs = incoming.role_code === 'bauherr'
+    ? [TAB_AUFTRAGNEHMER, TAB_PORTFOLIO]
+    : [TAB_AUFTRAGGEBER];
   var candidates = [];
 
-  for (var r = 1; r < values.length; r++) {
-    var row = values[r];
-    var ref = String(row[idx.ref] || '');
-    if (!ref || ref === currentRef) continue;
+  candidateTabs.forEach(function (tabName) {
+    var sheet = ss.getSheetByName(tabName);
+    if (!sheet || sheet.getLastRow() < 2) return;
 
-    var scored = scoreMatch_(incoming, row, idx);
-    if (scored.score >= MIN_MATCH_SCORE_TAB) {
-      candidates.push({
-        name: String(row[idx.name] || ''),
-        ref: ref,
-        email: String(row[idx.email] || ''),
-        role: String(row[idx.rolle] || ''),
-        branche: String(row[idx.branche] || ''),
-        stadt: String(row[idx.stadt] || ''),
-        score: scored.score,
-        reason: scored.reasons.join(', ')
-      });
+    var values = sheet.getDataRange().getValues();
+    var idx = indexMapLead_(values[0]);
+
+    for (var r = 1; r < values.length; r++) {
+      var row = values[r];
+      var ref = String(row[idx.ref] || '');
+      if (!ref || ref === currentRef) continue;
+
+      var scored = scoreMatch_(incoming, row, idx);
+      if (scored.score >= MIN_MATCH_SCORE_TAB) {
+        candidates.push({
+          name: String(row[idx.name] || ''),
+          ref: ref,
+          email: String(row[idx.email] || ''),
+          role: String(row[idx.rolle] || ''),
+          branche: String(row[idx.branche] || ''),
+          stadt: String(row[idx.stadt] || ''),
+          score: scored.score,
+          reason: scored.reasons.join(', ')
+        });
+      }
     }
-  }
+  });
 
   candidates.sort(function (a, b) { return b.score - a.score; });
   return candidates;
@@ -627,15 +721,21 @@ function writeSeriosityPending_(ss, ref, data, folderUrl) {
 
 function writePipeline_(ss, ref, data, folderUrl, matchCount) {
   var sheet = ss.getSheetByName(TAB_PIPELINE);
+  var roleCode = data.role_code || (String(data.rolle || '').indexOf('Auftraggeber') >= 0 ? 'bauherr' : 'unternehmen');
+  var stage = initialCrmStage_(roleCode, data);
+  var quelle = formatLeadSource_(data);
+  var bestScore = matchCount > 0 ? '-' : '-';
   sheet.appendRow([
     ref, data.eingegangen || '', data.name || '', data.rolle || '',
-    data.branche || '', data.stadt || '', 'Neu', '-', matchCount,
-    'Seriositaet + Matches pruefen', folderUrl || ''
+    data.branche || '', data.stadt || '', stage, '-', matchCount, bestScore,
+    data.rueckruf && data.rueckruf !== '\u2014' ? data.rueckruf : '',
+    quelle, crmNextStepForStage_(roleCode, stage, 0), 'Nein', 'Nein',
+    '', '', '', 'Nein', '', '', folderUrl || ''
   ]);
 }
 
 function updateLeadSeriosity_(ss, ref, score, flags, status) {
-  [TAB_ALL, TAB_AUFTRAGGEBER, TAB_AUFTRAGNEHMER].forEach(function (tabName) {
+  [TAB_ALL, TAB_AUFTRAGGEBER, TAB_AUFTRAGNEHMER, TAB_PORTFOLIO].forEach(function (tabName) {
     var sheet = ss.getSheetByName(tabName);
     var rowNum = findRowByRef_(sheet, ref, 1);
     if (rowNum < 1) return;
@@ -697,7 +797,9 @@ function updatePipelineSeriosity_(ss, ref, score, flags) {
   var rowNum = findRowByRef_(sheet, ref, 1);
   if (rowNum > 0) {
     sheet.getRange(rowNum, 8).setValue(score + '%').setBackground(scoreColor_(score));
-    if (score < 40) sheet.getRange(rowNum, 10).setValue('WARN: Manuell pruefen');
+    if (score < 40) {
+      sheet.getRange(rowNum, 13).setValue('WARN: Manuell pruefen');
+    }
   }
 }
 
@@ -718,12 +820,14 @@ function updateDashboard_(ss) {
 
   var ag = ss.getSheetByName(TAB_AUFTRAGGEBER);
   var an = ss.getSheetByName(TAB_AUFTRAGNEHMER);
+  var portfolio = ss.getSheetByName(TAB_PORTFOLIO);
   var matches = ss.getSheetByName(TAB_MATCHES);
   var ser = ss.getSheetByName(TAB_SERIOSITY);
   var pipe = ss.getSheetByName(TAB_PIPELINE);
 
   var agCount = ag ? Math.max(0, ag.getLastRow() - 1) : 0;
   var anCount = an ? Math.max(0, an.getLastRow() - 1) : 0;
+  var portfolioCount = portfolio ? Math.max(0, portfolio.getLastRow() - 1) : 0;
   var matchCount = matches ? Math.max(0, matches.getLastRow() - 1) : 0;
   var serStats = seriosityStats_(ser);
   var openPipe = countOpenPipeline_(pipe);
@@ -743,10 +847,10 @@ function updateDashboard_(ss) {
 
   // KPI-Kacheln (Label / Wert nebeneinander)
   var kpis = [
-    ['Auftraggeber (Bauherren)', agCount, 'Auftragnehmer (Firmen)', anCount],
-    ['Gefundene Matches', matchCount, 'Pipeline offen', openPipe],
-    ['? Seriositaet', serStats.avg > 0 ? serStats.avg + '%' : '-', 'WARN: Prueffaelle (<40%)', serStats.red],
-    ['Seriositaet geprueft', serStats.done, 'Pruefung laeuft', serStats.pending]
+    ['Auftraggeber (echte Anfragen)', agCount, 'Auftragnehmer (echte Anfragen)', anCount],
+    ['Outreach-Portfolio (kontaktiert)', portfolioCount, 'Gefundene Matches', matchCount],
+    ['Pipeline offen', openPipe, 'Seriositaet', serStats.avg > 0 ? serStats.avg + '%' : '-'],
+    ['WARN: Prueffaelle (<40%)', serStats.red, 'Seriositaet geprueft', serStats.done]
   ];
 
   var startRow = 5;
@@ -769,7 +873,7 @@ function updateDashboard_(ss) {
   // Hinweis-Zeile
   var noteRow = startRow + kpis.length + 1;
   sheet.getRange(noteRow, 2, 1, 4).merge()
-    .setValue('Tabs: Top Matches = Ranking (beste zuerst) - Matches = alle Paare - Pipeline = Status je Lead')
+    .setValue('Auftraggeber/Auftragnehmer = echte Anfragen | Outreach-Portfolio = nur kontaktiert | Pipeline = Verkaufsstatus')
     .setFontColor('#888').setFontStyle('italic').setWrap(true);
 
   sheet.setHiddenGridlines && sheet.setHiddenGridlines(true);
@@ -796,11 +900,13 @@ function seriosityStats_(sheet) {
 
 function countOpenPipeline_(sheet) {
   if (!sheet || sheet.getLastRow() < 2) return 0;
-  var statuses = sheet.getRange(2, 7, sheet.getLastRow() - 1, 1).getValues();
+  var values = sheet.getRange(2, 1, sheet.getLastRow() - 1, 7).getValues();
   var n = 0;
-  statuses.forEach(function (r) {
-    var s = String(r[0]);
-    if (s && s !== 'Abgeschlossen' && s !== 'Abgelehnt' && s !== 'Vermittelt') n++;
+  values.forEach(function (r) {
+    var rolle = String(r[3] || '');
+    var stage = String(r[6] || '');
+    if (!stage) return;
+    if (!isTerminalCrmStage_(rolle, stage)) n++;
   });
   return n;
 }
@@ -841,6 +947,10 @@ function indexMapLead_(headers) {
     else if (h === 'standort') map.standort = i;
     else if (h.indexOf('budget') === 0 || h.indexOf('auftrags') >= 0) map.budget = i;
     else if (h.indexOf('zeit') === 0 || h.indexOf('kapaz') >= 0) map.zeitrahmen = i;
+    else if (h.indexOf('pipeline') === 0) map.pipeline = i;
+    else if (h.indexOf('bearbeitung') === 0) map.bearbeitung = i;
+    else if (h.indexOf('nachricht') === 0) map.nachricht = i;
+    else if (h.indexOf('projekt') === 0) map.projekt = i;
   }
   return map;
 }
@@ -941,6 +1051,8 @@ function handleDailyBriefingRequest_(data) {
 }
 
 function rescanAllMatchesScheduled_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  purgeJunkLeadsFromSheet_(ss);
   rescanAllMatchesFull_();
 }
 
@@ -989,6 +1101,7 @@ function rescanAllMatchesFull_() {
   syncMatchesTabFromPairs_(ss, pairs);
   rebuildTopMatchesTab_(ss, pairs);
   updateMatchCountsOnLeads_(ss, pairs);
+  syncCrmPipelineFromMatches_(ss, pairs);
   updateDashboard_(ss);
 
   var alertResult = processInstantMatchAlerts_(ss, pairs);
@@ -1011,15 +1124,13 @@ function rescanAllMatchesFull_() {
 
 function computeAllMatchPairs_(ss) {
   var agSheet = ss.getSheetByName(TAB_AUFTRAGGEBER);
-  var anSheet = ss.getSheetByName(TAB_AUFTRAGNEHMER);
-  if (!agSheet || !anSheet || agSheet.getLastRow() < 2 || anSheet.getLastRow() < 2) {
-    return [];
-  }
+  if (!agSheet || agSheet.getLastRow() < 2) return [];
+
+  var partnerRows = collectPartnerRows_(ss);
+  if (!partnerRows.length) return [];
 
   var agValues = agSheet.getDataRange().getValues();
-  var anValues = anSheet.getDataRange().getValues();
   var agIdx = indexMapLead_(agValues[0]);
-  var anIdx = indexMapLead_(anValues[0]);
   var pairs = [];
   var seen = {};
 
@@ -1029,8 +1140,9 @@ function computeAllMatchPairs_(ss) {
     if (!agRef) continue;
     var agIncoming = rowToIncoming_(agRow, agIdx, 'bauherr');
 
-    for (var n = 1; n < anValues.length; n++) {
-      var anRow = anValues[n];
+    for (var p = 0; p < partnerRows.length; p++) {
+      var anRow = partnerRows[p].row;
+      var anIdx = partnerRows[p].idx;
       var anRef = String(anRow[anIdx.ref] || '');
       if (!anRef) continue;
 
@@ -1061,6 +1173,20 @@ function computeAllMatchPairs_(ss) {
 
   pairs.sort(function (x, y) { return y.score - x.score; });
   return pairs;
+}
+
+function collectPartnerRows_(ss) {
+  var out = [];
+  [TAB_AUFTRAGNEHMER, TAB_PORTFOLIO].forEach(function (tabName) {
+    var sheet = ss.getSheetByName(tabName);
+    if (!sheet || sheet.getLastRow() < 2) return;
+    var values = sheet.getDataRange().getValues();
+    var idx = indexMapLead_(values[0]);
+    for (var r = 1; r < values.length; r++) {
+      out.push({ row: values[r], idx: idx, tab: tabName });
+    }
+  });
+  return out;
 }
 
 function rowToIncoming_(row, idx, roleCode) {
@@ -1133,6 +1259,7 @@ function syncMatchesTabFromPairs_(ss, pairs) {
     var rowNum = sheet.getLastRow();
     sheet.getRange(rowNum, 1).setBackground(matchColor_(p.score)).setFontWeight('bold');
   });
+  styleHeader_(sheet, MATCH_HEADERS.length);
 }
 
 function rebuildTopMatchesTab_(ss, pairs) {
@@ -1182,6 +1309,7 @@ function rebuildTopMatchesTab_(ss, pairs) {
   });
 
   sheet.setFrozenRows(1);
+  styleHeader_(sheet, TOP_MATCH_HEADERS.length);
 }
 
 function updateMatchCountsOnLeads_(ss, pairs) {
@@ -1191,7 +1319,7 @@ function updateMatchCountsOnLeads_(ss, pairs) {
     counts[p.anRef] = (counts[p.anRef] || 0) + 1;
   });
 
-  [TAB_ALL, TAB_AUFTRAGGEBER, TAB_AUFTRAGNEHMER].forEach(function (tabName) {
+  [TAB_ALL, TAB_AUFTRAGGEBER, TAB_AUFTRAGNEHMER, TAB_PORTFOLIO].forEach(function (tabName) {
     var sheet = ss.getSheetByName(tabName);
     if (!sheet || sheet.getLastRow() < 2) return;
     var refs = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues();
@@ -1289,7 +1417,6 @@ function getMatchAlertSecret_() {
 
 function enrichPairFromSheet_(ss, p) {
   var agSheet = ss.getSheetByName(TAB_AUFTRAGGEBER);
-  var anSheet = ss.getSheetByName(TAB_AUFTRAGNEHMER);
   if (agSheet && agSheet.getLastRow() > 1) {
     var agValues = agSheet.getDataRange().getValues();
     var agIdx = indexMapLead_(agValues[0]);
@@ -1301,15 +1428,12 @@ function enrichPairFromSheet_(ss, p) {
       }
     }
   }
-  if (anSheet && anSheet.getLastRow() > 1) {
-    var anValues = anSheet.getDataRange().getValues();
-    var anIdx = indexMapLead_(anValues[0]);
-    for (var j = 1; j < anValues.length; j++) {
-      if (String(anValues[j][anIdx.ref]) === p.anRef) {
-        p.anPhone = String(anValues[j][anIdx.telefon] || p.anPhone || '');
-        p.anFirma = String(anValues[j][anIdx.firma] || p.anFirma || p.anName || '');
-        break;
-      }
+  var partnerRows = collectPartnerRows_(ss);
+  for (var j = 0; j < partnerRows.length; j++) {
+    if (String(partnerRows[j].row[partnerRows[j].idx.ref]) === p.anRef) {
+      p.anPhone = String(partnerRows[j].row[partnerRows[j].idx.telefon] || p.anPhone || '');
+      p.anFirma = String(partnerRows[j].row[partnerRows[j].idx.firma] || p.anFirma || p.anName || '');
+      break;
     }
   }
 }
@@ -1628,6 +1752,942 @@ function testBerechtigung() {
   Logger.log('Alles OK - Sheet: ' + ss.getName() + ' / Drive Schreiben funktioniert');
 }
 
+// -- CRM Pipeline (Salesforce-aehnlich) ----------------------------------------
+
+function isBauherrRole_(rolle) {
+  var r = String(rolle || '').toLowerCase();
+  return r.indexOf('auftraggeber') >= 0 || r.indexOf('bauherr') >= 0;
+}
+
+function crmStagesForRole_(rolle) {
+  return isBauherrRole_(rolle) ? BAUHERR_STAGES : PARTNER_STAGES;
+}
+
+function initialCrmStage_(roleCode, data) {
+  if (roleCode === 'bauherr') return 'Neu';
+  if (data.bearbeitung === 'Outreach' || String(data.status_feld || '') === 'Outreach') {
+    return 'Im Portfolio';
+  }
+  return 'Lead';
+}
+
+function formatLeadSource_(data) {
+  var src = String(data.lead_source || data.quelle || '').trim();
+  if (src) return src;
+  var utm = [data.utm_source, data.utm_medium, data.utm_campaign].filter(Boolean).join(' / ');
+  return utm || 'Website';
+}
+
+function stageIndex_(stages, stage) {
+  var i = stages.indexOf(stage);
+  return i >= 0 ? i : -1;
+}
+
+function isTerminalCrmStage_(rolle, stage) {
+  stage = String(stage || '');
+  if (isBauherrRole_(rolle)) {
+    return stage === 'Abgeschlossen' || stage === 'Verloren / Pause' || stage === 'Auftrag erteilt';
+  }
+  return stage === 'Provision bezahlt' || stage === 'Verloren / Inaktiv';
+}
+
+function crmNextStepForStage_(roleCode, stage, bestScore) {
+  var isBh = roleCode === 'bauherr';
+  if (bestScore >= 75) {
+    return isBh ? 'Jetzt anrufen & Erstgespraech koordinieren' : 'Partner-Vertrag + Intro vorbereiten';
+  }
+  if (bestScore >= 60) {
+    return 'Kurz anrufen und Passung pruefen';
+  }
+  var map = {
+    'Neu': 'Follow-up senden / anrufen',
+    'Lead': 'Erstgespraech anbieten',
+    'Kontaktiert': 'Erstgespraech terminieren',
+    'Erstgespr\u00e4ch geplant': 'Termin im Kalender bestaetigen',
+    'Erstgespr\u00e4ch gef\u00fchrt': isBh ? 'Qualifizieren (Budget, Timing)' : 'Vertrag versenden',
+    'Qualifiziert': 'Matching abwarten',
+    'Matching l\u00e4uft': 'Top Matches pruefen',
+    'Match vorgeschlagen': 'Erstkontakt CC beide Parteien',
+    'Match erhalten': 'Intro mit Anlage senden',
+    'Vertrag versendet': 'Vertrag nachfassen',
+    'Vertrag unterschrieben': 'Matching aktiv halten',
+    'Im Portfolio': 'Bei Hot Match sofort melden',
+    'Erstkontakt': 'Verhandlung begleiten',
+    'In Verhandlung': 'Abschluss pruefen',
+    'Auftrag \u00fcber Vermittlung': 'Provision berechnen',
+    'Provision f\u00e4llig': 'Rechnung senden',
+    'Provision bezahlt': 'Fertig — Beziehung pflegen',
+    'Abgeschlossen': 'Optional: Zufriedenheit checken',
+    'Verloren / Pause': 'Reaktivieren-Datum setzen',
+    'Verloren / Inaktiv': 'Reaktivieren-Datum setzen'
+  };
+  return map[stage] || 'Seriositaet + Matches pruefen';
+}
+
+function mapLegacyPipelineStatus_(rolle, oldStatus) {
+  var isBh = isBauherrRole_(rolle);
+  var s = String(oldStatus || '').trim();
+  if (s === 'In Bearbeitung') return isBh ? 'Kontaktiert' : 'Erstgespr\u00e4ch geplant';
+  if (s === 'Vermittelt') return isBh ? 'Match vorgeschlagen' : 'Match erhalten';
+  if (s === 'Abgeschlossen') return isBh ? 'Abgeschlossen' : 'Provision bezahlt';
+  if (s === 'Abgelehnt') return isBh ? 'Verloren / Pause' : 'Verloren / Inaktiv';
+  if (s === 'Neu') return isBh ? 'Neu' : 'Lead';
+  return s || (isBh ? 'Neu' : 'Lead');
+}
+
+function ensurePipelineCrm_(ss) {
+  var sheet = ss.getSheetByName(TAB_PIPELINE);
+  if (!sheet) return;
+  var lastCol = sheet.getLastColumn();
+  var headers = sheet.getRange(1, 1, 1, Math.max(lastCol, 1)).getValues()[0];
+
+  if (String(headers[6] || '') === 'Pipeline-Status') {
+    headers[6] = 'Stage';
+    sheet.getRange(1, 7).setValue('Stage');
+  }
+
+  if (headers.length < PIPELINE_HEADERS.length ||
+      String(headers[headers.length - 1] || '') !== 'Ordner-Link') {
+    sheet.getRange(1, 1, 1, PIPELINE_HEADERS.length).setValues([PIPELINE_HEADERS]);
+    styleHeader_(sheet, PIPELINE_HEADERS.length);
+    sheet.setFrozenRows(1);
+  }
+
+  if (sheet.getLastRow() > 1) {
+    var rows = sheet.getLastRow() - 1;
+    var block = sheet.getRange(2, 1, rows, PIPELINE_HEADERS.length).getValues();
+    for (var i = 0; i < block.length; i++) {
+      var rolle = String(block[i][3] || '');
+      var roleCode = isBauherrRole_(rolle) ? 'bauherr' : 'unternehmen';
+      if (!block[i][6]) {
+        block[i][6] = isBauherrRole_(rolle) ? 'Neu' : 'Lead';
+      } else if (BAUHERR_STAGES.indexOf(block[i][6]) < 0 && PARTNER_STAGES.indexOf(block[i][6]) < 0) {
+        block[i][6] = mapLegacyPipelineStatus_(rolle, block[i][6]);
+      }
+      if (!block[i][11]) block[i][11] = 'Website';
+      if (!block[i][13]) block[i][13] = 'Nein';
+      if (!block[i][14]) block[i][14] = 'Nein';
+      if (!block[i][18]) block[i][18] = 'Nein';
+      if (!block[i][12]) {
+        var best = parseInt(String(block[i][9] || '0').replace('%', ''), 10) || 0;
+        block[i][12] = crmNextStepForStage_(roleCode, block[i][6], best);
+      }
+    }
+    sheet.getRange(2, 1, rows, PIPELINE_HEADERS.length).setValues(block);
+  }
+
+  setupAppearance_(sheet, TAB_PIPELINE, PIPELINE_HEADERS.length);
+}
+
+function bestMatchScoreForRef_(pairs, ref) {
+  var best = 0;
+  pairs.forEach(function (p) {
+    if (p.agRef === ref || p.anRef === ref) {
+      if (p.score > best) best = p.score;
+    }
+  });
+  return best;
+}
+
+function syncCrmPipelineFromMatches_(ss, pairs) {
+  var sheet = ss.getSheetByName(TAB_PIPELINE);
+  if (!sheet || sheet.getLastRow() < 2) return;
+  var values = sheet.getRange(2, 1, sheet.getLastRow() - 1, PIPELINE_HEADERS.length).getValues();
+
+  for (var i = 0; i < values.length; i++) {
+    var ref = String(values[i][0] || '');
+    if (!ref) continue;
+    var rolle = String(values[i][3] || '');
+    var roleCode = isBauherrRole_(rolle) ? 'bauherr' : 'unternehmen';
+    var stages = crmStagesForRole_(rolle);
+    var stage = String(values[i][6] || '');
+    var best = bestMatchScoreForRef_(pairs, ref);
+    var rowNum = i + 2;
+
+    if (best > 0) {
+      sheet.getRange(rowNum, 10).setValue(best + '%').setBackground(matchColor_(best));
+    }
+
+    var matchCount = 0;
+    pairs.forEach(function (p) {
+      if (p.agRef === ref || p.anRef === ref) matchCount++;
+    });
+    if (matchCount > 0) sheet.getRange(rowNum, 9).setValue(matchCount);
+
+    var targetStage = '';
+    if (best >= 75) {
+      targetStage = roleCode === 'bauherr' ? 'Match vorgeschlagen' : 'Match erhalten';
+    } else if (best >= 50 && matchCount > 0) {
+      targetStage = roleCode === 'bauherr' ? 'Matching l\u00e4uft' : stage;
+    }
+
+    if (targetStage && stageIndex_(stages, targetStage) > stageIndex_(stages, stage)) {
+      stage = targetStage;
+      sheet.getRange(rowNum, 7).setValue(stage);
+    }
+
+    if (String(values[i][18] || '') === 'Ja' && roleCode === 'unternehmen') {
+      stage = 'Provision bezahlt';
+      sheet.getRange(rowNum, 7).setValue(stage).setBackground(C_GREEN);
+    }
+
+    sheet.getRange(rowNum, 13).setValue(crmNextStepForStage_(roleCode, stage, best));
+  }
+}
+
+function verifyCrmSecret_(data) {
+  var secret = String(data.crm_secret || data.secret || '');
+  if (!secret) return false;
+  try {
+    var meta = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(META_SHEET);
+    var stored = meta ? String(meta.getRange('B7').getValue() || '') : '';
+    if (stored && secret === stored) return true;
+  } catch (e) {}
+  var prop = PropertiesService.getScriptProperties().getProperty('CRM_SECRET');
+  return prop && secret === prop;
+}
+
+function pipelineRowToCrmObject_(row) {
+  var lead = {
+    ref: String(row[0] || ''),
+    eingegangen: String(row[1] || ''),
+    name: String(row[2] || ''),
+    rolle: String(row[3] || ''),
+    branche: String(row[4] || ''),
+    stadt: String(row[5] || ''),
+    stage: String(row[6] || ''),
+    seriositaet: String(row[7] || ''),
+    matches: row[8] || 0,
+    best_match: String(row[9] || ''),
+    naechster_termin: String(row[10] || ''),
+    quelle: String(row[11] || ''),
+    naechster_schritt: String(row[12] || ''),
+    vertrag: String(row[13] || ''),
+    intro_gesendet: String(row[14] || ''),
+    netto: String(row[15] || ''),
+    provision: String(row[16] || ''),
+    rechnung: String(row[17] || ''),
+    bezahlt: String(row[18] || ''),
+    verloren_grund: String(row[19] || ''),
+    notiz: String(row[20] || ''),
+    ordner_link: String(row[21] || ''),
+    role_type: isBauherrRole_(row[3]) ? 'bauherr' : 'partner',
+    stages: crmStagesForRole_(row[3]),
+    terminal: isTerminalCrmStage_(row[3], row[6])
+  };
+  lead.lead_status = sfLeadStatusFromStage_(lead);
+  lead.company = lead.name;
+  lead.record_type = lead.role_type === 'bauherr' ? 'Bauherr Lead' : 'Partner Lead';
+  return lead;
+}
+
+function sfLeadStatusFromStage_(lead) {
+  var s = String(lead.stage || '');
+  if (s.indexOf('Verloren') >= 0) return 'Closed - Not Converted';
+  if (lead.terminal || s === 'Abgeschlossen' || s === 'Provision bezahlt' || s === 'Auftrag erteilt') {
+    return 'Closed - Converted';
+  }
+  if (s.indexOf('Kontakt') >= 0 || s.indexOf('Erstgespr') >= 0 || s.indexOf('Qualifiziert') >= 0 ||
+      s.indexOf('Vertrag') >= 0 || s.indexOf('Match') >= 0) {
+    return 'Working - Contacted';
+  }
+  return 'Open - Not Contacted';
+}
+
+function sfOppStageFromMatch_(status, score) {
+  status = String(status || 'Neu');
+  if (status === 'Vermittelt') return 'Closed Won';
+  if (status === 'Abgelehnt') return 'Closed Lost';
+  if (status === 'In Kontakt') return 'Negotiation/Review';
+  if (score >= 75) return 'Proposal/Price Quote';
+  if (score >= 60) return 'Needs Analysis';
+  return 'Qualification';
+}
+
+function buildCrmOpportunities_(ss) {
+  var sheet = ss.getSheetByName(TAB_TOP_MATCHES);
+  var opps = [];
+  if (!sheet || sheet.getLastRow() < 2) return opps;
+  var values = sheet.getDataRange().getValues();
+  for (var i = 1; i < values.length; i++) {
+    var r = values[i];
+    var matchId = String(r[14] || '');
+    if (!matchId) continue;
+    var score = Number(r[2]) || 0;
+    var status = String(r[3] || 'Neu');
+    var stage = sfOppStageFromMatch_(status, score);
+    var amount = '';
+    opps.push({
+      id: matchId,
+      name: (r[4] || '') + ' \u2194 ' + (r[7] || ''),
+      account_name: String(r[4] || ''),
+      partner_name: String(r[7] || ''),
+      ag_ref: String(r[6] || ''),
+      an_ref: String(r[9] || ''),
+      stage: stage,
+      stages: SF_OPP_STAGES,
+      amount: amount,
+      probability: score,
+      close_date: '',
+      status: status,
+      score: score,
+      priority: String(r[1] || ''),
+      region: String(r[10] || ''),
+      branche: String(r[11] || ''),
+      next_step: String(r[13] || ''),
+      terminal: stage === 'Closed Won' || stage === 'Closed Lost'
+    });
+  }
+  return opps;
+}
+
+function buildCrmAccounts_(leads) {
+  var map = {};
+  leads.forEach(function (l) {
+    var key = (l.company || l.name || l.ref).toLowerCase();
+    if (!key) return;
+    if (!map[key]) {
+      map[key] = {
+        id: 'ACC-' + l.ref,
+        name: l.company || l.name,
+        type: l.role_type === 'bauherr' ? 'Bauherr' : 'Partner',
+        city: l.stadt,
+        industry: l.branche,
+        lead_ref: l.ref,
+        phone: '',
+        website: l.ordner_link || ''
+      };
+    }
+  });
+  return Object.keys(map).map(function (k) { return map[k]; });
+}
+
+function buildCrmContacts_(leads) {
+  return leads.map(function (l) {
+    return {
+      id: 'CON-' + l.ref,
+      name: l.name,
+      account_name: l.company || l.name,
+      email: '',
+      phone: '',
+      lead_ref: l.ref,
+      title: l.rolle,
+      city: l.stadt
+    };
+  });
+}
+
+function loadCrmActivities_(ss) {
+  var sheet = ss.getSheetByName(TAB_ACTIVITIES);
+  var out = [];
+  if (!sheet || sheet.getLastRow() < 2) return out;
+  var values = sheet.getDataRange().getValues();
+  for (var i = 1; i < values.length; i++) {
+    var r = values[i];
+    if (!r[0]) continue;
+    out.push({
+      id: String(r[0]),
+      related_type: String(r[1] || ''),
+      related_id: String(r[2] || ''),
+      type: String(r[3] || 'Task'),
+      subject: String(r[4] || ''),
+      due: String(r[5] || ''),
+      end: String(r[6] || ''),
+      status: String(r[7] || 'Not Started'),
+      description: String(r[8] || ''),
+      created: String(r[9] || '')
+    });
+  }
+  return out;
+}
+
+function nextActivityId_(ss) {
+  var sheet = ss.getSheetByName(TAB_ACTIVITIES);
+  var n = Math.max(0, (sheet ? sheet.getLastRow() : 1) - 1) + 1;
+  return 'ACT-' + Utilities.formatDate(new Date(), TZ, 'yyyy') + '-' + ('0000' + n).slice(-4);
+}
+
+function handleCrmActivityCreate_(data) {
+  if (!verifyCrmSecret_(data)) return jsonResponse_({ ok: false, error: 'unauthorized' });
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  ensureStructure_(ss);
+  var sheet = ss.getSheetByName(TAB_ACTIVITIES);
+  var id = nextActivityId_(ss);
+  var now = Utilities.formatDate(new Date(), TZ, 'dd.MM.yyyy HH:mm');
+  sheet.appendRow([
+    id,
+    String(data.related_type || 'Lead'),
+    String(data.related_id || ''),
+    String(data.type || 'Task'),
+    String(data.subject || ''),
+    String(data.due || data.start || ''),
+    String(data.end || ''),
+    String(data.status || 'Not Started'),
+    String(data.description || ''),
+    now
+  ]);
+  if (data.sync_termin && data.related_type === 'Lead') {
+    handleCrmUpdate_({ crm_secret: data.crm_secret, ref: data.related_id,
+      fields: { naechster_termin: String(data.due || data.start || '') } });
+  }
+  return jsonResponse_({ ok: true, action: 'crm_activity_create', activity: {
+    id: id, related_type: data.related_type, related_id: data.related_id,
+    type: data.type, subject: data.subject, due: data.due, status: data.status || 'Not Started',
+    description: data.description, created: now
+  }});
+}
+
+function handleCrmActivityUpdate_(data) {
+  if (!verifyCrmSecret_(data)) return jsonResponse_({ ok: false, error: 'unauthorized' });
+  var id = String(data.id || '').trim();
+  if (!id) return jsonResponse_({ ok: false, error: 'id fehlt' });
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(TAB_ACTIVITIES);
+  if (!sheet) return jsonResponse_({ ok: false, error: 'Activities tab fehlt' });
+  var values = sheet.getDataRange().getValues();
+  for (var i = 1; i < values.length; i++) {
+    if (String(values[i][0]) !== id) continue;
+    var fields = data.fields || {};
+    if (fields.status) sheet.getRange(i + 1, 8).setValue(fields.status);
+    if (fields.subject) sheet.getRange(i + 1, 5).setValue(fields.subject);
+    if (fields.due) sheet.getRange(i + 1, 6).setValue(fields.due);
+    if (fields.description) sheet.getRange(i + 1, 9).setValue(fields.description);
+    return jsonResponse_({ ok: true, action: 'crm_activity_update', id: id });
+  }
+  return jsonResponse_({ ok: false, error: 'Activity nicht gefunden' });
+}
+
+function handleCrmOpportunityUpdate_(data) {
+  if (!verifyCrmSecret_(data)) return jsonResponse_({ ok: false, error: 'unauthorized' });
+  var id = String(data.id || data.match_id || '').trim();
+  if (!id) return jsonResponse_({ ok: false, error: 'id fehlt' });
+  var stage = String(data.stage || '');
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var statusMap = {
+    'Closed Won': 'Vermittelt',
+    'Closed Lost': 'Abgelehnt',
+    'Negotiation/Review': 'In Kontakt',
+    'Proposal/Price Quote': 'In Kontakt',
+    'Needs Analysis': 'Neu',
+    'Qualification': 'Neu'
+  };
+  var newStatus = statusMap[stage] || String(data.status || 'Neu');
+  [TAB_TOP_MATCHES, TAB_MATCHES].forEach(function (tabName) {
+    var sheet = ss.getSheetByName(tabName);
+    if (!sheet || sheet.getLastRow() < 2) return;
+    var idCol = tabName === TAB_TOP_MATCHES ? 15 : 13;
+    var statusCol = tabName === TAB_TOP_MATCHES ? 4 : 2;
+    var ids = sheet.getRange(2, idCol, sheet.getLastRow() - 1, 1).getValues();
+    for (var i = 0; i < ids.length; i++) {
+      if (String(ids[i][0]) === id) {
+        sheet.getRange(i + 2, statusCol).setValue(newStatus);
+        break;
+      }
+    }
+  });
+  return jsonResponse_({ ok: true, action: 'crm_opportunity_update', id: id, stage: stage, status: newStatus });
+}
+
+function handleCrmSnapshot_(data) {
+  if (!verifyCrmSecret_(data)) {
+    return jsonResponse_({ ok: false, error: 'unauthorized' });
+  }
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  ensureStructure_(ss);
+  var sheet = ss.getSheetByName(TAB_PIPELINE);
+  var leads = [];
+  if (sheet && sheet.getLastRow() > 1) {
+    var values = sheet.getRange(2, 1, sheet.getLastRow() - 1, PIPELINE_HEADERS.length).getValues();
+    values.forEach(function (row) {
+      if (!row[0]) return;
+      leads.push(pipelineRowToCrmObject_(row));
+    });
+  }
+  var today = Utilities.formatDate(new Date(), TZ, 'dd.MM.yyyy');
+  var termine_heute = leads.filter(function (l) {
+    return l.naechster_termin && l.naechster_termin.indexOf(today) >= 0;
+  });
+  var hot = leads.filter(function (l) {
+    var s = parseInt(String(l.best_match).replace('%', ''), 10) || 0;
+    return s >= 75 && !l.terminal;
+  });
+  var opportunities = buildCrmOpportunities_(ss);
+  var accounts = buildCrmAccounts_(leads);
+  var contacts = buildCrmContacts_(leads);
+  var activities = loadCrmActivities_(ss);
+  var tasks_today = activities.filter(function (a) {
+    return a.type === 'Task' && a.due && a.due.indexOf(today) >= 0 && a.status !== 'Completed';
+  });
+  var events_today = activities.filter(function (a) {
+    return a.type === 'Event' && a.due && a.due.indexOf(today) >= 0;
+  });
+  return jsonResponse_({
+    ok: true,
+    action: 'crm_snapshot',
+    platform: 'Salesforce Lightning (Kaplan)',
+    updated: Utilities.formatDate(new Date(), TZ, 'dd.MM.yyyy HH:mm'),
+    bauherr_stages: BAUHERR_STAGES,
+    partner_stages: PARTNER_STAGES,
+    opp_stages: SF_OPP_STAGES,
+    lead_statuses: SF_LEAD_STATUS,
+    leads: leads,
+    opportunities: opportunities,
+    accounts: accounts,
+    contacts: contacts,
+    activities: activities,
+    stats: {
+      total: leads.length,
+      open: leads.filter(function (l) { return !l.terminal; }).length,
+      bauherr: leads.filter(function (l) { return l.role_type === 'bauherr'; }).length,
+      partner: leads.filter(function (l) { return l.role_type === 'partner'; }).length,
+      termine_heute: termine_heute.length,
+      hot_matches: hot.length,
+      opportunities: opportunities.length,
+      open_opportunities: opportunities.filter(function (o) { return !o.terminal; }).length,
+      accounts: accounts.length,
+      tasks_today: tasks_today.length,
+      events_today: events_today.length
+    },
+    termine_heute: termine_heute,
+    hot_matches: hot,
+    top_opportunities: opportunities.filter(function (o) { return !o.terminal; }).slice(0, 5),
+    tasks_today: tasks_today,
+    events_today: events_today
+  });
+}
+
+function handleCrmUpdate_(data) {
+  if (!verifyCrmSecret_(data)) {
+    return jsonResponse_({ ok: false, error: 'unauthorized' });
+  }
+  var ref = String(data.ref || '').trim();
+  if (!ref) return jsonResponse_({ ok: false, error: 'ref fehlt' });
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  ensureStructure_(ss);
+  var sheet = ss.getSheetByName(TAB_PIPELINE);
+  var rowNum = findRowByRef_(sheet, ref, 1);
+  if (rowNum < 1) return jsonResponse_({ ok: false, error: 'Lead nicht in Pipeline' });
+
+  var fields = data.fields || data.updates || {};
+  var colMap = {
+    stage: 7,
+    naechster_termin: 11,
+    quelle: 12,
+    naechster_schritt: 13,
+    vertrag: 14,
+    intro_gesendet: 15,
+    netto: 16,
+    provision: 17,
+    rechnung: 18,
+    bezahlt: 19,
+    verloren_grund: 20,
+    notiz: 21
+  };
+
+  Object.keys(fields).forEach(function (key) {
+    var col = colMap[key];
+    if (!col) return;
+    sheet.getRange(rowNum, col).setValue(fields[key]);
+  });
+
+  var row = sheet.getRange(rowNum, 1, 1, PIPELINE_HEADERS.length).getValues()[0];
+  var roleCode = isBauherrRole_(row[3]) ? 'bauherr' : 'unternehmen';
+  var stage = String(fields.stage || row[6] || '');
+  var best = parseInt(String(row[9] || '0').replace('%', ''), 10) || 0;
+
+  if (fields.bezahlt === 'Ja' && roleCode === 'unternehmen') {
+    stage = 'Provision bezahlt';
+    sheet.getRange(rowNum, 7).setValue(stage).setBackground(C_GREEN);
+  }
+
+  if (fields.stage || fields.bezahlt) {
+    sheet.getRange(rowNum, 13).setValue(crmNextStepForStage_(roleCode, stage, best));
+  }
+
+  if (fields.stage && isTerminalCrmStage_(row[3], stage)) {
+    sheet.getRange(rowNum, 7).setBackground(
+      stage.indexOf('Verloren') >= 0 ? C_RED : C_GREEN2
+    );
+  }
+
+  syncLeadPipelineStatus_(ss, ref, stage);
+  updateDashboard_(ss);
+
+  return jsonResponse_({
+    ok: true,
+    action: 'crm_update',
+    ref: ref,
+    lead: pipelineRowToCrmObject_(sheet.getRange(rowNum, 1, 1, PIPELINE_HEADERS.length).getValues()[0])
+  });
+}
+
+function syncLeadPipelineStatus_(ss, ref, stage) {
+  [TAB_ALL, TAB_AUFTRAGGEBER, TAB_AUFTRAGNEHMER].forEach(function (tabName) {
+    var sheet = ss.getSheetByName(tabName);
+    var rowNum = findRowByRef_(sheet, ref, 1);
+    if (rowNum > 0) sheet.getRange(rowNum, 22).setValue(stage);
+  });
+}
+
+/** EINMAL ausfuehren: Pipeline auf CRM-Spalten upgraden + Stages migrieren. */
+function crmPipelineMigrieren() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  ensurePipelineCrm_(ss);
+  var pairs = computeAllMatchPairs_(ss);
+  syncCrmPipelineFromMatches_(ss, pairs);
+  updateDashboard_(ss);
+  Logger.log('CRM-Pipeline migriert. Leads: ' + (ss.getSheetByName(TAB_PIPELINE).getLastRow() - 1));
+}
+
+// -- Junk / Test-Leads -------------------------------------------------------
+
+function isExplicitJunkName_(name) {
+  name = String(name || '').trim();
+  if (!name) return false;
+  if (/test[\-\s]?anfrage/i.test(name)) return true;
+  if (/^(max|maria|peter|anna)\s+mustermann$/i.test(name)) return true;
+  if (/^(test|testing|dummy|fake|asdf|xxx)$/i.test(name)) return true;
+  return false;
+}
+
+function looksLikeRealLead_(data) {
+  var message = String(data.message || data.nachricht || '').trim();
+  var phone = String(data.telefon || data.phone || '').replace(/\D/g, '');
+  var budget = String(data.budget || '').trim();
+  var timeline = String(data.zeitrahmen || data.timeline || '').trim();
+  var projekt = String(data.projekt || data.project || '').trim();
+  var location = String(data.standort || data.location || data.stadt || '').trim();
+
+  if (message.length >= 45) return true;
+  if (phone.length >= 9 && message.length >= 18) return true;
+  if (projekt && timeline && budget && budget !== '\u2014' && budget !== '-') return true;
+  if (location.length >= 4 && message.length >= 25 && phone.length >= 9) return true;
+  return false;
+}
+
+/**
+ * Konservative Junk-Erkennung: lieber ein Test-Lead behalten als einen echten loeschen.
+ * Loeschen nur bei klarem Signal (strong) oder zwei schwachen Hinweisen — nie wenn es wie echt aussieht.
+ */
+function assessJunkLead_(data) {
+  var name = String(data.name || '').trim();
+
+  // Explizite Test-Namen immer entfernen — auch bei ausgefuelltem Formular
+  if (isExplicitJunkName_(name)) {
+    return { junk: true, reasons: ['name:test-anfrage'], confidence: 'high' };
+  }
+
+  if (looksLikeRealLead_(data)) {
+    return { junk: false, reasons: [], confidence: 'protected-real' };
+  }
+
+  var email = String(data.email || '').trim().toLowerCase();
+  var message = String(data.message || data.nachricht || '').trim();
+  var msgLower = message.toLowerCase();
+  var strong = [];
+  var weak = [];
+
+  if (!name && !email) strong.push('leer');
+
+  if (/^test@|@example\.(com|org|de)|mailinator|yopmail|tempmail|guerrillamail|10minutemail|discard\.|trashmail/i.test(email)) {
+    strong.push('email:wegwerf');
+  }
+
+  if (/^(test|nur test|dies ist ein test|bitte ignorieren|ignore this|formular test|testeintrag|nur ein test)\.?$/i.test(msgLower)) {
+    strong.push('nachricht:explizit-test');
+  }
+
+  if (data.is_test === true || data.test_lead === true) strong.push('flag:test');
+
+  var admin = String(getAdminEmail_() || '').trim().toLowerCase();
+  if (admin && email === admin && /test[\-\s]?anfrage|nur test|formular test/i.test(name + ' ' + msgLower)) {
+    strong.push('admin:self-test');
+  }
+
+  if (/^(test|probe|dummy)\b/i.test(name) && name.length < 35) weak.push('name:test-prefix');
+  if (/\b(mustermann|musterfrau|john doe|jane doe|lorem ipsum)\b/i.test(name + ' ' + msgLower)) {
+    weak.push('dummy-text');
+  }
+  if (/\btest\b/i.test(msgLower) && msgLower.length < 35) weak.push('nachricht:enthaelt-test');
+
+  if (strong.length > 0) {
+    return { junk: true, reasons: strong, confidence: 'high' };
+  }
+  if (weak.length >= 2) {
+    return { junk: true, reasons: weak, confidence: 'medium' };
+  }
+  return { junk: false, reasons: weak, confidence: weak.length ? 'low' : 'ok' };
+}
+
+function leadRowToData_(row, idx) {
+  return {
+    name: row[idx.name],
+    email: row[idx.email],
+    telefon: row[idx.telefon],
+    firma: row[idx.firma],
+    nachricht: row[idx.nachricht],
+    message: row[idx.nachricht],
+    projekt: row[idx.projekt],
+    budget: row[idx.budget],
+    zeitrahmen: row[idx.zeitrahmen],
+    standort: row[idx.standort],
+    stadt: row[idx.stadt]
+  };
+}
+
+function purgeJunkLeadsFromSheet_(ss) {
+  ensureStructure_(ss);
+  var removed = [];
+  var refs = {};
+  var leadTabs = [TAB_ALL, TAB_AUFTRAGGEBER, TAB_AUFTRAGNEHMER];
+
+  leadTabs.forEach(function (tabName) {
+    var sheet = ss.getSheetByName(tabName);
+    if (!sheet || sheet.getLastRow() < 2) return;
+    var values = sheet.getDataRange().getValues();
+    var idx = indexMapLead_(values[0]);
+
+    for (var r = values.length - 1; r >= 1; r--) {
+      var row = values[r];
+      var junk = assessJunkLead_(leadRowToData_(row, idx));
+      if (!junk.junk) continue;
+      if (junk.confidence !== 'high' && junk.confidence !== 'medium') continue;
+
+      var ref = String(row[idx.ref] || '');
+      sheet.deleteRow(r + 1);
+      if (ref) {
+        if (!refs[ref]) refs[ref] = junk.reasons;
+        removed.push({ ref: ref, tab: tabName, reasons: junk.reasons });
+      }
+    }
+  });
+
+  Object.keys(refs).forEach(function (ref) {
+    deleteLeadArtifacts_(ss, ref);
+  });
+
+  var pipelineRemoved = purgeJunkPipelineAndOrphans_(ss);
+  if (pipelineRemoved) {
+    removed = removed.concat(pipelineRemoved);
+  }
+
+  if (removed.length) {
+    rescanAllMatchesFull_();
+  } else {
+    updateDashboard_(ss);
+  }
+  return { removed: removed.length, details: removed };
+}
+
+function collectValidLeadRefs_(ss) {
+  var refs = {};
+  [TAB_ALL, TAB_AUFTRAGGEBER, TAB_AUFTRAGNEHMER].forEach(function (tabName) {
+    var sheet = ss.getSheetByName(tabName);
+    if (!sheet || sheet.getLastRow() < 2) return;
+    var vals = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues();
+    for (var i = 0; i < vals.length; i++) {
+      var ref = String(vals[i][0] || '').trim();
+      if (ref) refs[ref] = true;
+    }
+  });
+  return refs;
+}
+
+/** Pipeline/Seriositaet: Test-Namen, leere Outreach-Ueberreste, verwaiste Zeilen. */
+function purgeJunkPipelineAndOrphans_(ss) {
+  var removed = [];
+  var validRefs = collectValidLeadRefs_(ss);
+  var junkRefs = {};
+
+  var pipe = ss.getSheetByName(TAB_PIPELINE);
+  if (pipe && pipe.getLastRow() > 1) {
+    var values = pipe.getDataRange().getValues();
+    for (var r = values.length - 1; r >= 1; r--) {
+      var ref = String(values[r][0] || '').trim();
+      var name = String(values[r][2] || '').trim();
+      var rolle = String(values[r][3] || '').trim();
+      var serios = String(values[r][7] || '').trim();
+      var reason = '';
+
+      if (isExplicitJunkName_(name)) {
+        reason = 'pipeline:test-name';
+      } else if (!name && !rolle) {
+        reason = 'pipeline:leer';
+      } else if (ref && !validRefs[ref] && !name) {
+        reason = 'pipeline:verwaist-ohne-name';
+      } else if (ref && !validRefs[ref] && serios === '-') {
+        reason = 'pipeline:verwaist-outreach';
+      }
+
+      if (reason) {
+        pipe.deleteRow(r + 1);
+        if (ref) junkRefs[ref] = reason;
+        removed.push({ ref: ref || '(leer)', tab: TAB_PIPELINE, reasons: [reason] });
+      }
+    }
+  }
+
+  Object.keys(junkRefs).forEach(function (ref) {
+    deleteLeadArtifacts_(ss, ref);
+  });
+
+  return removed;
+}
+
+function deleteLeadArtifacts_(ss, ref) {
+  deleteRowsByRef_(ss.getSheetByName(TAB_PIPELINE), ref, 1);
+  deleteRowsByRef_(ss.getSheetByName(TAB_SERIOSITY), ref, 1);
+  purgeMatchesForRef_(ss, ref);
+}
+
+function deleteRowsByRef_(sheet, ref, refCol) {
+  if (!sheet) return;
+  var rowNum = findRowByRef_(sheet, ref, refCol);
+  while (rowNum > 0) {
+    sheet.deleteRow(rowNum);
+    rowNum = findRowByRef_(sheet, ref, refCol);
+  }
+}
+
+function purgeMatchesForRef_(ss, ref) {
+  [TAB_MATCHES, TAB_TOP_MATCHES].forEach(function (tabName) {
+    var sheet = ss.getSheetByName(tabName);
+    if (!sheet || sheet.getLastRow() < 2) return;
+    var values = sheet.getDataRange().getValues();
+    var idCol = tabName === TAB_MATCHES ? 12 : 14;
+    var anfragenCol = tabName === TAB_MATCHES ? 9 : -1;
+
+    for (var r = values.length - 1; r >= 1; r--) {
+      var matchId = String(values[r][idCol] || '');
+      var anfragen = anfragenCol >= 0 ? String(values[r][anfragenCol] || '') : '';
+      var agRef = tabName === TAB_TOP_MATCHES ? String(values[r][6] || '') : '';
+      var anRef = tabName === TAB_TOP_MATCHES ? String(values[r][9] || '') : '';
+      if (matchId.indexOf(ref) >= 0 || anfragen.indexOf(ref) >= 0 ||
+          agRef === ref || anRef === ref) {
+        sheet.deleteRow(r + 1);
+      }
+    }
+  });
+}
+
+function handlePurgeJunk_(data) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var result = purgeJunkLeadsFromSheet_(ss);
+  updateDashboard_(ss);
+  return jsonResponse_({ ok: true, action: 'purge_junk', removed: result.removed, details: result.details });
+}
+
+/** EINMAL oder bei Bedarf: Test-/Unsinn-Leads aus allen Tabs entfernen. */
+function junkLeadsEntfernen() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var result = purgeJunkLeadsFromSheet_(ss);
+  updateDashboard_(ss);
+  Logger.log('Junk-Leads entfernt: ' + result.removed);
+  return result;
+}
+
+/**
+ * EINMAL ausfuehren: alle Tab-Kopfzeilen schwarz auf hellgrau setzen.
+ */
+function headerSchwarzAktualisieren() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  restyleAllTabHeaders_(ss);
+  updateDashboard_(ss);
+  Logger.log('Header-Schrift auf schwarz aktualisiert.');
+}
+
+function restyleAllTabHeaders_(ss) {
+  var specs = [
+    [TAB_ALL, LEAD_HEADERS.length],
+    [TAB_AUFTRAGGEBER, LEAD_HEADERS.length],
+    [TAB_AUFTRAGNEHMER, LEAD_HEADERS.length],
+    [TAB_PORTFOLIO, LEAD_HEADERS.length],
+    [TAB_MATCHES, MATCH_HEADERS.length],
+    [TAB_TOP_MATCHES, TOP_MATCH_HEADERS.length],
+    [TAB_SERIOSITY, SERIOSITY_HEADERS.length],
+    [TAB_PIPELINE, PIPELINE_HEADERS.length],
+    [TAB_ACTIVITIES, ACTIVITY_HEADERS.length]
+  ];
+  specs.forEach(function (spec) {
+    var sheet = ss.getSheetByName(spec[0]);
+    if (sheet && sheet.getLastRow() > 0) {
+      styleHeader_(sheet, spec[1]);
+    }
+  });
+}
+
+/**
+ * EINMAL ausfuehren: Outreach-Eintraege aus Auftragnehmer/Alle Leads
+ * nach Outreach-Portfolio verschieben (saubere Trennung).
+ */
+function outreachNachPortfolioVerschieben() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var result = migrateOutreachRows_(ss);
+  updateDashboard_(ss);
+  Logger.log('Verschoben: ' + result.moved + ' | Auftragnehmer verbleibend: ' + result.an_remaining);
+  return result;
+}
+
+function handleMigrateOutreach_(data) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var result = migrateOutreachRows_(ss);
+  updateDashboard_(ss);
+  return jsonResponse_({ ok: true, moved: result.moved, an_remaining: result.an_remaining });
+}
+
+function isOutreachLeadRow_(row, idx) {
+  var bearbeitung = String(row[idx.bearbeitung] || '').trim();
+  var pipeline = String(row[idx.pipeline] || '').trim();
+  var nachricht = String(row[idx.nachricht] || '').toLowerCase();
+  if (bearbeitung === 'Outreach' || pipeline === 'Outreach') return true;
+  if (nachricht.indexOf('outreach') >= 0 && nachricht.indexOf('importiert') >= 0) return true;
+  if (nachricht.indexOf('google places') >= 0) return true;
+  return false;
+}
+
+function migrateOutreachRows_(ss) {
+  ensureStructure_(ss);
+  var portfolio = ss.getSheetByName(TAB_PORTFOLIO);
+  var moved = 0;
+  var existingEmails = {};
+
+  if (portfolio.getLastRow() > 1) {
+    var pVals = portfolio.getDataRange().getValues();
+    var pIdx = indexMapLead_(pVals[0]);
+    for (var p = 1; p < pVals.length; p++) {
+      existingEmails[String(pVals[p][pIdx.email] || '').trim().toLowerCase()] = true;
+    }
+  }
+
+  [TAB_AUFTRAGNEHMER, TAB_ALL].forEach(function (tabName) {
+    var sheet = ss.getSheetByName(tabName);
+    if (!sheet || sheet.getLastRow() < 2) return;
+    var values = sheet.getDataRange().getValues();
+    var idx = indexMapLead_(values[0]);
+    var cols = values[0].length;
+
+    for (var r = values.length - 1; r >= 1; r--) {
+      var row = values[r];
+      if (!isOutreachLeadRow_(row, idx)) continue;
+
+      var email = String(row[idx.email] || '').trim().toLowerCase();
+      if (email && !existingEmails[email]) {
+        portfolio.appendRow(row.slice(0, cols));
+        existingEmails[email] = true;
+        moved++;
+      }
+      sheet.deleteRow(r + 1);
+    }
+  });
+
+  var an = ss.getSheetByName(TAB_AUFTRAGNEHMER);
+  return {
+    moved: moved,
+    an_remaining: an ? Math.max(0, an.getLastRow() - 1) : 0
+  };
+}
+
 /**
  * EINMAL ausfuehren fuer sauberen Neustart:
  * Loescht Dashboard/Matches/Seriositaet/Pipeline + leert die Lead-Tabs,
@@ -1637,7 +2697,7 @@ function testBerechtigung() {
 function neuAufsetzen() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   [TAB_DASHBOARD, TAB_MATCHES, TAB_TOP_MATCHES, TAB_SERIOSITY, TAB_PIPELINE,
-   TAB_ALL, TAB_AUFTRAGGEBER, TAB_AUFTRAGNEHMER].forEach(function (n) {
+   TAB_ALL, TAB_AUFTRAGGEBER, TAB_AUFTRAGNEHMER, TAB_PORTFOLIO].forEach(function (n) {
     var sh = ss.getSheetByName(n);
     if (sh) ss.deleteSheet(sh);
   });

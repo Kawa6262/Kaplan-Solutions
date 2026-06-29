@@ -89,6 +89,103 @@ def record_submission(ip: str) -> None:
     _rate_log[ip].append(time.time())
 
 
+def _is_explicit_junk_name(name: str) -> bool:
+    name = (name or "").strip()
+    if not name:
+        return False
+    if re.search(r"test[\-\s]?anfrage", name, re.I):
+        return True
+    if re.match(r"^(max|maria|peter|anna)\s+mustermann$", name, re.I):
+        return True
+    if re.match(r"^(test|testing|dummy|fake|asdf|xxx)$", name, re.I):
+        return True
+    return False
+
+
+def _looks_like_real_lead(data: dict) -> bool:
+    """Schutznetz: ausführliche Anfragen nie als Junk werten."""
+    message = (data.get("message") or "").strip()
+    phone = re.sub(r"\D", "", data.get("phone") or data.get("telefon") or "")
+    budget = (data.get("budget") or "").strip()
+    timeline = (data.get("timeline") or data.get("zeitrahmen") or "").strip()
+    project = (data.get("project") or data.get("projekt") or "").strip()
+    location = (
+        (data.get("location") or "")
+        or (data.get("standort") or "")
+        or (data.get("stadt") or "")
+    ).strip()
+
+    if len(message) >= 45:
+        return True
+    if len(phone) >= 9 and len(message) >= 18:
+        return True
+    if project and timeline and budget and budget not in ("—", "-", ""):
+        return True
+    if len(location) >= 4 and len(message) >= 25 and len(phone) >= 9:
+        return True
+    return False
+
+
+def is_junk_lead(data: dict) -> tuple[bool, list[str]]:
+    """Konservative Junk-Erkennung — lieber Test behalten als echten Lead löschen."""
+    name = (data.get("name") or "").strip()
+
+    if _is_explicit_junk_name(name):
+        return True, ["name:test-anfrage"]
+
+    if _looks_like_real_lead(data):
+        return False, []
+
+    email = (data.get("email") or "").strip().lower()
+    message = (data.get("message") or "").strip()
+    msg_lower = message.lower()
+    strong: list[str] = []
+    weak: list[str] = []
+
+    if not name and not email:
+        strong.append("leer")
+
+    if re.search(
+        r"^test@|@example\.(com|org|de)|mailinator|yopmail|tempmail|"
+        r"guerrillamail|10minutemail|discard\.|trashmail",
+        email,
+        re.I,
+    ):
+        strong.append("email:wegwerf")
+
+    if re.match(
+        r"^(test|nur test|dies ist ein test|bitte ignorieren|ignore this|"
+        r"formular test|testeintrag|nur ein test)\.?$",
+        msg_lower,
+        re.I,
+    ):
+        strong.append("nachricht:explizit-test")
+
+    if data.get("is_test") or data.get("test_lead"):
+        strong.append("flag:test")
+
+    admin = os.getenv("ADMIN_EMAIL", "").strip().lower()
+    if admin and email == admin and re.search(
+        r"test[\-\s]?anfrage|nur test|formular test",
+        f"{name} {msg_lower}",
+        re.I,
+    ):
+        strong.append("admin:self-test")
+
+    if re.match(r"^(test|probe|dummy)\b", name, re.I) and len(name) < 35:
+        weak.append("name:test-prefix")
+    if re.search(r"\b(mustermann|musterfrau|john doe|jane doe|lorem ipsum)\b", f"{name} {msg_lower}", re.I):
+        weak.append("dummy-text")
+    if re.search(r"\btest\b", msg_lower) and len(msg_lower) < 35:
+        weak.append("nachricht:enthaelt-test")
+
+    if strong:
+        return True, strong
+    if len(weak) >= 2:
+        return True, weak
+    return False, weak
+
+
 def spam_response(data: dict):
     """Prüft Honeypot + Rate-Limit VOR der Verarbeitung. Gibt eine fertige
     Flask-Antwort zurück (oder None, wenn die Anfrage in Ordnung ist)."""
@@ -715,6 +812,10 @@ def _sheet_fields(payload: dict) -> dict:
         "rueckruf": payload.get("callback_slot", "") or "—",
         "dateien": ", ".join(payload.get("attachment_names") or []) or "—",
         "bearbeitung": "Neu",
+        "lead_source": payload.get("lead_source", "") or payload.get("utm_source", "") or "Website",
+        "utm_source": payload.get("utm_source", ""),
+        "utm_medium": payload.get("utm_medium", ""),
+        "utm_campaign": payload.get("utm_campaign", ""),
     }
 
 
@@ -781,6 +882,12 @@ def forward_to_sheet(payload: dict) -> dict:
                     raise
             meta = _parse_sheet_json(raw)
             if meta.get("ok"):
+                if meta.get("junk") or meta.get("skipped"):
+                    print(
+                        f"[sheet] Junk-Lead verworfen: {meta.get('reasons', meta.get('reason', ''))}",
+                        flush=True,
+                    )
+                    return meta
                 print(
                     f"[sheet] OK ref={meta.get('ref')} matches={len(meta.get('matches') or [])} "
                     f"folder={'ja' if meta.get('folder_url') else 'nein'} attempt={attempt}",
@@ -1154,6 +1261,15 @@ def contact():
     if err:
         return jsonify({"ok": False, "error": err}), 400
 
+    junk, junk_reasons = is_junk_lead(data)
+    if junk:
+        print(
+            f"[junk] Lead verworfen ({', '.join(junk_reasons)}): "
+            f"{data.get('name', '')} <{data.get('email', '')}>",
+            flush=True,
+        )
+        return jsonify({"ok": True, "message": "Anfrage wurde gesendet.", "junk": True})
+
     record_submission(client_ip())
 
     attachments, att_err = parse_attachments(data)
@@ -1175,6 +1291,10 @@ def contact():
         "callback_slot": (data.get("callback_slot") or "").strip() or "—",
         "message": data.get("message", "").strip(),
         "privacy_consent": bool(data.get("privacy_consent")),
+        "lead_source": (data.get("lead_source") or data.get("utm_source") or "website").strip(),
+        "utm_source": (data.get("utm_source") or "").strip(),
+        "utm_medium": (data.get("utm_medium") or "").strip(),
+        "utm_campaign": (data.get("utm_campaign") or "").strip(),
     }
 
     if role == "bauherr":
@@ -1278,6 +1398,95 @@ def cron_lead_followups():
 
     result = run_maintenance()
     return jsonify({"ok": True, **result})
+
+
+# ── CRM Admin (Pipeline-Steuerung) ───────────────────────────────────────────
+
+ADMIN_CRM_SECRET = os.getenv("ADMIN_CRM_SECRET", "").strip()
+
+
+def _crm_auth_ok() -> bool:
+    if not ADMIN_CRM_SECRET:
+        return False
+    token = (
+        request.headers.get("X-Admin-Crm-Secret", "").strip()
+        or request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+    )
+    return token == ADMIN_CRM_SECRET
+
+
+def _sheet_action(action: str, extra: dict | None = None) -> dict:
+    """Apps-Script-Aktion mit CRM-Secret."""
+    payload = {"action": action, "crm_secret": ADMIN_CRM_SECRET}
+    if extra:
+        payload.update(extra)
+    url = os.getenv("SHEETS_WEBHOOK_URL", "").strip()
+    if not url or not ADMIN_CRM_SECRET:
+        return {"ok": False, "error": "CRM nicht konfiguriert (SHEETS_WEBHOOK_URL / ADMIN_CRM_SECRET)"}
+    body = json.dumps(payload).encode("utf-8")
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (compatible; KaplanSolutions-CRM/1.0)",
+    }
+    timeout = int(os.getenv("SHEETS_WEBHOOK_TIMEOUT", "90"))
+    try:
+        req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return _parse_sheet_json(resp.read().decode("utf-8", errors="replace"))
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+@app.route("/admin/crm")
+def admin_crm_page():
+    """Passwort-geschütztes CRM-Dashboard (Mac + iPhone)."""
+    if not ADMIN_CRM_SECRET:
+        abort(503)
+    return render_template("admin_crm.html")
+
+
+@app.get("/api/crm/snapshot")
+def api_crm_snapshot():
+    if not _crm_auth_ok():
+        abort(401)
+    return jsonify(_sheet_action("crm_snapshot"))
+
+
+@app.post("/api/crm/update")
+def api_crm_update():
+    if not _crm_auth_ok():
+        abort(401)
+    data = request.get_json(silent=True) or {}
+    ref = (data.get("ref") or "").strip()
+    if not ref:
+        return jsonify({"ok": False, "error": "ref fehlt"}), 400
+    fields = data.get("fields") or data.get("updates") or {}
+    return jsonify(_sheet_action("crm_update", {"ref": ref, "fields": fields}))
+
+
+@app.post("/api/crm/activity")
+def api_crm_activity_create():
+    if not _crm_auth_ok():
+        abort(401)
+    data = request.get_json(silent=True) or {}
+    return jsonify(_sheet_action("crm_activity_create", data))
+
+
+@app.patch("/api/crm/activity/<activity_id>")
+def api_crm_activity_update(activity_id: str):
+    if not _crm_auth_ok():
+        abort(401)
+    data = request.get_json(silent=True) or {}
+    data["id"] = activity_id
+    return jsonify(_sheet_action("crm_activity_update", data))
+
+
+@app.post("/api/crm/opportunity")
+def api_crm_opportunity_update():
+    if not _crm_auth_ok():
+        abort(401)
+    data = request.get_json(silent=True) or {}
+    return jsonify(_sheet_action("crm_opportunity_update", data))
 
 
 if __name__ == "__main__":

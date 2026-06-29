@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Kaplan Sales" />
+    <title>Kaplan Sales — Salesforce CRM</title>
+    <link rel="stylesheet" href="/admin-crm.css" />
+</head>
+<body>
+    <!-- Login (Salesforce-style) -->
+    <div id="login-screen" class="sf-login hidden">
+        <div class="sf-login-card">
+            <div class="sf-cloud-logo" aria-hidden="true">☁</div>
+            <h1>Kaplan Sales</h1>
+            <p class="sf-login-sub">Salesforce CRM für Kaplan Solutions</p>
+            <form id="login-form">
+                <label for="crm-secret">Passwort</label>
+                <input id="crm-secret" type="password" autocomplete="current-password" placeholder="Admin CRM Secret" required />
+                <button type="submit" class="slds-button slds-button_brand slds-button_stretch">Anmelden</button>
+            </form>
+            <p id="login-error" class="sf-error hidden"></p>
+        </div>
+    </div>
+
+    <!-- Main App Shell -->
+    <div id="app-shell" class="sf-app hidden">
+        <header class="sf-global-header">
+            <button type="button" id="nav-toggle" class="sf-icon-btn" aria-label="Navigation">☰</button>
+            <div class="sf-app-brand">
+                <span class="sf-cloud" aria-hidden="true">☁</span>
+                <span class="sf-app-name">Kaplan Sales</span>
+            </div>
+            <div class="sf-global-search-wrap">
+                <input type="search" id="global-search" placeholder="Search..." autocomplete="off" />
+            </div>
+            <div class="sf-header-utils">
+                <button type="button" id="refresh-btn" class="sf-icon-btn" title="Refresh">↻</button>
+                <div class="sf-avatar" title="Ferhat Kaplan">FK</div>
+            </div>
+        </header>
+
+        <div class="sf-body">
+            <nav id="sf-nav" class="sf-nav">
+                <a href="#/home" data-route="home"><span class="sf-nav-icon">🏠</span>Home</a>
+                <a href="#/leads" data-route="leads"><span class="sf-nav-icon">🎯</span>Leads</a>
+                <a href="#/accounts" data-route="accounts"><span class="sf-nav-icon">🏢</span>Accounts</a>
+                <a href="#/contacts" data-route="contacts"><span class="sf-nav-icon">👤</span>Contacts</a>
+                <a href="#/opportunities" data-route="opportunities"><span class="sf-nav-icon">💰</span>Opportunities</a>
+                <a href="#/calendar" data-route="calendar"><span class="sf-nav-icon">📅</span>Calendar</a>
+                <a href="#/tasks" data-route="tasks"><span class="sf-nav-icon">✓</span>Tasks</a>
+            </nav>
+
+            <main id="sf-main" class="sf-main"></main>
+        </div>
+    </div>
+
+    <!-- Activity Composer Modal -->
+    <dialog id="activity-dialog" class="sf-modal">
+        <form id="activity-form" method="dialog">
+            <header class="sf-modal-header">
+                <h2 id="activity-title">New Task</h2>
+                <button type="button" class="sf-modal-close" data-close>×</button>
+            </header>
+            <div class="sf-modal-body">
+                <input type="hidden" id="act-related-type" />
+                <input type="hidden" id="act-related-id" />
+                <input type="hidden" id="act-type" />
+                <label>Subject
+                    <input id="act-subject" required />
+                </label>
+                <label>Due Date / Start
+                    <input id="act-due" placeholder="dd.mm.yyyy HH:mm" />
+                </label>
+                <label>Description
+                    <textarea id="act-desc" rows="3"></textarea>
+                </label>
+            </div>
+            <footer class="sf-modal-footer">
+                <button type="button" class="slds-button slds-button_neutral" data-close>Cancel</button>
+                <button type="submit" class="slds-button slds-button_brand">Save</button>
+            </footer>
+        </form>
+    </dialog>
+
+    <script src="/admin-crm.js"></script>
+</body>
+</html>
