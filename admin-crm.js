@@ -27,7 +27,11 @@
         if (res.status === 401) {
             sessionStorage.removeItem(STORAGE_KEY);
             showLogin();
-            throw new Error('Session expired');
+            throw new Error(
+                opts.loginAttempt
+                    ? 'Passwort falsch — muss exakt wie ADMIN_CRM_SECRET auf Render sein.'
+                    : 'Sitzung abgelaufen — bitte erneut anmelden.'
+            );
         }
         return res.json();
     }
@@ -603,9 +607,16 @@
         $('#activity-dialog').showModal();
     }
 
-    async function loadData() {
-        const data = await api('/api/crm/snapshot');
-        if (!data.ok) throw new Error(data.error || 'Load failed');
+    async function loadData(opts = {}) {
+        const data = await api('/api/crm/snapshot', opts);
+        if (!data.ok) {
+            if (data.error === 'unauthorized') {
+                throw new Error(
+                    'Google Sheet lehnt ab: _Meta B7 muss denselben Wert haben wie Render. Apps Script neu deployen.'
+                );
+            }
+            throw new Error(data.error || 'Laden fehlgeschlagen');
+        }
         state.data = data;
     }
 
@@ -616,7 +627,7 @@
         $('#login-error').classList.add('hidden');
         sessionStorage.setItem(STORAGE_KEY, $('#crm-secret').value.trim());
         try {
-            await loadData();
+            await loadData({ loginAttempt: true });
             showApp();
             render();
         } catch (err) {
