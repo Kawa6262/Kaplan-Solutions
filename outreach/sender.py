@@ -10,6 +10,8 @@ import os
 from outreach import config
 from outreach import storage
 from outreach.templates import build_bodies, build_subject
+from outreach.referral_templates import build_bodies as build_referral_bodies
+from outreach.referral_templates import build_subject as build_referral_subject
 
 try:
     from mailer import email_configured, send_email
@@ -25,17 +27,27 @@ def _in_send_window() -> bool:
     return config.SEND_HOUR_START <= now.hour < config.SEND_HOUR_END
 
 
-def send_one() -> bool:
+def _send_limits(campaign: str) -> tuple[int, str]:
+    if campaign == config.CAMPAIGN_REFERRAL:
+        return config.REFERRAL_DAILY_SEND_LIMIT, "referral_outreach"
+    return config.DAILY_SEND_LIMIT, "outreach"
+
+
+def send_one(campaign: str = config.CAMPAIGN_PARTNER) -> bool:
     """Sendet maximal eine E-Mail. Returns True wenn gesendet."""
+    if campaign == config.CAMPAIGN_REFERRAL and not config.REFERRAL_ENABLED:
+        return False
     if not email_configured():
         print("[outreach] E-Mail nicht konfiguriert (RESEND_API_KEY + ADMIN_EMAIL).", flush=True)
         return False
     if not _in_send_window():
         return False
-    if storage.get_counter("sent") >= config.DAILY_SEND_LIMIT:
+
+    daily_limit, tag = _send_limits(campaign)
+    if storage.get_counter("sent", campaign) >= daily_limit:
         return False
 
-    row = storage.next_to_send()
+    row = storage.next_to_send(campaign)
     if not row:
         return False
 
@@ -48,8 +60,17 @@ def send_one() -> bool:
         storage.mark_enriched(row["id"], email, "unsubscribed")
         return False
 
-    subject = build_subject(company, city)
-    text_body, html_body = build_bodies(company, city, trade, recipient_email=email)
+    if campaign == config.CAMPAIGN_REFERRAL:
+        subject = build_referral_subject(company, city)
+        text_body, html_body = build_referral_bodies(
+            company, city, trade, recipient_email=email
+        )
+        label = "Referral"
+    else:
+        subject = build_subject(company, city)
+        text_body, html_body = build_bodies(company, city, trade, recipient_email=email)
+        label = "Partner"
+
     reply_to = os.getenv("REPLY_EMAIL", "kontakt@kaplan-solutions.de").strip()
 
     try:
@@ -59,11 +80,18 @@ def send_one() -> bool:
             text_body,
             html_body,
             reply_to=reply_to,
-            tags=[{"name": "category", "value": "outreach"}],
+            tags=[{"name": "category", "value": tag}],
         )  # type: ignore
         storage.mark_sent(row["id"])
-        storage.bump_counter("sent")
-        print(f"[outreach] ✓ Gesendet an {company} <{email}>", flush=True)
+        storage.bump_counter("sent", campaign=campaign)
+        print(f"[outreach] ✓ {label} → {company} <{email}>", flush=True)
+        if campaign == config.CAMPAIGN_PARTNER:
+            try:
+                from outreach import sheet_sync
+
+                sheet_sync.sync_prospect(row)
+            except Exception as exc:
+                print(f"[outreach] Sheet-Sync übersprungen: {exc}", flush=True)
         return True
     except Exception as exc:
         storage.mark_failed(row["id"], str(exc))
@@ -72,12 +100,20 @@ def send_one() -> bool:
 
 
 def send_batch(max_per_cycle: int | None = None) -> int:
-    """Sendet mehrere Mails pro Zyklus (bis Tageslimit). Returns Anzahl gesendet."""
+    """Sendet Partner- und Referral-Mails pro Zyklus (bis Tageslimit)."""
     cap = max_per_cycle if max_per_cycle is not None else config.SEND_BATCH_PER_CYCLE
     sent = 0
     for _ in range(max(1, cap)):
-        if send_one():
+        if send_one(config.CAMPAIGN_PARTNER):
             sent += 1
         else:
             break
+
+    if config.REFERRAL_ENABLED:
+        ref_cap = config.REFERRAL_SEND_BATCH_PER_CYCLE
+        for _ in range(max(1, ref_cap)):
+            if send_one(config.CAMPAIGN_REFERRAL):
+                sent += 1
+            else:
+                break
     return sent

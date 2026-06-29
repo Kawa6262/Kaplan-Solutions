@@ -20,6 +20,18 @@ DISCOVER_BATCHES_PER_CYCLE = int(os.getenv("OUTREACH_DISCOVER_BATCH", "3"))
 # Pause zwischen Zyklen im Daemon-Modus (Sekunden)
 DAEMON_INTERVAL = int(os.getenv("OUTREACH_INTERVAL", "300"))  # 5 Min.
 
+# Zuverlässigkeit: Mac wach halten + Nachholversand nach Sleep
+CAFFEINATE_ENABLED = os.getenv("OUTREACH_CAFFEINATE", "1").strip().lower() not in (
+    "0",
+    "false",
+    "no",
+)
+WAKE_CATCHUP_ENABLED = os.getenv("OUTREACH_WAKE_CATCHUP", "1").strip().lower() not in (
+    "0",
+    "false",
+    "no",
+)
+
 # Versand nur werktags 09:00–18:00 Europe/Berlin
 SEND_HOUR_START = int(os.getenv("OUTREACH_HOUR_START", "9"))
 SEND_HOUR_END = int(os.getenv("OUTREACH_HOUR_END", "18"))
@@ -80,3 +92,28 @@ SKIP_EMAIL_DOMAINS = {
     "example.com", "sentry.io", "wixpress.com", "wordpress.com",
     "squarespace.com", "jimdo.com", "ionos.de", "strato.de",
 }
+
+# Referral-Outreach: Makler, Architekten, Projektentwickler (B2B-Empfehlungspartner)
+REFERRAL_ENABLED = os.getenv("OUTREACH_REFERRAL_ENABLED", "1").strip().lower() not in (
+    "0",
+    "false",
+    "no",
+)
+REFERRAL_DAILY_SEND_LIMIT = int(os.getenv("OUTREACH_REFERRAL_DAILY_LIMIT", "15"))
+REFERRAL_DAILY_DISCOVER_LIMIT = int(os.getenv("OUTREACH_REFERRAL_DISCOVER_LIMIT", "80"))
+REFERRAL_SEND_BATCH_PER_CYCLE = int(os.getenv("OUTREACH_REFERRAL_SEND_BATCH", "3"))
+REFERRAL_DISCOVER_BATCHES_PER_CYCLE = int(os.getenv("OUTREACH_REFERRAL_DISCOVER_BATCH", "2"))
+
+_REFERRAL_TRADES = os.getenv(
+    "OUTREACH_REFERRAL_TRADES",
+    "Immobilienmakler,Architekturbüro,Projektentwickler,Immobilienverwaltung,Bauplanungsbüro",
+).strip()
+REFERRAL_TRADE_QUERIES = [t.strip() for t in _REFERRAL_TRADES.split(",") if t.strip()] or [
+    "Immobilienmakler",
+    "Architekturbüro",
+    "Projektentwickler",
+    "Immobilienverwaltung",
+]
+
+CAMPAIGN_PARTNER = "partner"
+CAMPAIGN_REFERRAL = "referral"

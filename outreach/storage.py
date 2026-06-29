@@ -9,6 +9,7 @@ from typing import Iterator
 
 from outreach import config
 from outreach.config import DB_PATH, DATA_DIR
+from sqlite_util import connect as sqlite_connect
 
 _DB_READY = False
 
@@ -16,7 +17,7 @@ _DB_READY = False
 def init_db() -> None:
     global _DB_READY
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite_connect(DB_PATH)
     try:
         conn.executescript(
             """
@@ -45,7 +46,7 @@ def init_db() -> None:
             );
 
             CREATE TABLE IF NOT EXISTS search_cursor (
-                id INTEGER PRIMARY KEY CHECK (id = 1),
+                id INTEGER PRIMARY KEY,
                 trade_idx INTEGER NOT NULL DEFAULT 0,
                 city_idx INTEGER NOT NULL DEFAULT 0,
                 next_page_token TEXT
@@ -56,10 +57,14 @@ def init_db() -> None:
                 discovered INTEGER NOT NULL DEFAULT 0,
                 enriched INTEGER NOT NULL DEFAULT 0,
                 sent INTEGER NOT NULL DEFAULT 0,
-                report_sent INTEGER NOT NULL DEFAULT 0
+                report_sent INTEGER NOT NULL DEFAULT 0,
+                referral_discovered INTEGER NOT NULL DEFAULT 0,
+                referral_enriched INTEGER NOT NULL DEFAULT 0,
+                referral_sent INTEGER NOT NULL DEFAULT 0
             );
 
             INSERT OR IGNORE INTO search_cursor (id, trade_idx, city_idx) VALUES (1, 0, 0);
+            INSERT OR IGNORE INTO search_cursor (id, trade_idx, city_idx) VALUES (2, 0, 0);
             """
         )
         conn.commit()
@@ -78,15 +83,50 @@ def _migrate_columns(conn: sqlite3.Connection) -> None:
     prospect_cols = {row[1] for row in conn.execute("PRAGMA table_info(prospects)")}
     if "failed_at" not in prospect_cols:
         conn.execute("ALTER TABLE prospects ADD COLUMN failed_at TEXT")
+    if "sheet_ref" not in prospect_cols:
+        conn.execute("ALTER TABLE prospects ADD COLUMN sheet_ref TEXT")
+    if "sheet_synced_at" not in prospect_cols:
+        conn.execute("ALTER TABLE prospects ADD COLUMN sheet_synced_at TEXT")
+    if "reminder_sent_at" not in prospect_cols:
+        conn.execute("ALTER TABLE prospects ADD COLUMN reminder_sent_at TEXT")
+    if "campaign" not in prospect_cols:
+        conn.execute(
+            "ALTER TABLE prospects ADD COLUMN campaign TEXT NOT NULL DEFAULT 'partner'"
+        )
+    counter_cols = {row[1] for row in conn.execute("PRAGMA table_info(daily_counters)")}
+    for col in ("referral_discovered", "referral_enriched", "referral_sent"):
+        if col not in counter_cols:
+            conn.execute(
+                f"ALTER TABLE daily_counters ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0"
+            )
+    conn.execute("INSERT OR IGNORE INTO search_cursor (id, trade_idx, city_idx) VALUES (2, 0, 0)")
     conn.commit()
+
+
+_COUNTER_MAP = {
+    "partner": {
+        "discovered": "discovered",
+        "enriched": "enriched",
+        "sent": "sent",
+    },
+    "referral": {
+        "discovered": "referral_discovered",
+        "enriched": "referral_enriched",
+        "sent": "referral_sent",
+    },
+}
+
+_CURSOR_IDS = {
+    "partner": 1,
+    "referral": 2,
+}
 
 
 @contextmanager
 def _conn() -> Iterator[sqlite3.Connection]:
     if not _DB_READY:
         init_db()
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = sqlite_connect(DB_PATH, row_factory=True)
     try:
         yield conn
         conn.commit()
@@ -98,23 +138,29 @@ def _today() -> str:
     return date.today().isoformat()
 
 
-def get_counter(field: str) -> int:
+def _counter_column(field: str, campaign: str = "partner") -> str:
+    return _COUNTER_MAP.get(campaign, _COUNTER_MAP["partner"]).get(field, field)
+
+
+def get_counter(field: str, campaign: str = "partner") -> int:
+    col = _counter_column(field, campaign)
     today = _today()
     with _conn() as db:
         row = db.execute(
-            "SELECT discovered, enriched, sent FROM daily_counters WHERE day = ?",
+            f"SELECT {col} AS v FROM daily_counters WHERE day = ?",
             (today,),
         ).fetchone()
         if not row:
             return 0
-        return int(row[field])
+        return int(row["v"] or 0)
 
 
-def bump_counter(field: str, n: int = 1) -> None:
+def bump_counter(field: str, n: int = 1, campaign: str = "partner") -> None:
+    col = _counter_column(field, campaign)
     today = _today()
     with _conn() as db:
         db.execute(
-            f"""
+            """
             INSERT INTO daily_counters (day, discovered, enriched, sent)
             VALUES (?, 0, 0, 0)
             ON CONFLICT(day) DO NOTHING
@@ -122,7 +168,7 @@ def bump_counter(field: str, n: int = 1) -> None:
             (today,),
         )
         db.execute(
-            f"UPDATE daily_counters SET {field} = {field} + ? WHERE day = ?",
+            f"UPDATE daily_counters SET {col} = {col} + ? WHERE day = ?",
             (n, today),
         )
 
@@ -159,40 +205,50 @@ def upsert_prospect(
     trade: str,
     website: str = "",
     phone: str = "",
+    campaign: str = "partner",
 ) -> bool:
     """Returns True if newly inserted."""
     now = datetime.now().isoformat(timespec="seconds")
+    stored_id = f"referral:{place_id}" if campaign == "referral" else place_id
     with _conn() as db:
         cur = db.execute(
             """
             INSERT OR IGNORE INTO prospects
-                (place_id, company_name, city, trade, website, phone, status, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, 'new', ?)
+                (place_id, company_name, city, trade, website, phone, status, created_at, campaign)
+            VALUES (?, ?, ?, ?, ?, ?, 'new', ?, ?)
             """,
-            (place_id, company_name, city, trade, website, phone, now),
+            (stored_id, company_name, city, trade, website, phone, now, campaign),
         )
         return cur.rowcount > 0
 
 
-def get_search_cursor() -> tuple[int, int, str | None]:
+def get_search_cursor(campaign: str = "partner") -> tuple[int, int, str | None]:
+    cursor_id = _CURSOR_IDS.get(campaign, 1)
     with _conn() as db:
         row = db.execute(
-            "SELECT trade_idx, city_idx, next_page_token FROM search_cursor WHERE id = 1"
+            "SELECT trade_idx, city_idx, next_page_token FROM search_cursor WHERE id = ?",
+            (cursor_id,),
         ).fetchone()
         if not row:
             return 0, 0, None
         return int(row["trade_idx"]), int(row["city_idx"]), row["next_page_token"]
 
 
-def set_search_cursor(trade_idx: int, city_idx: int, next_page_token: str | None) -> None:
+def set_search_cursor(
+    trade_idx: int,
+    city_idx: int,
+    next_page_token: str | None,
+    campaign: str = "partner",
+) -> None:
+    cursor_id = _CURSOR_IDS.get(campaign, 1)
     with _conn() as db:
         db.execute(
             """
             UPDATE search_cursor
             SET trade_idx = ?, city_idx = ?, next_page_token = ?
-            WHERE id = 1
+            WHERE id = ?
             """,
-            (trade_idx, city_idx, next_page_token),
+            (trade_idx, city_idx, next_page_token, cursor_id),
         )
 
 
@@ -203,7 +259,7 @@ def prospects_to_enrich(limit: int) -> list[sqlite3.Row]:
                 """
                 SELECT * FROM prospects
                 WHERE status = 'new' AND website IS NOT NULL AND website != ''
-                ORDER BY id ASC
+                ORDER BY CASE campaign WHEN 'partner' THEN 0 ELSE 1 END, id ASC
                 LIMIT ?
                 """,
                 (limit,),
@@ -232,7 +288,7 @@ def mark_enriched(prospect_id: int, email: str | None, status: str) -> None:
         )
 
 
-def next_to_send() -> sqlite3.Row | None:
+def next_to_send(campaign: str = "partner") -> sqlite3.Row | None:
     cities = config.GERMAN_CITIES
     placeholders = ",".join("?" * len(cities))
     with _conn() as db:
@@ -240,12 +296,13 @@ def next_to_send() -> sqlite3.Row | None:
             f"""
             SELECT * FROM prospects
             WHERE status = 'queued'
+              AND campaign = ?
               AND email IS NOT NULL AND email != ''
               AND city IN ({placeholders})
             ORDER BY enriched_at ASC
             LIMIT 1
             """,
-            cities,
+            [campaign, *cities],
         ).fetchone()
 
 
@@ -256,6 +313,93 @@ def mark_sent(prospect_id: int) -> None:
             "UPDATE prospects SET status = 'sent', sent_at = ? WHERE id = ?",
             (now, prospect_id),
         )
+
+
+def is_sheet_synced(prospect_id: int) -> bool:
+    with _conn() as db:
+        row = db.execute(
+            "SELECT sheet_synced_at FROM prospects WHERE id = ?", (prospect_id,)
+        ).fetchone()
+    return bool(row and row["sheet_synced_at"])
+
+
+def mark_sheet_synced(prospect_id: int, ref: str = "") -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _conn() as db:
+        db.execute(
+            """
+            UPDATE prospects
+            SET sheet_ref = ?, sheet_synced_at = ?
+            WHERE id = ?
+            """,
+            (ref[:64], now, prospect_id),
+        )
+
+
+def unsynced_sent(limit: int = 20) -> list[sqlite3.Row]:
+    with _conn() as db:
+        return list(
+            db.execute(
+                """
+                SELECT * FROM prospects
+                WHERE status = 'sent'
+                  AND campaign = 'partner'
+                  AND email IS NOT NULL AND email != ''
+                  AND sheet_synced_at IS NULL
+                ORDER BY sent_at ASC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        )
+
+
+def mark_reminder_sent(prospect_id: int) -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _conn() as db:
+        db.execute(
+            "UPDATE prospects SET reminder_sent_at = ? WHERE id = ?",
+            (now, prospect_id),
+        )
+
+
+def due_for_reminder(days: int = 3, limit: int = 5) -> list[sqlite3.Row]:
+    from datetime import timedelta
+
+    cutoff = (datetime.now() - timedelta(days=days)).isoformat(timespec="seconds")
+    with _conn() as db:
+        return list(
+            db.execute(
+                """
+                SELECT * FROM prospects
+                WHERE status = 'sent'
+                  AND campaign = 'partner'
+                  AND email IS NOT NULL AND email != ''
+                  AND reminder_sent_at IS NULL
+                  AND sent_at IS NOT NULL
+                  AND sent_at <= ?
+                ORDER BY sent_at ASC
+                LIMIT ?
+                """,
+                (cutoff, limit),
+            ).fetchall()
+        )
+
+
+def sheet_sync_stats() -> dict:
+    with _conn() as db:
+        row = db.execute(
+            """
+            SELECT
+                SUM(CASE WHEN status = 'sent' AND sheet_synced_at IS NOT NULL THEN 1 ELSE 0 END) AS synced,
+                SUM(CASE WHEN status = 'sent' AND sheet_synced_at IS NULL THEN 1 ELSE 0 END) AS pending
+            FROM prospects
+            """
+        ).fetchone()
+    return {
+        "synced": int(row["synced"] or 0),
+        "pending": int(row["pending"] or 0),
+    }
 
 
 def mark_failed(prospect_id: int, error: str) -> None:
@@ -277,12 +421,18 @@ def stats_summary() -> dict:
                 SUM(CASE WHEN status = 'queued' THEN 1 ELSE 0 END) AS queued,
                 SUM(CASE WHEN status = 'new' THEN 1 ELSE 0 END) AS new_count,
                 SUM(CASE WHEN status = 'skipped' THEN 1 ELSE 0 END) AS skipped,
-                SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed
+                SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed,
+                SUM(CASE WHEN campaign = 'referral' AND status = 'sent' THEN 1 ELSE 0 END) AS referral_sent_all,
+                SUM(CASE WHEN campaign = 'referral' AND status = 'queued' THEN 1 ELSE 0 END) AS referral_queued
             FROM prospects
             """
         ).fetchone()
         today = db.execute(
-            "SELECT discovered, enriched, sent FROM daily_counters WHERE day = ?",
+            """
+            SELECT discovered, enriched, sent,
+                   referral_discovered, referral_enriched, referral_sent
+            FROM daily_counters WHERE day = ?
+            """,
             (_today(),),
         ).fetchone()
     return {
@@ -292,25 +442,45 @@ def stats_summary() -> dict:
         "new": int(totals["new_count"] or 0),
         "skipped": int(totals["skipped"] or 0),
         "failed": int(totals["failed"] or 0),
+        "referral_sent_all_time": int(totals["referral_sent_all"] or 0),
+        "referral_queued": int(totals["referral_queued"] or 0),
         "today_discovered": int(today["discovered"] if today else 0),
         "today_enriched": int(today["enriched"] if today else 0),
         "today_sent": int(today["sent"] if today else 0),
+        "today_referral_discovered": int(today["referral_discovered"] if today else 0),
+        "today_referral_enriched": int(today["referral_enriched"] if today else 0),
+        "today_referral_sent": int(today["referral_sent"] if today else 0),
     }
 
 
 def get_daily_counters(day: str) -> dict:
     with _conn() as db:
         row = db.execute(
-            "SELECT discovered, enriched, sent, report_sent FROM daily_counters WHERE day = ?",
+            """
+            SELECT discovered, enriched, sent, report_sent,
+                   referral_discovered, referral_enriched, referral_sent
+            FROM daily_counters WHERE day = ?
+            """,
             (day,),
         ).fetchone()
     if not row:
-        return {"discovered": 0, "enriched": 0, "sent": 0, "report_sent": 0}
+        return {
+            "discovered": 0,
+            "enriched": 0,
+            "sent": 0,
+            "report_sent": 0,
+            "referral_discovered": 0,
+            "referral_enriched": 0,
+            "referral_sent": 0,
+        }
     return {
         "discovered": int(row["discovered"]),
         "enriched": int(row["enriched"]),
         "sent": int(row["sent"]),
         "report_sent": int(row["report_sent"]),
+        "referral_discovered": int(row["referral_discovered"] or 0),
+        "referral_enriched": int(row["referral_enriched"] or 0),
+        "referral_sent": int(row["referral_sent"] or 0),
     }
 
 

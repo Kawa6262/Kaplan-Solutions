@@ -11,6 +11,7 @@ Nutzung:
 from __future__ import annotations
 
 import argparse
+import sqlite3
 import sys
 import time
 from pathlib import Path
@@ -44,11 +45,30 @@ def _log(msg: str) -> None:
         pass
 
 
-def run_cycle() -> None:
-    storage.init_db()
-    discovered = discover.discover_batches()
+from outreach import daily_report
+from outreach import reliability
+from outreach import reminder
+from outreach import sheet_sync
+
+
+def run_cycle(last_run: float | None = None) -> float:
+    now = time.time()
+    try:
+        storage.init_db()
+    except sqlite3.OperationalError as exc:
+        _log(f"[outreach] DB-Init-Wiederholung: {exc}")
+        time.sleep(1)
+        storage.init_db()
+
+    if last_run is not None:
+        reliability.catch_up_after_gap(now - last_run)
+    reliability.keep_awake_for_cycle()
+
+    discovered = discover.discover_all_campaigns()
     enriched = enrich.enrich_batch(config.ENRICH_BATCH)
     sent = sender.send_batch()
+    synced = sheet_sync.sync_batch()
+    reminded = reminder.process_reminders()
     reported = daily_report.maybe_send_report()
     followups = 0
     try:
@@ -69,8 +89,12 @@ def run_cycle() -> None:
             followups += 1
     except Exception as exc:
         _log(f"[matching] Fehler: {exc}")
-    if not any((discovered, enriched, sent, reported, followups)):
-        _log("[outreach] Zyklus: nichts zu tun (Limit erreicht oder außerhalb Geschäftszeiten).")
+    if not any((discovered, enriched, sent, synced, reminded, reported, followups)):
+        _log(
+            "[outreach] Zyklus: nichts zu tun "
+            f"({reliability.window_status_line()})"
+        )
+    return now
 
 
 def cmd_status() -> None:
@@ -87,15 +111,38 @@ def cmd_status() -> None:
     print(f"Gefunden:             {s['today_discovered']} / {config.DAILY_DISCOVER_LIMIT}")
     print(f"Angereichert:         {s['today_enriched']}")
     print(f"Versendet:            {s['today_sent']} / {config.DAILY_SEND_LIMIT}")
+    if config.REFERRAL_ENABLED:
+        print("--- Referral (Makler/Architekten) ---")
+        print(f"Gefunden heute:       {s['today_referral_discovered']} / {config.REFERRAL_DAILY_DISCOVER_LIMIT}")
+        print(f"Versendet heute:      {s['today_referral_sent']} / {config.REFERRAL_DAILY_SEND_LIMIT}")
+        print(f"In Warteschlange:     {s['referral_queued']}")
+        print(f"Versendet (gesamt):   {s['referral_sent_all_time']}")
+    ss = storage.sheet_sync_stats()
+    print(f"Sheet-Portfolio:      {ss['synced']} sync, {ss['pending']} ausstehend")
+    print(f"Zuverlässigkeit:      caffeinate={'an' if config.CAFFEINATE_ENABLED else 'aus'}, "
+          f"wake-catchup={'an' if config.WAKE_CATCHUP_ENABLED else 'aus'}")
+    print(f"Sendefenster:         {reliability.window_status_line()}")
     print(f"DB:                   {config.DB_PATH}")
     print(f"Log:                  {config.LOG_PATH}")
 
 
 def cmd_daemon() -> None:
-    _log("[outreach] Daemon gestartet — Ctrl+C zum Beenden.")
+    _log(
+        "[outreach] Daemon gestartet — "
+        f"caffeinate={'an' if config.CAFFEINATE_ENABLED else 'aus'}, "
+        f"wake-catchup={'an' if config.WAKE_CATCHUP_ENABLED else 'aus'}"
+    )
+    last_run: float | None = None
     while True:
         try:
-            run_cycle()
+            last_run = run_cycle(last_run)
+        except sqlite3.OperationalError as exc:
+            _log(f"[outreach] SQLite-Fehler — DB wird neu geöffnet: {exc}")
+            time.sleep(2)
+            try:
+                storage.init_db()
+            except Exception:
+                pass
         except Exception as exc:
             _log(f"[outreach] Zyklus-Fehler: {exc}")
         time.sleep(config.DAEMON_INTERVAL)
@@ -105,8 +152,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Kaplan Solutions B2B Outreach")
     parser.add_argument(
         "command",
-        choices=("once", "daemon", "status", "unsubscribe", "report"),
-        help="once=ein Zyklus, daemon=Hintergrund, status=Statistik, report=Tagesfazit",
+        choices=("once", "daemon", "status", "unsubscribe", "report", "sync-sheet"),
+        help="once=ein Zyklus, daemon=Hintergrund, status=Statistik, report=Tagesfazit, sync-sheet=Portfolio importieren",
     )
     parser.add_argument("email", nargs="?", help="Nur für unsubscribe")
     parser.add_argument(
@@ -129,6 +176,17 @@ def main() -> None:
         storage.init_db()
         ok = daily_report.send_daily_report(force=args.force)
         sys.exit(0 if ok else 1)
+    elif args.command == "sync-sheet":
+        storage.init_db()
+        total = 0
+        while True:
+            n = sheet_sync.sync_batch(limit=10)
+            total += n
+            pending = storage.sheet_sync_stats()["pending"]
+            print(f"Batch: +{n}, gesamt neu: {total}, noch ausstehend: {pending}")
+            if n == 0 or pending == 0:
+                break
+        sys.exit(0)
     elif args.command == "daemon":
         cmd_daemon()
     else:

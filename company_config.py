@@ -1,6 +1,14 @@
 """Zentrale Firmendaten für Impressum, Datenschutz und AGB."""
 
 import os
+from pathlib import Path
+
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(Path(__file__).resolve().parent / ".env")
+except ImportError:
+    pass
 
 # legal_form: privat | einzelunternehmen | gmbh
 #   privat            = natürliche Person, noch keine Firma (Projekt/Marke)
@@ -31,6 +39,8 @@ def _build_company() -> dict:
         legal_name = operator or "[Name in .env: COMPANY_OPERATOR]"
         director = operator
 
+    trade_name = brand if legal_form == "privat" else ""
+
     if not operator:
         operator = "[Name in .env: COMPANY_OPERATOR]"
 
@@ -45,6 +55,7 @@ def _build_company() -> dict:
         "is_privat": legal_form == "privat",
         "operator_name": operator,
         "legal_name": legal_name,
+        "trade_name": trade_name,
         "street": street or "[Straße und Hausnummer in .env: COMPANY_STREET]",
         "zip_city": zip_city,
         "country": os.getenv("COMPANY_COUNTRY", "Deutschland"),

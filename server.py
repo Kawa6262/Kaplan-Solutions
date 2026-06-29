@@ -21,7 +21,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from flask import Flask, abort, jsonify, render_template, request, send_from_directory
+from flask import Flask, abort, jsonify, redirect, render_template, request, send_from_directory
 
 from company_config import COMPANY, company_footer_text
 from email_deliverability import deliverability_headers
@@ -945,17 +945,20 @@ def serve_references():
 STATS_FILE = BASE_DIR / "data" / "stats.json"
 
 
-def record_view() -> None:
-    """Zählt einen Startseiten-Aufruf — ohne Cookies, ohne IP-Speicherung."""
+def record_view(page: str = "home") -> None:
+    """Zählt Seitenaufrufe — ohne Cookies, ohne IP-Speicherung."""
     try:
         stats = json.loads(STATS_FILE.read_text(encoding="utf-8"))
     except Exception:
-        stats = {"total": 0, "days": {}}
+        stats = {"total": 0, "days": {}, "pages": {}}
     today = datetime.now().strftime("%Y-%m-%d")
     stats["total"] = int(stats.get("total", 0)) + 1
     days = stats.setdefault("days", {})
     days[today] = int(days.get(today, 0)) + 1
-    if len(days) > 120:  # nur die letzten ~90 Tage behalten
+    pages = stats.setdefault("pages", {})
+    page_days = pages.setdefault(page, {})
+    page_days[today] = int(page_days.get(today, 0)) + 1
+    if len(days) > 120:
         for old in sorted(days)[:-90]:
             days.pop(old, None)
     try:
@@ -966,8 +969,19 @@ def record_view() -> None:
 
 @app.route("/")
 def index():
-    record_view()
+    record_view("home")
     return send_from_directory(BASE_DIR, "index.html")
+
+
+@app.route("/bauherr")
+def bauherr_landing():
+    record_view("bauherr")
+    return send_from_directory(BASE_DIR, "bauherr.html")
+
+
+@app.route("/kostenlos")
+def kostenlos_redirect():
+    return redirect("/bauherr", code=302)
 
 
 @app.route("/api/stats")

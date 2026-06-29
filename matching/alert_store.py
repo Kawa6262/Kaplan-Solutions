@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
+
+from file_util import read_json, write_json_atomic
 
 _STORE = Path(__file__).resolve().parent.parent / "data" / "match_alerts_sent.json"
 _MAX = 2000
@@ -11,16 +12,15 @@ _MAX = 2000
 
 def _load() -> set[str]:
     try:
-        data = json.loads(_STORE.read_text(encoding="utf-8"))
+        data = read_json(_STORE)
         return set(data if isinstance(data, list) else [])
     except Exception:
         return set()
 
 
 def _save(ids: set[str]) -> None:
-    _STORE.parent.mkdir(parents=True, exist_ok=True)
     trimmed = sorted(ids)[-_MAX:]
-    _STORE.write_text(json.dumps(trimmed, indent=0), encoding="utf-8")
+    write_json_atomic(_STORE, trimmed)
 
 
 def already_sent(match_id: str) -> bool:

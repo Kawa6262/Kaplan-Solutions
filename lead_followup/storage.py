@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Iterator
 
 from lead_followup.config import DATA_DIR, DB_PATH
+from sqlite_util import connect as sqlite_connect
 
 _DB_READY = False
 
@@ -15,7 +16,7 @@ _DB_READY = False
 def init_db() -> None:
     global _DB_READY
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite_connect(DB_PATH)
     try:
         conn.executescript(
             """
@@ -52,8 +53,7 @@ def init_db() -> None:
 def _conn() -> Iterator[sqlite3.Connection]:
     if not _DB_READY:
         init_db()
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = sqlite_connect(DB_PATH, row_factory=True)
     try:
         yield conn
         conn.commit()

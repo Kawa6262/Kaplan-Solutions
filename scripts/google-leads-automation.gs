@@ -94,6 +94,9 @@ function doPost(e) {
     if (data.action === 'daily_briefing') {
       return handleDailyBriefingRequest_(data);
     }
+    if (data.action === 'import_outreach') {
+      return handleImportOutreach_(data);
+    }
     return handleNewLead_(data);
   } catch (err) {
     return jsonResponse_({ ok: false, error: String(err) });
@@ -137,6 +140,94 @@ function handleNewLead_(data) {
     matches: emailMatches,
     alerts_sent: alertResult.sent
   });
+}
+
+function handleImportOutreach_(data) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  ensureStructure_(ss);
+
+  var email = String(data.email || '').trim().toLowerCase();
+  if (!email) throw new Error('email fehlt');
+
+  var existing = findLeadByEmail_(ss, email);
+  if (existing) {
+    return jsonResponse_({
+      ok: true,
+      skipped: true,
+      ref: existing.ref,
+      reason: 'duplicate'
+    });
+  }
+
+  var leadData = {
+    role_code: 'unternehmen',
+    eingegangen: data.eingegangen || Utilities.formatDate(new Date(), TZ, 'dd.MM.yyyy HH:mm'),
+    rolle: 'Auftragnehmer',
+    name: data.contact_name || data.firma || 'Outreach-Kontakt',
+    email: email,
+    telefon: data.telefon || '\u2014',
+    firma: data.firma || '',
+    branche: data.branche || 'Sonstiges',
+    stadt: data.stadt || '-',
+    plz: data.plz || '',
+    projekt: data.gewerke || data.branche || '',
+    standort: data.stadt || '-',
+    zeitrahmen: '\u2014',
+    budget: '\u2014',
+    groesse: '\u2014',
+    status_feld: 'Outreach',
+    referenzen: '\u2014',
+    nachricht: data.nachricht || 'Automatisch aus Outreach-Portfolio importiert.',
+    dateien: '\u2014',
+    bearbeitung: 'Outreach'
+  };
+
+  var ref = nextRef_(ss);
+  var folderUrl = createLeadFolder_(leadData, ref);
+  var allMatches = findAllMatches_(ss, leadData, ref);
+
+  var row = buildLeadRow_(leadData, ref, folderUrl, allMatches.length, '-', 'Outreach');
+
+  appendToTab_(ss, TAB_ALL, row);
+  appendToTab_(ss, TAB_AUFTRAGNEHMER, row);
+  writeMatches_(ss, ref, leadData, allMatches);
+  writeSeriosityPending_(ss, ref, leadData, folderUrl);
+  writePipeline_(ss, ref, leadData, folderUrl, allMatches.length);
+  updateDashboard_(ss);
+
+  var hotPairs = buildHotPairsFromNewLead_(ref, leadData, allMatches);
+  var alertResult = processInstantMatchAlerts_(ss, hotPairs);
+
+  return jsonResponse_({
+    ok: true,
+    ref: ref,
+    folder_url: folderUrl,
+    matches: allMatches.length,
+    hot: allMatches.filter(function (m) { return m.score >= MATCH_ALERT_MIN; }).length,
+    alerts_sent: alertResult.sent,
+    source: 'outreach'
+  });
+}
+
+function findLeadByEmail_(ss, email) {
+  var tabs = [TAB_ALL, TAB_AUFTRAGGEBER, TAB_AUFTRAGNEHMER];
+  email = String(email || '').trim().toLowerCase();
+  if (!email) return null;
+
+  for (var t = 0; t < tabs.length; t++) {
+    var sheet = ss.getSheetByName(tabs[t]);
+    if (!sheet || sheet.getLastRow() < 2) continue;
+    var values = sheet.getDataRange().getValues();
+    var idx = indexMapLead_(values[0]);
+    for (var r = 1; r < values.length; r++) {
+      var row = values[r];
+      var rowMail = String(row[idx.email] || '').trim().toLowerCase();
+      if (rowMail && rowMail === email) {
+        return { ref: String(row[idx.ref] || ''), tab: tabs[t] };
+      }
+    }
+  }
+  return null;
 }
 
 function handleSeriosityUpdate_(data) {

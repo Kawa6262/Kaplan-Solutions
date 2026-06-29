@@ -18,6 +18,7 @@ except ImportError:
 
 REPORT_EMAIL = os.getenv("OUTREACH_REPORT_EMAIL", os.getenv("ADMIN_EMAIL", "")).strip()
 REPORT_HOUR = int(os.getenv("OUTREACH_REPORT_HOUR", "18"))
+REPORT_FINAL_HOUR = int(os.getenv("OUTREACH_REPORT_FINAL_HOUR", "20"))
 
 
 def _today_berlin() -> date:
@@ -33,12 +34,18 @@ def _date_label(d: date) -> str:
     return f"{weekdays[d.weekday()]}, {d.day}. {months[d.month]} {d.year}"
 
 
-def _search_progress_label() -> str:
-    trade_idx, city_idx, token = storage.get_search_cursor()
-    trade = config.TRADE_QUERIES[trade_idx % len(config.TRADE_QUERIES)]
+def _search_progress_label(campaign: str = "partner") -> str:
+    trade_idx, city_idx, token = storage.get_search_cursor(campaign)
+    if campaign == "referral":
+        trades = config.REFERRAL_TRADE_QUERIES
+        prefix = "Referral"
+    else:
+        trades = config.TRADE_QUERIES
+        prefix = "Partner"
+    trade = trades[trade_idx % len(trades)]
     city = config.GERMAN_CITIES[city_idx % len(config.GERMAN_CITIES)]
     page = " (weitere Seite)" if token else ""
-    return f"{trade} · {city} · Gewerk {trade_idx + 1}/{len(config.TRADE_QUERIES)}{page}"
+    return f"{prefix}: {trade} · {city} · {trade_idx + 1}/{len(trades)}{page}"
 
 
 def gather_report_data(for_day: date | None = None) -> dict:
@@ -68,15 +75,43 @@ def gather_report_data(for_day: date | None = None) -> dict:
         "companies_failed": companies_failed,
         "by_city": storage.sent_breakdown_by_city(day_iso),
         "by_trade": storage.sent_breakdown_by_trade(day_iso),
-        "search_progress": _search_progress_label(),
+        "search_progress": _search_progress_label("partner"),
+        "referral_search_progress": _search_progress_label("referral"),
+        "referral_sent_today": counters.get("referral_sent", 0),
+        "referral_discovered_today": counters.get("referral_discovered", 0),
+        "referral_sent_limit": config.REFERRAL_DAILY_SEND_LIMIT,
+        "referral_enabled": config.REFERRAL_ENABLED,
     }
 
 
 def should_send_report() -> bool:
     now = datetime.now(ZoneInfo("Europe/Berlin"))
+    day_iso = _today_berlin().isoformat()
+    if storage.report_was_sent(day_iso):
+        return False
     if now.hour < REPORT_HOUR:
         return False
-    return not storage.report_was_sent(_today_berlin().isoformat())
+
+    counters = storage.get_daily_counters(day_iso)
+    sent_today = counters.get("sent", 0)
+
+    # Tageslimit erreicht → Fazit ab REPORT_HOUR
+    if sent_today >= config.DAILY_SEND_LIMIT:
+        return True
+
+    # Sonst warten bis Sendefenster vorbei oder Final-Stunde (Nachholversand)
+    if now.hour >= REPORT_FINAL_HOUR:
+        return True
+
+    # Noch im Sendefenster und Limit nicht voll → weiter versenden, kein Fazit
+    if now.hour < config.SEND_HOUR_END:
+        return False
+
+    # 18–20 Uhr: Fazit erst wenn wirklich nichts mehr geht (keine Queue)
+    if storage.stats_summary()["queued"] == 0:
+        return True
+
+    return False
 
 
 def send_daily_report(for_day: date | None = None, force: bool = False) -> bool:

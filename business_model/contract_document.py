@@ -5,6 +5,13 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+except ImportError:
+    pass
+
 from company_config import COMPANY
 from provisions_config import PROVISIONS
 
@@ -62,12 +69,15 @@ def _render_template(name: str, ctx: dict) -> str:
         cond_end = chunk.index(" %}", cond_start)
         cond = chunk[cond_start:cond_end].strip()
         inner = chunk[cond_end + 3 : chunk.index("{% endif %}")]
+        else_part = ""
+        if "{% else %}" in inner:
+            inner, else_part = inner.split("{% else %}", 1)
         show = False
         if cond.startswith("c."):
             show = bool(c.get(cond[2:], ""))
         elif cond.startswith("p."):
             show = bool(p.get(cond[2:], ""))
-        text = text[:i] + (inner if show else "") + text[j + len("{% endif %}") :]
+        text = text[:i] + (inner if show else else_part) + text[j + len("{% endif %}") :]
 
     # {{ var }} und {{ var|nbsp }} etc.
     while "{{" in text:

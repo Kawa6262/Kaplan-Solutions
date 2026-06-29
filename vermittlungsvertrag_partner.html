@@ -18,6 +18,9 @@
 <div class="party-box">
     <strong>Vermittler</strong><br />
     {{ c.legal_name }}<br />
+    {% if c.is_privat %}
+    handelnd unter der Marke „{{ c.brand }}“<br />
+    {% endif %}
     {{ c.street }}, {{ c.zip_city }}, {{ c.country }}<br />
     E-Mail: {{ c.email }} · Telefon: {{ c.phone }}<br />
     {% if c.vat_id %}USt-IdNr.: {{ c.vat_id }}<br />{% endif %}
@@ -267,7 +270,7 @@
     <div class="sig-grid">
         <div class="sig-block">
             <div class="fill-line"></div>
-            <p class="sig-label">{{ c.legal_name }}<br />(Kaplan Solutions)</p>
+            <p class="sig-label">{{ c.legal_name }}<br />{% if c.is_privat %}(handelnd unter der Marke {{ c.brand }}){% else %}(Kaplan Solutions){% endif %}</p>
         </div>
         <div class="sig-block">
             <div class="fill-line"></div>

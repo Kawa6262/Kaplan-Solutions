@@ -11,22 +11,24 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from file_util import read_json, write_json_atomic
 from matching import config
 
 TZ = ZoneInfo("Europe/Berlin")
 _STATE_PATH = Path(__file__).resolve().parent.parent / "data" / "matching_state.json"
+_WEBHOOK_TIMEOUT = int(os.getenv("SHEETS_WEBHOOK_TIMEOUT", "120"))
+_WEBHOOK_RETRIES = int(os.getenv("SHEETS_WEBHOOK_RETRIES", "3"))
 
 
 def _load_state() -> dict:
     try:
-        return json.loads(_STATE_PATH.read_text(encoding="utf-8"))
+        return read_json(_STATE_PATH)
     except Exception:
         return {}
 
 
 def _save_state(state: dict) -> None:
-    _STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    _STATE_PATH.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    write_json_atomic(_STATE_PATH, state)
 
 
 def _post_action(action: str, extra: dict | None = None) -> dict:
@@ -47,20 +49,25 @@ def _post_action(action: str, extra: dict | None = None) -> dict:
         },
         method="POST",
     )
-    try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            raw = resp.read().decode("utf-8", errors="replace")
-            try:
-                return json.loads(raw)
-            except json.JSONDecodeError:
-                import re
-                m = re.search(r"\{[\s\S]*\}", raw)
-                return json.loads(m.group(0)) if m else {"ok": False, "raw": raw[:300]}
-    except urllib.error.HTTPError as exc:
-        err = exc.read().decode("utf-8", errors="replace")
-        return {"ok": False, "error": f"HTTP {exc.code}: {err[:300]}"}
-    except Exception as exc:
-        return {"ok": False, "error": str(exc)}
+    last_error = ""
+    for attempt in range(1, _WEBHOOK_RETRIES + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=_WEBHOOK_TIMEOUT) as resp:
+                raw = resp.read().decode("utf-8", errors="replace")
+                try:
+                    return json.loads(raw)
+                except json.JSONDecodeError:
+                    import re
+                    m = re.search(r"\{[\s\S]*\}", raw)
+                    return json.loads(m.group(0)) if m else {"ok": False, "raw": raw[:300]}
+        except urllib.error.HTTPError as exc:
+            err = exc.read().decode("utf-8", errors="replace")
+            return {"ok": False, "error": f"HTTP {exc.code}: {err[:300]}"}
+        except Exception as exc:
+            last_error = str(exc)
+            if attempt < _WEBHOOK_RETRIES:
+                time.sleep(2 * attempt)
+    return {"ok": False, "error": last_error or "Webhook fehlgeschlagen"}
 
 
 def trigger_match_rescan() -> dict:

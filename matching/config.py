@@ -3,6 +3,14 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
+
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+except ImportError:
+    pass
 
 SHEETS_WEBHOOK_URL = os.getenv("SHEETS_WEBHOOK_URL", "").strip()
 MATCH_RESCAN_INTERVAL = int(os.getenv("MATCH_RESCAN_INTERVAL", "3600"))  # Sekunden

@@ -121,7 +121,8 @@ def enrich_batch(limit: int) -> int:
         if email:
             storage.mark_enriched(row["id"], email, "queued")
             enriched += 1
-            storage.bump_counter("enriched")
+            campaign = row["campaign"] if "campaign" in row.keys() else "partner"
+            storage.bump_counter("enriched", campaign=campaign or "partner")
         else:
             storage.mark_enriched(row["id"], None, "skipped")
     if enriched:

@@ -144,7 +144,7 @@ KONTAKTIERTE FIRMEN HEUTE
 
 {f'FEHLGESCHLAGEN{chr(10)}{text_failed}{chr(10)}' if failed else ''}
 SUCHFORTSCHRITT: {data.get('search_progress', '—')}
-AUSBLICK MORGEN: Bis zu {data.get('sent_limit')} weitere Kontakte möglich · {data.get('queued')} in Warteschlange
+{f"REFERRAL HEUTE: {data.get('referral_sent_today', 0)} / {data.get('referral_sent_limit', 15)} · {data.get('referral_search_progress', '—')}{chr(10)}" if data.get('referral_enabled') else ''}AUSBLICK MORGEN: Bis zu {data.get('sent_limit')} weitere Kontakte möglich · {data.get('queued')} in Warteschlange
 
 {company_footer_text()}
 """
@@ -237,6 +237,7 @@ AUSBLICK MORGEN: Bis zu {data.get('sent_limit')} weitere Kontakte möglich · {d
     <p style="margin:0 0 8px;color:{GOLD};font-size:11px;letter-spacing:0.14em;text-transform:uppercase">Ausblick</p>
     <p style="margin:0 0 8px"><strong style="color:{TEXT}">Morgen:</strong> Bis zu <strong style="color:{GOLD}">{data.get('sent_limit')}</strong> weitere Kontakte · <strong style="color:{TEXT}">{data.get('queued')}</strong> Firmen in der Warteschlange</p>
     <p style="margin:0 0 8px"><strong style="color:{TEXT}">Suche:</strong> {_safe(data.get('search_progress', '—'))}</p>
+    {f'<p style="margin:0 0 8px"><strong style="color:{TEXT}">Referral heute:</strong> {data.get("referral_sent_today", 0)} / {data.get("referral_sent_limit", 15)} · {_safe(data.get("referral_search_progress", "—"))}</p>' if data.get('referral_enabled') else ''}
     <p style="margin:0"><strong style="color:{TEXT}">Abmeldungen gesamt:</strong> {data.get('unsubscribes', 0)}</p>
   </td></tr>
   </table>

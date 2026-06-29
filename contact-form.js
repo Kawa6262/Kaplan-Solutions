@@ -107,6 +107,25 @@
 
     setRole(roleInput?.value || 'bauherr');
 
+    const urlParams = new URLSearchParams(window.location.search);
+    const roleParam = urlParams.get('role');
+    if (roleParam === 'bauherr' || roleParam === 'unternehmen') {
+        setRole(roleParam);
+    }
+    if (document.body.dataset.formRole === 'bauherr') {
+        setRole('bauherr');
+    }
+
+    function utmFields() {
+        const keys = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'gclid'];
+        const out = {};
+        keys.forEach((k) => {
+            const v = urlParams.get(k);
+            if (v) out[k] = v;
+        });
+        return out;
+    }
+
     function formatBytes(n) {
         if (n < 1024 * 1024) return Math.round(n / 1024) + ' KB';
         return (n / (1024 * 1024)).toFixed(1) + ' MB';
@@ -246,6 +265,8 @@
             message: get('message'),
             company_website: get('company_website'),
             privacy_consent: Boolean(form.querySelector('#privacyConsent')?.checked),
+            lead_source: get('lead_source') || (document.body.dataset.formRole === 'bauherr' ? 'bauherr-landing' : 'website'),
+            ...utmFields(),
         };
         if (role === 'bauherr') {
             return {
@@ -353,6 +374,15 @@
             body[lbl] = val(payload[key]);
         });
         body['Zusätzliche Angaben'] = val(payload.message);
+        if (payload.lead_source) {
+            body['Quelle'] = payload.lead_source;
+        }
+        const utmParts = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'gclid']
+            .filter((k) => payload[k])
+            .map((k) => `${k}=${payload[k]}`);
+        if (utmParts.length) {
+            body['Marketing'] = utmParts.join(' · ');
+        }
         if (payload.attachment_names?.length) {
             body['Anhänge'] =
                 payload.attachment_names.join(', ') +

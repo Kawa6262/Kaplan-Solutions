@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import json
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from file_util import read_json
 from lead_followup import storage
 from lead_followup.schedule import schedule_followup
 
@@ -39,7 +39,7 @@ def scan_inbox(limit_days: int = 14) -> dict:
         try:
             if path.stat().st_mtime < cutoff:
                 continue
-            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload = read_json(path)
             if not isinstance(payload, dict):
                 continue
             scanned += 1

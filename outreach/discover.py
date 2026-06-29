@@ -1,4 +1,4 @@
-"""Baufirmen über Google Places API (New) finden."""
+"""Baufirmen und Referral-Partner über Google Places API (New) finden."""
 
 from __future__ import annotations
 
@@ -15,38 +15,57 @@ from outreach import config
 from outreach import storage
 
 
-def discover_batch() -> int:
+def _campaign_config(campaign: str) -> tuple[list[str], int, int]:
+    if campaign == config.CAMPAIGN_REFERRAL:
+        return (
+            config.REFERRAL_TRADE_QUERIES,
+            config.REFERRAL_DAILY_DISCOVER_LIMIT,
+            config.REFERRAL_DISCOVER_BATCHES_PER_CYCLE,
+        )
+    return (
+        config.TRADE_QUERIES,
+        config.DAILY_DISCOVER_LIMIT,
+        config.DISCOVER_BATCHES_PER_CYCLE,
+    )
+
+
+def discover_batch(campaign: str = config.CAMPAIGN_PARTNER) -> int:
     """Sucht neue Firmen. Returns Anzahl neu gespeicherter Prospects."""
+    if campaign == config.CAMPAIGN_REFERRAL and not config.REFERRAL_ENABLED:
+        return 0
     if not config.GOOGLE_PLACES_KEY:
         print("[outreach] GOOGLE_PLACES_API_KEY fehlt — Discovery übersprungen.", flush=True)
         return 0
 
-    if storage.get_counter("discovered") >= config.DAILY_DISCOVER_LIMIT:
+    trades, discover_limit, _ = _campaign_config(campaign)
+    if not trades:
         return 0
 
-    trade_idx, city_idx, page_token = storage.get_search_cursor()
-    trade = config.TRADE_QUERIES[trade_idx % len(config.TRADE_QUERIES)]
+    if storage.get_counter("discovered", campaign) >= discover_limit:
+        return 0
+
+    trade_idx, city_idx, page_token = storage.get_search_cursor(campaign)
+    trade = trades[trade_idx % len(trades)]
     city = config.GERMAN_CITIES[city_idx % len(config.GERMAN_CITIES)]
     query = f"{trade} {city}"
 
     results, next_token, error = text_search(query, page_token)
     if error:
-        print(f"[outreach] Places-Fehler für {query}: {error}", flush=True)
-        _advance_cursor(trade_idx, city_idx, None)
+        print(f"[outreach] Places-Fehler für {query} ({campaign}): {error}", flush=True)
+        _advance_cursor(trade_idx, city_idx, None, len(trades), campaign)
         return 0
     if not results and not page_token:
-        _advance_cursor(trade_idx, city_idx, None)
+        _advance_cursor(trade_idx, city_idx, None, len(trades), campaign)
         return 0
 
     inserted = 0
     for item in results:
-        if storage.get_counter("discovered") >= config.DAILY_DISCOVER_LIMIT:
+        if storage.get_counter("discovered", campaign) >= discover_limit:
             break
         place_id = item["place_id"]
         name = item["name"]
         website = item["website"]
         phone = item["phone"]
-        # Nur Firmen mit Website oder Telefon — seriöser, anreicherbar
         if not website and not phone:
             continue
         if storage.upsert_prospect(
@@ -56,42 +75,63 @@ def discover_batch() -> int:
             trade=trade,
             website=website,
             phone=phone,
+            campaign=campaign,
         ):
             inserted += 1
-            storage.bump_counter("discovered")
+            storage.bump_counter("discovered", campaign=campaign)
             if not website:
-                storage.mark_no_website(place_id)
+                storage.mark_no_website(
+                    f"referral:{place_id}" if campaign == config.CAMPAIGN_REFERRAL else place_id
+                )
 
     if next_token:
-        storage.set_search_cursor(trade_idx, city_idx, next_token)
+        storage.set_search_cursor(trade_idx, city_idx, next_token, campaign)
     else:
-        _advance_cursor(trade_idx, city_idx, None)
+        _advance_cursor(trade_idx, city_idx, None, len(trades), campaign)
 
+    label = "Referral" if campaign == config.CAMPAIGN_REFERRAL else "Partner"
     if inserted:
-        print(f"[outreach] +{inserted} Firmen ({query})", flush=True)
+        print(f"[outreach] +{inserted} {label} ({query})", flush=True)
     return inserted
 
 
-def discover_batches(max_batches: int | None = None) -> int:
-    """Mehrere Discovery-Durchläufe pro Zyklus für schnelleres Portfolio-Wachstum."""
+def discover_batches(
+    campaign: str = config.CAMPAIGN_PARTNER,
+    max_batches: int | None = None,
+) -> int:
+    """Mehrere Discovery-Durchläufe pro Zyklus."""
+    _, discover_limit, default_batches = _campaign_config(campaign)
     total = 0
-    batches = max_batches or config.DISCOVER_BATCHES_PER_CYCLE
+    batches = max_batches or default_batches
     for _ in range(batches):
-        n = discover_batch()
+        n = discover_batch(campaign)
         total += n
         if n == 0:
             break
-        if storage.get_counter("discovered") >= config.DAILY_DISCOVER_LIMIT:
+        if storage.get_counter("discovered", campaign) >= discover_limit:
             break
     return total
 
 
-def _advance_cursor(trade_idx: int, city_idx: int, token: str | None) -> None:
+def discover_all_campaigns() -> int:
+    total = discover_batches(config.CAMPAIGN_PARTNER)
+    if config.REFERRAL_ENABLED:
+        total += discover_batches(config.CAMPAIGN_REFERRAL)
+    return total
+
+
+def _advance_cursor(
+    trade_idx: int,
+    city_idx: int,
+    token: str | None,
+    trade_count: int,
+    campaign: str,
+) -> None:
     if token:
-        storage.set_search_cursor(trade_idx, city_idx, token)
+        storage.set_search_cursor(trade_idx, city_idx, token, campaign)
         return
     city_idx += 1
     if city_idx >= len(config.GERMAN_CITIES):
         city_idx = 0
         trade_idx += 1
-    storage.set_search_cursor(trade_idx, city_idx, None)
+    storage.set_search_cursor(trade_idx, city_idx, None, campaign)
