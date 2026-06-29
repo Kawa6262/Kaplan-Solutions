@@ -265,7 +265,13 @@
             message: get('message'),
             company_website: get('company_website'),
             privacy_consent: Boolean(form.querySelector('#privacyConsent')?.checked),
-            lead_source: get('lead_source') || (document.body.dataset.formRole === 'bauherr' ? 'bauherr-landing' : 'website'),
+            lead_source:
+                get('lead_source') ||
+                (urlParams.get('utm_source') === 'whatsapp'
+                    ? 'whatsapp-empfehlung'
+                    : document.body.dataset.formRole === 'bauherr'
+                      ? 'bauherr-landing'
+                      : 'website'),
             ...utmFields(),
         };
         if (role === 'bauherr') {

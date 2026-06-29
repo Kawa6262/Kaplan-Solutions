@@ -981,7 +981,19 @@ def bauherr_landing():
 
 @app.route("/kostenlos")
 def kostenlos_redirect():
-    return redirect("/bauherr", code=302)
+    qs = request.query_string.decode("utf-8")
+    target = "/bauherr" + (f"?{qs}" if qs else "")
+    return redirect(target, code=302)
+
+
+@app.route("/empfehlung")
+def empfehlung_redirect():
+    """Kurzlink für WhatsApp-Empfehlungen (z. B. Baufirma-Netzwerk)."""
+    record_view("empfehlung")
+    return redirect(
+        "/bauherr?utm_source=whatsapp&utm_medium=empfehlung&utm_campaign=baufirma-netzwerk",
+        code=302,
+    )
 
 
 @app.route("/api/stats")
