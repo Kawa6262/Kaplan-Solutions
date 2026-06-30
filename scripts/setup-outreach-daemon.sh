@@ -31,7 +31,7 @@ launchctl bootstrap "gui/$(id -u)" "$PLIST_AWAKE_DST"
 launchctl enable "gui/$(id -u)/com.kaplansolutions.outreach-awake"
 launchctl kickstart -k "gui/$(id -u)/com.kaplansolutions.outreach-awake"
 
-echo "✅ Outreach-Daemon läuft (mit Sleep-Schutz Mo–Fr 9–18 Uhr)."
+echo "✅ Outreach-Daemon läuft (Mo–Fr 8–18 Uhr, automatisch)."
 echo "   Status:  cd $ROOT && python3 -m outreach.runner status"
 echo "   Log:     tail -f $ROOT/data/outreach.log"
 echo "   Awake:   tail -f $ROOT/data/outreach-awake.log"

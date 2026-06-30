@@ -49,6 +49,7 @@ from outreach import daily_report
 from outreach import reliability
 from outreach import reminder
 from outreach import sheet_sync
+from outreach import morning_report
 
 
 def run_cycle(last_run: float | None = None) -> float:
@@ -69,6 +70,7 @@ def run_cycle(last_run: float | None = None) -> float:
     sent = sender.send_batch()
     synced = sheet_sync.sync_batch()
     reminded = reminder.process_reminders()
+    morning = morning_report.maybe_send_morning_report()
     reported = daily_report.maybe_send_report()
     followups = 0
     try:
@@ -89,7 +91,7 @@ def run_cycle(last_run: float | None = None) -> float:
             followups += 1
     except Exception as exc:
         _log(f"[matching] Fehler: {exc}")
-    if not any((discovered, enriched, sent, synced, reminded, reported, followups)):
+    if not any((discovered, enriched, sent, synced, reminded, reported, followups, morning)):
         _log(
             "[outreach] Zyklus: nichts zu tun "
             f"({reliability.window_status_line()})"
@@ -112,11 +114,17 @@ def cmd_status() -> None:
     print(f"Angereichert:         {s['today_enriched']}")
     print(f"Versendet:            {s['today_sent']} / {config.DAILY_SEND_LIMIT}")
     if config.REFERRAL_ENABLED:
-        print("--- Referral (Makler/Architekten) ---")
+        print("--- Referral (Makler/Architekten/Ingenieure) ---")
         print(f"Gefunden heute:       {s['today_referral_discovered']} / {config.REFERRAL_DAILY_DISCOVER_LIMIT}")
         print(f"Versendet heute:      {s['today_referral_sent']} / {config.REFERRAL_DAILY_SEND_LIMIT}")
         print(f"In Warteschlange:     {s['referral_queued']}")
         print(f"Versendet (gesamt):   {s['referral_sent_all_time']}")
+    if config.BAUHERR_ENABLED:
+        print("--- Bauherr (Projektentwickler/Bauträger) ---")
+        print(f"Gefunden heute:       {s.get('today_bauherr_discovered', 0)} / {config.BAUHERR_DAILY_DISCOVER_LIMIT}")
+        print(f"Versendet heute:      {s.get('today_bauherr_sent', 0)} / {config.BAUHERR_DAILY_SEND_LIMIT}")
+        print(f"In Warteschlange:     {s.get('bauherr_queued', 0)}")
+        print(f"Versendet (gesamt):   {s.get('bauherr_sent_all_time', 0)}")
     ss = storage.sheet_sync_stats()
     print(f"Sheet-Portfolio:      {ss['synced']} sync, {ss['pending']} ausstehend")
     print(f"Zuverlässigkeit:      caffeinate={'an' if config.CAFFEINATE_ENABLED else 'aus'}, "

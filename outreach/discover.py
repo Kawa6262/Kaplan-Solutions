@@ -22,6 +22,12 @@ def _campaign_config(campaign: str) -> tuple[list[str], int, int]:
             config.REFERRAL_DAILY_DISCOVER_LIMIT,
             config.REFERRAL_DISCOVER_BATCHES_PER_CYCLE,
         )
+    if campaign == config.CAMPAIGN_BAUHERR:
+        return (
+            config.BAUHERR_TRADE_QUERIES,
+            config.BAUHERR_DAILY_DISCOVER_LIMIT,
+            config.BAUHERR_DISCOVER_BATCHES_PER_CYCLE,
+        )
     return (
         config.TRADE_QUERIES,
         config.DAILY_DISCOVER_LIMIT,
@@ -32,6 +38,8 @@ def _campaign_config(campaign: str) -> tuple[list[str], int, int]:
 def discover_batch(campaign: str = config.CAMPAIGN_PARTNER) -> int:
     """Sucht neue Firmen. Returns Anzahl neu gespeicherter Prospects."""
     if campaign == config.CAMPAIGN_REFERRAL and not config.REFERRAL_ENABLED:
+        return 0
+    if campaign == config.CAMPAIGN_BAUHERR and not config.BAUHERR_ENABLED:
         return 0
     if not config.GOOGLE_PLACES_KEY:
         print("[outreach] GOOGLE_PLACES_API_KEY fehlt — Discovery übersprungen.", flush=True)
@@ -80,16 +88,15 @@ def discover_batch(campaign: str = config.CAMPAIGN_PARTNER) -> int:
             inserted += 1
             storage.bump_counter("discovered", campaign=campaign)
             if not website:
-                storage.mark_no_website(
-                    f"referral:{place_id}" if campaign == config.CAMPAIGN_REFERRAL else place_id
-                )
+                prefix = campaign
+                storage.mark_no_website(f"{prefix}:{place_id}" if prefix != config.CAMPAIGN_PARTNER else place_id)
 
     if next_token:
         storage.set_search_cursor(trade_idx, city_idx, next_token, campaign)
     else:
         _advance_cursor(trade_idx, city_idx, None, len(trades), campaign)
 
-    label = "Referral" if campaign == config.CAMPAIGN_REFERRAL else "Partner"
+    label = {"referral": "Referral", "bauherr": "Bauherr"}.get(campaign, "Partner")
     if inserted:
         print(f"[outreach] +{inserted} {label} ({query})", flush=True)
     return inserted
@@ -117,6 +124,8 @@ def discover_all_campaigns() -> int:
     total = discover_batches(config.CAMPAIGN_PARTNER)
     if config.REFERRAL_ENABLED:
         total += discover_batches(config.CAMPAIGN_REFERRAL)
+    if config.BAUHERR_ENABLED:
+        total += discover_batches(config.CAMPAIGN_BAUHERR)
     return total
 
 

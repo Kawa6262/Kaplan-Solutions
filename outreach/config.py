@@ -32,8 +32,8 @@ WAKE_CATCHUP_ENABLED = os.getenv("OUTREACH_WAKE_CATCHUP", "1").strip().lower() n
     "no",
 )
 
-# Versand nur werktags 09:00–18:00 Europe/Berlin
-SEND_HOUR_START = int(os.getenv("OUTREACH_HOUR_START", "9"))
+# Versand nur werktags 08:00–18:00 Europe/Berlin
+SEND_HOUR_START = int(os.getenv("OUTREACH_HOUR_START", "8"))
 SEND_HOUR_END = int(os.getenv("OUTREACH_HOUR_END", "18"))
 SEND_WEEKDAYS_ONLY = os.getenv("OUTREACH_WEEKDAYS_ONLY", "1").strip() not in ("0", "false", "no")
 
@@ -113,7 +113,32 @@ REFERRAL_TRADE_QUERIES = [t.strip() for t in _REFERRAL_TRADES.split(",") if t.st
     "Architekturbüro",
     "Projektentwickler",
     "Immobilienverwaltung",
+    "Ingenieurbüro Tragwerksplanung",
+    "Bauplanungsbüro",
+]
+
+# Bauherr-Outreach: Projektentwickler, Bauträger, Ingenieurbüros (potenzielle Auftraggeber)
+BAUHERR_ENABLED = os.getenv("OUTREACH_BAUHERR_ENABLED", "1").strip().lower() not in (
+    "0",
+    "false",
+    "no",
+)
+BAUHERR_DAILY_SEND_LIMIT = int(os.getenv("OUTREACH_BAUHERR_DAILY_LIMIT", "15"))
+BAUHERR_DAILY_DISCOVER_LIMIT = int(os.getenv("OUTREACH_BAUHERR_DISCOVER_LIMIT", "60"))
+BAUHERR_SEND_BATCH_PER_CYCLE = int(os.getenv("OUTREACH_BAUHERR_SEND_BATCH", "3"))
+BAUHERR_DISCOVER_BATCHES_PER_CYCLE = int(os.getenv("OUTREACH_BAUHERR_DISCOVER_BATCH", "2"))
+
+_BAUHERR_TRADES = os.getenv(
+    "OUTREACH_BAUHERR_TRADES",
+    "Projektentwickler,Bauträger,Immobilienentwickler,Ingenieurbüro Bau,Generalplaner,Projektsteuerer Bau,Wohnungsbau",
+).strip()
+BAUHERR_TRADE_QUERIES = [t.strip() for t in _BAUHERR_TRADES.split(",") if t.strip()] or [
+    "Projektentwickler",
+    "Bauträger",
+    "Immobilienentwickler",
+    "Ingenieurbüro Bau",
 ]
 
 CAMPAIGN_PARTNER = "partner"
 CAMPAIGN_REFERRAL = "referral"
+CAMPAIGN_BAUHERR = "bauherr"

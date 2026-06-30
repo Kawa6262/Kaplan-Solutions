@@ -99,7 +99,13 @@ def _migrate_columns(conn: sqlite3.Connection) -> None:
             conn.execute(
                 f"ALTER TABLE daily_counters ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0"
             )
+    for col in ("bauherr_discovered", "bauherr_enriched", "bauherr_sent", "morning_report_sent"):
+        if col not in counter_cols:
+            conn.execute(
+                f"ALTER TABLE daily_counters ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0"
+            )
     conn.execute("INSERT OR IGNORE INTO search_cursor (id, trade_idx, city_idx) VALUES (2, 0, 0)")
+    conn.execute("INSERT OR IGNORE INTO search_cursor (id, trade_idx, city_idx) VALUES (3, 0, 0)")
     conn.commit()
 
 
@@ -114,11 +120,17 @@ _COUNTER_MAP = {
         "enriched": "referral_enriched",
         "sent": "referral_sent",
     },
+    "bauherr": {
+        "discovered": "bauherr_discovered",
+        "enriched": "bauherr_enriched",
+        "sent": "bauherr_sent",
+    },
 }
 
 _CURSOR_IDS = {
     "partner": 1,
     "referral": 2,
+    "bauherr": 3,
 }
 
 
@@ -209,7 +221,11 @@ def upsert_prospect(
 ) -> bool:
     """Returns True if newly inserted."""
     now = datetime.now().isoformat(timespec="seconds")
-    stored_id = f"referral:{place_id}" if campaign == "referral" else place_id
+    stored_id = place_id
+    if campaign == config.CAMPAIGN_REFERRAL:
+        stored_id = f"referral:{place_id}"
+    elif campaign == config.CAMPAIGN_BAUHERR:
+        stored_id = f"bauherr:{place_id}"
     with _conn() as db:
         cur = db.execute(
             """
@@ -423,14 +439,18 @@ def stats_summary() -> dict:
                 SUM(CASE WHEN status = 'skipped' THEN 1 ELSE 0 END) AS skipped,
                 SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed,
                 SUM(CASE WHEN campaign = 'referral' AND status = 'sent' THEN 1 ELSE 0 END) AS referral_sent_all,
-                SUM(CASE WHEN campaign = 'referral' AND status = 'queued' THEN 1 ELSE 0 END) AS referral_queued
+                SUM(CASE WHEN campaign = 'referral' AND status = 'queued' THEN 1 ELSE 0 END) AS referral_queued,
+                SUM(CASE WHEN campaign = 'bauherr' AND status = 'sent' THEN 1 ELSE 0 END) AS bauherr_sent_all,
+                SUM(CASE WHEN campaign = 'bauherr' AND status = 'queued' THEN 1 ELSE 0 END) AS bauherr_queued,
+                SUM(CASE WHEN campaign = 'partner' AND status = 'queued' THEN 1 ELSE 0 END) AS partner_queued
             FROM prospects
             """
         ).fetchone()
         today = db.execute(
             """
             SELECT discovered, enriched, sent,
-                   referral_discovered, referral_enriched, referral_sent
+                   referral_discovered, referral_enriched, referral_sent,
+                   bauherr_discovered, bauherr_enriched, bauherr_sent
             FROM daily_counters WHERE day = ?
             """,
             (_today(),),
@@ -444,12 +464,17 @@ def stats_summary() -> dict:
         "failed": int(totals["failed"] or 0),
         "referral_sent_all_time": int(totals["referral_sent_all"] or 0),
         "referral_queued": int(totals["referral_queued"] or 0),
+        "bauherr_sent_all_time": int(totals["bauherr_sent_all"] or 0),
+        "bauherr_queued": int(totals["bauherr_queued"] or 0),
+        "partner_queued": int(totals["partner_queued"] or 0),
         "today_discovered": int(today["discovered"] if today else 0),
         "today_enriched": int(today["enriched"] if today else 0),
         "today_sent": int(today["sent"] if today else 0),
         "today_referral_discovered": int(today["referral_discovered"] if today else 0),
         "today_referral_enriched": int(today["referral_enriched"] if today else 0),
         "today_referral_sent": int(today["referral_sent"] if today else 0),
+        "today_bauherr_discovered": int((today["bauherr_discovered"] if today else 0) or 0),
+        "today_bauherr_sent": int((today["bauherr_sent"] if today else 0) or 0),
     }
 
 
@@ -458,7 +483,9 @@ def get_daily_counters(day: str) -> dict:
         row = db.execute(
             """
             SELECT discovered, enriched, sent, report_sent,
-                   referral_discovered, referral_enriched, referral_sent
+                   referral_discovered, referral_enriched, referral_sent,
+                   bauherr_discovered, bauherr_enriched, bauherr_sent,
+                   morning_report_sent
             FROM daily_counters WHERE day = ?
             """,
             (day,),
@@ -472,6 +499,10 @@ def get_daily_counters(day: str) -> dict:
             "referral_discovered": 0,
             "referral_enriched": 0,
             "referral_sent": 0,
+            "bauherr_discovered": 0,
+            "bauherr_enriched": 0,
+            "bauherr_sent": 0,
+            "morning_report_sent": 0,
         }
     return {
         "discovered": int(row["discovered"]),
@@ -481,6 +512,10 @@ def get_daily_counters(day: str) -> dict:
         "referral_discovered": int(row["referral_discovered"] or 0),
         "referral_enriched": int(row["referral_enriched"] or 0),
         "referral_sent": int(row["referral_sent"] or 0),
+        "bauherr_discovered": int(row["bauherr_discovered"] or 0),
+        "bauherr_enriched": int(row["bauherr_enriched"] or 0),
+        "bauherr_sent": int(row["bauherr_sent"] or 0),
+        "morning_report_sent": int(row["morning_report_sent"] or 0),
     }
 
 
@@ -495,6 +530,18 @@ def mark_report_sent(day: str) -> None:
             INSERT INTO daily_counters (day, discovered, enriched, sent, report_sent)
             VALUES (?, 0, 0, 0, 1)
             ON CONFLICT(day) DO UPDATE SET report_sent = 1
+            """,
+            (day,),
+        )
+
+
+def mark_morning_report_sent(day: str) -> None:
+    with _conn() as db:
+        db.execute(
+            """
+            INSERT INTO daily_counters (day, discovered, enriched, sent, morning_report_sent)
+            VALUES (?, 0, 0, 0, 1)
+            ON CONFLICT(day) DO UPDATE SET morning_report_sent = 1
             """,
             (day,),
         )

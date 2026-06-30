@@ -12,6 +12,8 @@ from outreach import storage
 from outreach.templates import build_bodies, build_subject
 from outreach.referral_templates import build_bodies as build_referral_bodies
 from outreach.referral_templates import build_subject as build_referral_subject
+from outreach.bauherr_templates import build_bodies as build_bauherr_bodies
+from outreach.bauherr_templates import build_subject as build_bauherr_subject
 
 try:
     from mailer import email_configured, send_email
@@ -30,12 +32,16 @@ def _in_send_window() -> bool:
 def _send_limits(campaign: str) -> tuple[int, str]:
     if campaign == config.CAMPAIGN_REFERRAL:
         return config.REFERRAL_DAILY_SEND_LIMIT, "referral_outreach"
+    if campaign == config.CAMPAIGN_BAUHERR:
+        return config.BAUHERR_DAILY_SEND_LIMIT, "bauherr_outreach"
     return config.DAILY_SEND_LIMIT, "outreach"
 
 
 def send_one(campaign: str = config.CAMPAIGN_PARTNER) -> bool:
     """Sendet maximal eine E-Mail. Returns True wenn gesendet."""
     if campaign == config.CAMPAIGN_REFERRAL and not config.REFERRAL_ENABLED:
+        return False
+    if campaign == config.CAMPAIGN_BAUHERR and not config.BAUHERR_ENABLED:
         return False
     if not email_configured():
         print("[outreach] E-Mail nicht konfiguriert (RESEND_API_KEY + ADMIN_EMAIL).", flush=True)
@@ -66,6 +72,12 @@ def send_one(campaign: str = config.CAMPAIGN_PARTNER) -> bool:
             company, city, trade, recipient_email=email
         )
         label = "Referral"
+    elif campaign == config.CAMPAIGN_BAUHERR:
+        subject = build_bauherr_subject(company, city)
+        text_body, html_body = build_bauherr_bodies(
+            company, city, trade, recipient_email=email
+        )
+        label = "Bauherr"
     else:
         subject = build_subject(company, city)
         text_body, html_body = build_bodies(company, city, trade, recipient_email=email)
@@ -113,6 +125,14 @@ def send_batch(max_per_cycle: int | None = None) -> int:
         ref_cap = config.REFERRAL_SEND_BATCH_PER_CYCLE
         for _ in range(max(1, ref_cap)):
             if send_one(config.CAMPAIGN_REFERRAL):
+                sent += 1
+            else:
+                break
+
+    if config.BAUHERR_ENABLED:
+        bh_cap = config.BAUHERR_SEND_BATCH_PER_CYCLE
+        for _ in range(max(1, bh_cap)):
+            if send_one(config.CAMPAIGN_BAUHERR):
                 sent += 1
             else:
                 break
