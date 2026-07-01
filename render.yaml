@@ -16,6 +16,7 @@ services:
         value: https://kaplan-solutions.de
       # Diese Werte im Render-Dashboard setzen (Secret):
       # RESEND_API_KEY, ADMIN_EMAIL, REPLY_EMAIL, CRON_SECRET
+      # ADMIN_CRM_SECRET, SHEETS_WEBHOOK_URL, GOOGLE_PLACES_API_KEY
       # COMPANY_OPERATOR, COMPANY_STREET, COMPANY_ZIP, COMPANY_CITY, COMPANY_PHONE
 
   - type: cron
@@ -24,8 +25,35 @@ services:
     plan: free
     schedule: "*/15 * * * *"
     buildCommand: pip install -r requirements.txt
-    startCommand: python -m lead_followup.runner maintain
+    startCommand: python scripts/render_cron_trigger.py followups
     envVars:
       - key: PYTHON_VERSION
         value: "3.12.8"
-      # Gleiche Secrets wie Web-Service: RESEND_API_KEY, ADMIN_EMAIL, REPLY_EMAIL
+      - key: COMPANY_WEBSITE
+        value: https://kaplan-solutions.de
+
+  - type: cron
+    name: kaplan-outreach
+    runtime: python
+    plan: free
+    schedule: "*/5 6-16 * * 1-5"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python scripts/render_cron_trigger.py outreach
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.8"
+      - key: COMPANY_WEBSITE
+        value: https://kaplan-solutions.de
+
+  - type: cron
+    name: kaplan-billing
+    runtime: python
+    plan: free
+    schedule: "0 7 * * 1-5"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python scripts/render_cron_trigger.py billing
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.8"
+      - key: COMPANY_WEBSITE
+        value: https://kaplan-solutions.de

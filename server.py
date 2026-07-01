@@ -1400,6 +1400,68 @@ def cron_lead_followups():
     return jsonify({"ok": True, **result})
 
 
+def _cron_auth_ok() -> bool:
+    secret = os.getenv("CRON_SECRET", "").strip()
+    if not secret:
+        return False
+    token = (
+        request.headers.get("X-Cron-Secret", "").strip()
+        or request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+    )
+    return token == secret
+
+
+@app.post("/api/cron/outreach")
+def cron_outreach():
+    """Outreach-Zyklus in der Cloud (Render Cron → Web-Service)."""
+    if not _cron_auth_ok():
+        abort(401)
+    try:
+        from outreach.runner import run_cycle
+
+        run_cycle()
+        from outreach import storage
+
+        storage.init_db()
+        summary = storage.stats_summary()
+        return jsonify({"ok": True, "today_sent": summary.get("today_sent", 0), "queued": summary.get("queued", 0)})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.post("/api/cron/billing")
+def cron_billing():
+    """Automatische Rechnungen für fällige Partner-Leads."""
+    if not _cron_auth_ok():
+        abort(401)
+    from billing.runner import process_due_invoices
+
+    result = process_due_invoices()
+    return jsonify(result)
+
+
+@app.post("/api/crm/invoice")
+def api_crm_invoice():
+    """Rechnung manuell für einen Partner-Lead generieren."""
+    if not _crm_auth_ok():
+        abort(401)
+    data = request.get_json(silent=True) or {}
+    ref = (data.get("ref") or "").strip()
+    force = bool(data.get("force"))
+    if not ref:
+        return jsonify({"ok": False, "error": "ref fehlt"}), 400
+    snap = _sheet_action("crm_snapshot")
+    if not snap.get("ok"):
+        return jsonify(snap), 502
+    lead = next((l for l in (snap.get("leads") or []) if l.get("ref") == ref), None)
+    if not lead:
+        return jsonify({"ok": False, "error": "Lead nicht gefunden"}), 404
+    from billing.runner import generate_and_send_invoice
+
+    result = generate_and_send_invoice(lead, force=force)
+    return jsonify(result)
+
+
 # ── CRM Admin (Pipeline-Steuerung) ───────────────────────────────────────────
 
 ADMIN_CRM_SECRET = os.getenv("ADMIN_CRM_SECRET", "").strip()
@@ -1464,7 +1526,18 @@ def api_crm_update():
     if not ref:
         return jsonify({"ok": False, "error": "ref fehlt"}), 400
     fields = data.get("fields") or data.get("updates") or {}
-    return jsonify(_sheet_action("crm_update", {"ref": ref, "fields": fields}))
+    result = _sheet_action("crm_update", {"ref": ref, "fields": fields})
+    if result.get("ok") and fields.get("vertrag") == "Ja":
+        try:
+            from matching.intro_retry import try_intro_after_contract
+
+            admin = os.getenv("ADMIN_EMAIL", "").strip()
+            intro = try_intro_after_contract(ref, admin)
+            if intro:
+                result["intro_auto"] = intro
+        except Exception as exc:
+            result["intro_auto"] = {"ok": False, "error": str(exc)}
+    return jsonify(result)
 
 
 @app.post("/api/crm/activity")

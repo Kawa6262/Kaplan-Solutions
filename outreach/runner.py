@@ -6,6 +6,7 @@ Nutzung:
   python -m outreach.runner daemon   # Endlosschleife im Hintergrund
   python -m outreach.runner status   # Statistik
   python -m outreach.runner report     # Tagesfazit sofort testen (--force)
+  python -m outreach.runner midday     # Mittags-Update testen (--force)
 """
 
 from __future__ import annotations
@@ -32,6 +33,12 @@ from outreach import enrich
 from outreach import sender
 from outreach import storage
 from outreach import daily_report
+from outreach import reliability
+from outreach import reminder
+from outreach import sheet_sync
+from outreach import morning_report
+from outreach import midday_report
+from outreach import health
 
 
 def _log(msg: str) -> None:
@@ -45,20 +52,13 @@ def _log(msg: str) -> None:
         pass
 
 
-from outreach import daily_report
-from outreach import reliability
-from outreach import reminder
-from outreach import sheet_sync
-from outreach import morning_report
-
-
 def run_cycle(last_run: float | None = None) -> float:
     now = time.time()
     try:
         storage.init_db()
     except sqlite3.OperationalError as exc:
         _log(f"[outreach] DB-Init-Wiederholung: {exc}")
-        time.sleep(1)
+        health.recover_db()
         storage.init_db()
 
     if last_run is not None:
@@ -71,6 +71,7 @@ def run_cycle(last_run: float | None = None) -> float:
     synced = sheet_sync.sync_batch()
     reminded = reminder.process_reminders()
     morning = morning_report.maybe_send_morning_report()
+    midday = midday_report.maybe_send_midday_report()
     reported = daily_report.maybe_send_report()
     followups = 0
     try:
@@ -91,11 +92,12 @@ def run_cycle(last_run: float | None = None) -> float:
             followups += 1
     except Exception as exc:
         _log(f"[matching] Fehler: {exc}")
-    if not any((discovered, enriched, sent, synced, reminded, reported, followups, morning)):
+    if not any((discovered, enriched, sent, synced, reminded, reported, followups, morning, midday)):
         _log(
             "[outreach] Zyklus: nichts zu tun "
             f"({reliability.window_status_line()})"
         )
+    health.record_success()
     return now
 
 
@@ -130,6 +132,7 @@ def cmd_status() -> None:
     print(f"Zuverlässigkeit:      caffeinate={'an' if config.CAFFEINATE_ENABLED else 'aus'}, "
           f"wake-catchup={'an' if config.WAKE_CATCHUP_ENABLED else 'aus'}")
     print(f"Sendefenster:         {reliability.window_status_line()}")
+    print(f"Reports:              Morgen 8 · Mittag 13 · Abend 18 Uhr")
     print(f"DB:                   {config.DB_PATH}")
     print(f"Log:                  {config.LOG_PATH}")
 
@@ -138,21 +141,24 @@ def cmd_daemon() -> None:
     _log(
         "[outreach] Daemon gestartet — "
         f"caffeinate={'an' if config.CAFFEINATE_ENABLED else 'aus'}, "
-        f"wake-catchup={'an' if config.WAKE_CATCHUP_ENABLED else 'aus'}"
+        f"wake-catchup={'an' if config.WAKE_CATCHUP_ENABLED else 'aus'}, "
+        "reports=8/13/18"
     )
     last_run: float | None = None
     while True:
         try:
             last_run = run_cycle(last_run)
         except sqlite3.OperationalError as exc:
-            _log(f"[outreach] SQLite-Fehler — DB wird neu geöffnet: {exc}")
-            time.sleep(2)
-            try:
-                storage.init_db()
-            except Exception:
-                pass
+            _log(f"[outreach] SQLite-Fehler — Recovery: {exc}")
+            health.record_error(exc)
+            health.recover_db()
+            time.sleep(3)
         except Exception as exc:
             _log(f"[outreach] Zyklus-Fehler: {exc}")
+            if health.is_sqlite_io_error(exc):
+                health.record_error(exc)
+                health.recover_db()
+            time.sleep(2)
         time.sleep(config.DAEMON_INTERVAL)
 
 
@@ -160,14 +166,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Kaplan Solutions B2B Outreach")
     parser.add_argument(
         "command",
-        choices=("once", "daemon", "status", "unsubscribe", "report", "sync-sheet"),
-        help="once=ein Zyklus, daemon=Hintergrund, status=Statistik, report=Tagesfazit, sync-sheet=Portfolio importieren",
+        choices=("once", "daemon", "status", "unsubscribe", "report", "midday", "sync-sheet"),
+        help="once=ein Zyklus, daemon=Hintergrund, status=Statistik, report=Tagesfazit, midday=Mittags-Update",
     )
     parser.add_argument("email", nargs="?", help="Nur für unsubscribe")
     parser.add_argument(
         "--force",
         action="store_true",
-        help="Tagesfazit erneut senden (nur mit report)",
+        help="Report erneut senden (mit report oder midday)",
     )
     args = parser.parse_args()
 
@@ -183,6 +189,10 @@ def main() -> None:
     elif args.command == "report":
         storage.init_db()
         ok = daily_report.send_daily_report(force=args.force)
+        sys.exit(0 if ok else 1)
+    elif args.command == "midday":
+        storage.init_db()
+        ok = midday_report.send_midday_report(force=args.force)
         sys.exit(0 if ok else 1)
     elif args.command == "sync-sheet":
         storage.init_db()

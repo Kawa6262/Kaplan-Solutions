@@ -213,6 +213,8 @@ Mit freundlichen Grüßen
 
 def process_match_alert(match: dict, *, admin_email: str, force: bool = False) -> dict:
     """Sendet Admin- + Bauherr-Mail bei qualifiziertem Match (idempotent)."""
+    from matching.intro import send_intro_for_match
+
     match_id = str(match.get("match_id") or "").strip()
     score = int(match.get("score") or 0)
     if score < MATCH_ALERT_MIN_SCORE:
@@ -229,8 +231,17 @@ def process_match_alert(match: dict, *, admin_email: str, force: bool = False) -
     admin_subj, admin_text, admin_html = build_admin_alert(match)
     send_email(admin_email, admin_subj, admin_text, admin_html)
 
-    bh_subj, bh_text, bh_html = build_bauherr_match_notice(match)
-    send_email(ag_email, bh_subj, bh_text, bh_html, reply_to=REPLY_EMAIL)
+    intro_result = send_intro_for_match(match, admin_email=admin_email, force=force)
+
+    if intro_result.get("intro") != "sent":
+        bh_subj, bh_text, bh_html = build_bauherr_match_notice(match)
+        send_email(ag_email, bh_subj, bh_text, bh_html, reply_to=REPLY_EMAIL)
 
     mark_sent(match_id)
-    return {"ok": True, "match_id": match_id, "admin": admin_email, "bauherr": ag_email}
+    return {
+        "ok": True,
+        "match_id": match_id,
+        "admin": admin_email,
+        "bauherr": ag_email,
+        "intro": intro_result,
+    }

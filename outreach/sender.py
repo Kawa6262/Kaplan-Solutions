@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 import os
 
 from outreach import config
+from outreach import pacing
 from outreach import storage
 from outreach.templates import build_bodies, build_subject
 from outreach.referral_templates import build_bodies as build_referral_bodies
@@ -112,26 +113,42 @@ def send_one(campaign: str = config.CAMPAIGN_PARTNER) -> bool:
 
 
 def send_batch(max_per_cycle: int | None = None) -> int:
-    """Sendet Partner- und Referral-Mails pro Zyklus (bis Tageslimit)."""
-    cap = max_per_cycle if max_per_cycle is not None else config.SEND_BATCH_PER_CYCLE
+    """Sendet Partner-, Referral- und Bauherr-Mails gleichmäßig über den Tag verteilt."""
+    if max_per_cycle is not None:
+        cap = max_per_cycle
+        ref_cap = max_per_cycle
+        bh_cap = max_per_cycle
+    else:
+        cap = pacing.paced_batch_cap(
+            config.DAILY_SEND_LIMIT, config.SEND_BATCH_PER_CYCLE, config.CAMPAIGN_PARTNER
+        )
+        ref_cap = pacing.paced_batch_cap(
+            config.REFERRAL_DAILY_SEND_LIMIT,
+            config.REFERRAL_SEND_BATCH_PER_CYCLE,
+            config.CAMPAIGN_REFERRAL,
+        )
+        bh_cap = pacing.paced_batch_cap(
+            config.BAUHERR_DAILY_SEND_LIMIT,
+            config.BAUHERR_SEND_BATCH_PER_CYCLE,
+            config.CAMPAIGN_BAUHERR,
+        )
+
     sent = 0
-    for _ in range(max(1, cap)):
+    for _ in range(max(0, cap)):
         if send_one(config.CAMPAIGN_PARTNER):
             sent += 1
         else:
             break
 
     if config.REFERRAL_ENABLED:
-        ref_cap = config.REFERRAL_SEND_BATCH_PER_CYCLE
-        for _ in range(max(1, ref_cap)):
+        for _ in range(max(0, ref_cap)):
             if send_one(config.CAMPAIGN_REFERRAL):
                 sent += 1
             else:
                 break
 
     if config.BAUHERR_ENABLED:
-        bh_cap = config.BAUHERR_SEND_BATCH_PER_CYCLE
-        for _ in range(max(1, bh_cap)):
+        for _ in range(max(0, bh_cap)):
             if send_one(config.CAMPAIGN_BAUHERR):
                 sent += 1
             else:

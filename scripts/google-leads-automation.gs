@@ -160,6 +160,9 @@ function doPost(e) {
     if (data.action === 'crm_opportunity_update') {
       return handleCrmOpportunityUpdate_(data);
     }
+    if (data.action === 'match_pair_for_ref') {
+      return handleMatchPairForRef_(data);
+    }
     return handleNewLead_(data);
   } catch (err) {
     return jsonResponse_({ ok: false, error: String(err) });
@@ -1436,6 +1439,13 @@ function enrichPairFromSheet_(ss, p) {
       break;
     }
   }
+  var pipeSheet = ss.getSheetByName(TAB_PIPELINE);
+  if (pipeSheet && pipeSheet.getLastRow() > 1 && p.anRef) {
+    var pipeRow = findRowByRef_(pipeSheet, p.anRef, 1);
+    if (pipeRow > 0) {
+      p.anVertrag = String(pipeSheet.getRange(pipeRow, 14).getValue() || 'Nein');
+    }
+  }
 }
 
 function ensureMatchFolderForPair_(p) {
@@ -1479,6 +1489,7 @@ function pairToAlertPayload_(p) {
     an_firma: p.anFirma || p.anName,
     an_email: p.anEmail,
     an_phone: p.anPhone || '',
+    an_vertrag: p.anVertrag || 'Nein',
     stadt: p.stadt,
     branche: p.branche,
     reasons: p.reasons,
@@ -2401,6 +2412,82 @@ function handleCrmSnapshot_(data) {
     tasks_today: tasks_today,
     events_today: events_today
   });
+}
+
+function handleMatchPairForRef_(data) {
+  if (!verifyCrmSecret_(data)) {
+    return jsonResponse_({ ok: false, error: 'unauthorized' });
+  }
+  var ref = String(data.ref || '').trim();
+  if (!ref) return jsonResponse_({ ok: false, error: 'ref fehlt' });
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var best = null;
+  var bestScore = 0;
+
+  [TAB_TOP_MATCHES, TAB_MATCHES].forEach(function (tabName) {
+    var sheet = ss.getSheetByName(tabName);
+    if (!sheet || sheet.getLastRow() < 2) return;
+    var values = sheet.getDataRange().getValues();
+    for (var i = 1; i < values.length; i++) {
+      var row = values[i];
+      var score = 0;
+      var payload = null;
+      if (tabName === TAB_TOP_MATCHES) {
+        score = parseInt(String(row[2] || '0').replace('%', ''), 10) || 0;
+        if (score < MATCH_ALERT_MIN) continue;
+        var agRef = String(row[6] || '');
+        var anRef = String(row[9] || '');
+        if (agRef !== ref && anRef !== ref) continue;
+        payload = {
+          matchId: String(row[14] || makeMatchId_(agRef, anRef)),
+          score: score,
+          agRef: agRef,
+          agName: String(row[4] || ''),
+          agFirma: String(row[4] || ''),
+          agEmail: String(row[5] || ''),
+          anRef: anRef,
+          anName: String(row[7] || ''),
+          anFirma: String(row[7] || ''),
+          anEmail: String(row[8] || ''),
+          stadt: String(row[10] || ''),
+          branche: String(row[11] || ''),
+          reasons: String(row[12] || '')
+        };
+      } else {
+        score = parseInt(String(row[0] || '0').replace('%', ''), 10) || 0;
+        if (score < MATCH_ALERT_MIN) continue;
+        var pair = String(row[9] || '');
+        if (pair.indexOf(ref) < 0) continue;
+        var parts = pair.split(' <-> ');
+        var agRef2 = parts[0] || '';
+        var anRef2 = parts[1] || '';
+        payload = {
+          matchId: String(row[12] || makeMatchId_(agRef2, anRef2)),
+          score: score,
+          agRef: agRef2,
+          agName: String(row[2] || ''),
+          agFirma: String(row[2] || ''),
+          agEmail: String(row[3] || ''),
+          anRef: anRef2,
+          anName: String(row[4] || ''),
+          anFirma: String(row[4] || ''),
+          anEmail: String(row[5] || ''),
+          stadt: String(row[7] || ''),
+          branche: String(row[6] || ''),
+          reasons: String(row[8] || '')
+        };
+      }
+      if (payload && score > bestScore) {
+        bestScore = score;
+        best = payload;
+      }
+    }
+  });
+
+  if (!best) return jsonResponse_({ ok: false, error: 'kein Hot Match fuer ref' });
+  enrichPairFromSheet_(ss, best);
+  return jsonResponse_({ ok: true, match: pairToAlertPayload_(best) });
 }
 
 function handleCrmUpdate_(data) {

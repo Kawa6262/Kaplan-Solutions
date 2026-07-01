@@ -7,6 +7,7 @@ from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 from outreach import config
+from outreach import schedule
 from outreach import storage
 from outreach.report_template import build_daily_report
 
@@ -48,6 +49,24 @@ def _search_progress_label(campaign: str = "partner") -> str:
     return f"{prefix}: {trade} · {city} · {trade_idx + 1}/{len(trades)}{page}"
 
 
+def _total_limit() -> int:
+    total = config.DAILY_SEND_LIMIT
+    if config.REFERRAL_ENABLED:
+        total += config.REFERRAL_DAILY_SEND_LIMIT
+    if config.BAUHERR_ENABLED:
+        total += config.BAUHERR_DAILY_SEND_LIMIT
+    return total
+
+
+def _total_sent(counters: dict) -> int:
+    total = counters.get("sent", 0)
+    if config.REFERRAL_ENABLED:
+        total += counters.get("referral_sent", 0)
+    if config.BAUHERR_ENABLED:
+        total += counters.get("bauherr_sent", 0)
+    return total
+
+
 def gather_report_data(for_day: date | None = None) -> dict:
     day = for_day or _today_berlin()
     day_iso = day.isoformat()
@@ -56,11 +75,14 @@ def gather_report_data(for_day: date | None = None) -> dict:
 
     companies_sent = storage.prospects_sent_on_day(day_iso)
     companies_failed = storage.prospects_failed_on_day(day_iso)
+    total_sent = _total_sent(counters)
 
     return {
         "date_label": _date_label(day),
         "date_iso": day_iso,
         "sent_today": counters.get("sent", 0),
+        "total_sent_today": total_sent,
+        "total_sent_limit": _total_limit(),
         "discovered_today": counters.get("discovered", 0),
         "enriched_today": counters.get("enriched", 0),
         "failed_today": len(companies_failed),
@@ -81,6 +103,9 @@ def gather_report_data(for_day: date | None = None) -> dict:
         "referral_discovered_today": counters.get("referral_discovered", 0),
         "referral_sent_limit": config.REFERRAL_DAILY_SEND_LIMIT,
         "referral_enabled": config.REFERRAL_ENABLED,
+        "bauherr_sent_today": counters.get("bauherr_sent", 0),
+        "bauherr_sent_limit": config.BAUHERR_DAILY_SEND_LIMIT,
+        "bauherr_enabled": config.BAUHERR_ENABLED,
     }
 
 
@@ -93,10 +118,11 @@ def should_send_report() -> bool:
         return False
 
     counters = storage.get_daily_counters(day_iso)
-    sent_today = counters.get("sent", 0)
+    total_sent = _total_sent(counters)
+    total_limit = _total_limit()
 
-    # Tageslimit erreicht → Fazit ab REPORT_HOUR
-    if sent_today >= config.DAILY_SEND_LIMIT:
+    # Alle Kampagnen-Limits erreicht → Fazit ab REPORT_HOUR
+    if total_sent >= total_limit:
         return True
 
     # Sonst warten bis Sendefenster vorbei oder Final-Stunde (Nachholversand)
@@ -107,7 +133,7 @@ def should_send_report() -> bool:
     if now.hour < config.SEND_HOUR_END:
         return False
 
-    # 18–20 Uhr: Fazit erst wenn wirklich nichts mehr geht (keine Queue)
+    # 18–20 Uhr: Fazit wenn nichts mehr in der Queue
     if storage.stats_summary()["queued"] == 0:
         return True
 
@@ -132,7 +158,7 @@ def send_daily_report(for_day: date | None = None, force: bool = False) -> bool:
         storage.mark_report_sent(day_iso)
         print(
             f"[outreach] Tagesfazit gesendet an {REPORT_EMAIL} "
-            f"({data['sent_today']} Kontakte)",
+            f"({data['total_sent_today']}/{data['total_sent_limit']} Kontakte)",
             flush=True,
         )
         return True

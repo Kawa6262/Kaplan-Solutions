@@ -7,6 +7,7 @@ from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from outreach import config
+from outreach import schedule
 from outreach import storage
 
 try:
@@ -94,7 +95,7 @@ Magic Match Briefing: ca. {data['briefing_hour']}:00 Uhr
 Gesamt versendet (all time): {data['sent_all_time']}
 
 Du musst nichts tun — alles läuft automatisch.
-Abends erhältst du das Tagesfazit.
+Mittags-Update: ca. 13:00 Uhr · Abends Tagesfazit ~18:00.
 
 Kaplan Solutions · Outreach-Daemon
 """
@@ -109,7 +110,7 @@ Kaplan Solutions · Outreach-Daemon
 <tr style="background:#e8f5e9"><td style="padding:8px"><strong>Gesamt</strong></td><td style="padding:8px;text-align:right"><strong>{data['total_sent_yesterday']}</strong></td></tr>
 </table>
 <p><strong>Heute:</strong> Partner {data['partner_queued']} in Queue (max {data['partner_limit']}) · Referral {data['referral_queued']} (max {data['referral_limit']}) · Bauherr {data['bauherr_queued']} (max {data['bauherr_limit']})</p>
-<p style="font-size:13px;color:#666">Sheet: {data['sheet_synced']} sync · {data['sheet_pending']} ausstehend · Magic Match Briefing ~{data['briefing_hour']}:00</p>
+<p style="font-size:13px;color:#666">Sheet: {data['sheet_synced']} sync · {data['sheet_pending']} ausstehend · Magic Match Briefing ~{data['briefing_hour']}:00 · Mittags-Update ~13:00</p>
 </body></html>"""
     return subject, text, html
 
@@ -134,9 +135,7 @@ def send_morning_report(force: bool = False) -> bool:
 
 
 def maybe_send_morning_report() -> bool:
-    now = datetime.now(ZoneInfo("Europe/Berlin"))
-    if now.hour != MORNING_HOUR:
-        return False
-    if config.SEND_WEEKDAYS_ONLY and now.weekday() >= 5:
+    day_iso = _today_berlin().isoformat()
+    if not schedule.should_send_at_hour(MORNING_HOUR, morning_report_was_sent(day_iso)):
         return False
     return send_morning_report()

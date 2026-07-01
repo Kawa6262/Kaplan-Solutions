@@ -592,6 +592,7 @@
                                 ${detailField('Notiz', 'notiz', l.notiz, 'textarea')}
                             </div>
                             <div class="sf-form-actions">
+                                ${l.role_type === 'partner' && l.netto ? `<button type="button" class="slds-button slds-button_brand" id="invoice-btn" title="Rechnung generieren & versenden">Rechnung senden</button>` : ''}
                                 ${l.cold_lead ? `<button type="button" class="slds-button slds-button_neutral" id="activate-cold-btn">In Pipeline aktivieren</button>` : ''}
                                 <button type="button" class="slds-button slds-button_neutral" id="undo-lead-btn"${state.undoLead?.ref === l.ref ? '' : ' disabled'}>Rückgängig</button>
                                 <button type="button" class="slds-button slds-button_brand" id="save-lead-btn">Speichern</button>
@@ -986,6 +987,28 @@
                     showToast(err.message, 'warn');
                 } finally {
                     saveLeadBtn.disabled = false;
+                }
+            };
+        }
+
+        const invoiceBtn = $('#invoice-btn');
+        if (invoiceBtn) {
+            invoiceBtn.onclick = async () => {
+                if (!confirm('Rechnung jetzt generieren und an den Partner senden?')) return;
+                invoiceBtn.disabled = true;
+                try {
+                    const res = await api('/crm/invoice', {
+                        method: 'POST',
+                        body: JSON.stringify({ ref: state.route.id }),
+                    });
+                    if (!res.ok) throw new Error(res.error || 'Rechnung fehlgeschlagen');
+                    showToast('Rechnung ' + (res.invoice_no || '') + ' gesendet', 'success');
+                    await loadData({ silent: true });
+                    render();
+                } catch (err) {
+                    showToast(err.message, 'warn');
+                } finally {
+                    invoiceBtn.disabled = false;
                 }
             };
         }

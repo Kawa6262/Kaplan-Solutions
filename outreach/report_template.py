@@ -108,7 +108,9 @@ def build_daily_report(data: dict) -> tuple[str, str, str]:
     brand = COMPANY.get("brand", "Kaplan Solutions")
     date_label = data.get("date_label", "")
     sent = int(data.get("sent_today", 0))
-    subject = f"Outreach Tagesfazit · {date_label} · {sent} Firmen kontaktiert"
+    total_sent = int(data.get("total_sent_today", sent))
+    total_limit = int(data.get("total_sent_limit", data.get("sent_limit", 40)))
+    subject = f"Outreach Tagesfazit · {date_label} · {total_sent} Firmen kontaktiert"
 
     companies = data.get("companies_sent") or []
     failed = data.get("companies_failed") or []
@@ -127,11 +129,14 @@ def build_daily_report(data: dict) -> tuple[str, str, str]:
 {date_label}
 
 KENNZAHLEN HEUTE
-  Kontaktiert:        {sent} / {data.get('sent_limit')}
-  Firmen gefunden:    {data.get('discovered_today')} / {data.get('discover_limit')}
-  E-Mails extrahiert: {data.get('enriched_today')}
-  Fehlgeschlagen:     {data.get('failed_today')}
-  Übersprungen:       {data.get('skipped_today')}
+  Kontaktiert (gesamt): {total_sent} / {total_limit}
+  Partner:              {sent} / {data.get('sent_limit')}
+  Referral:             {data.get('referral_sent_today', 0)} / {data.get('referral_sent_limit', 0)}
+  Bauherr:              {data.get('bauherr_sent_today', 0)} / {data.get('bauherr_sent_limit', 0)}
+  Firmen gefunden:      {data.get('discovered_today')} / {data.get('discover_limit')}
+  E-Mails extrahiert:   {data.get('enriched_today')}
+  Fehlgeschlagen:       {data.get('failed_today')}
+  Übersprungen:         {data.get('skipped_today')}
 
 GESAMTSTAND
   Kontaktiert (gesamt): {data.get('sent_all_time')}
@@ -149,9 +154,9 @@ SUCHFORTSCHRITT: {data.get('search_progress', '—')}
 {company_footer_text()}
 """
 
-    sent_pct = min(100, int(sent / max(1, int(data.get("sent_limit", 40))) * 100))
-    status_color = SUCCESS if sent > 0 else WARN
-    status_text = "Aktiver Tag" if sent > 0 else "Keine Versände — System lief trotzdem"
+    sent_pct = min(100, int(total_sent / max(1, total_limit) * 100))
+    status_color = SUCCESS if total_sent > 0 else WARN
+    status_text = "Aktiver Tag" if total_sent > 0 else "Keine Versände — System lief trotzdem"
 
     inner = f"""
 <tr><td style="padding:28px 40px 8px;font-family:Georgia,serif;font-size:24px;color:{GOLD};letter-spacing:0.03em">Outreach Tagesfazit</td></tr>
@@ -169,7 +174,7 @@ SUCHFORTSCHRITT: {data.get('search_progress', '—')}
       <div style="background:#222;height:6px;border-radius:3px;overflow:hidden">
         <div style="background:{GOLD};width:{sent_pct}%;height:6px;border-radius:3px"></div>
       </div>
-      <p style="margin:8px 0 0;font-family:Arial,sans-serif;font-size:11px;color:#777">{sent} von {data.get('sent_limit')} Tages-Kontakten genutzt ({sent_pct}%)</p>
+      <p style="margin:8px 0 0;font-family:Arial,sans-serif;font-size:11px;color:#777">{total_sent} von {total_limit} Tages-Kontakten genutzt ({sent_pct}%) · Partner {sent}/{data.get('sent_limit')}</p>
     </td></tr>
     </table>
   </td></tr>
@@ -179,7 +184,17 @@ SUCHFORTSCHRITT: {data.get('search_progress', '—')}
 <tr><td style="padding:0 40px 8px">
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
   {_kpi_row([
-      ("Kontaktiert", sent, f"Limit {data.get('sent_limit')}", GOLD),
+      ("Kontaktiert", total_sent, f"Limit {total_limit}", GOLD),
+      ("Partner", sent, f"Limit {data.get('sent_limit')}", TEXT),
+      ("Referral", data.get("referral_sent_today", 0), f"Limit {data.get('referral_sent_limit', 0)}", TEXT),
+  ])}
+  </table>
+</td></tr>
+
+<tr><td style="padding:8px 40px 24px">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+  {_kpi_row([
+      ("Bauherr", data.get("bauherr_sent_today", 0), f"Limit {data.get('bauherr_sent_limit', 0)}", TEXT),
       ("Gefunden", data.get("discovered_today", 0), f"Limit {data.get('discover_limit')}", TEXT),
       ("Extrahiert", data.get("enriched_today", 0), "E-Mail-Adressen", TEXT),
   ])}
@@ -235,7 +250,8 @@ SUCHFORTSCHRITT: {data.get('search_progress', '—')}
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:{CARD};border:1px solid {BORDER}">
   <tr><td style="padding:18px 20px;font-family:Arial,sans-serif;font-size:14px;line-height:1.65;color:{MUTED}">
     <p style="margin:0 0 8px;color:{GOLD};font-size:11px;letter-spacing:0.14em;text-transform:uppercase">Ausblick</p>
-    <p style="margin:0 0 8px"><strong style="color:{TEXT}">Morgen:</strong> Bis zu <strong style="color:{GOLD}">{data.get('sent_limit')}</strong> weitere Kontakte · <strong style="color:{TEXT}">{data.get('queued')}</strong> Firmen in der Warteschlange</p>
+    <p style="margin:0 0 8px"><strong style="color:{TEXT}">Morgen:</strong> Bis zu <strong style="color:{GOLD}">{total_limit}</strong> weitere Kontakte · <strong style="color:{TEXT}">{data.get('queued')}</strong> Firmen in der Warteschlange</p>
+    <p style="margin:0 0 8px"><strong style="color:{TEXT}">Heute Partner:</strong> {sent} · Referral: {data.get("referral_sent_today", 0)} · Bauherr: {data.get("bauherr_sent_today", 0)}</p>
     <p style="margin:0 0 8px"><strong style="color:{TEXT}">Suche:</strong> {_safe(data.get('search_progress', '—'))}</p>
     {f'<p style="margin:0 0 8px"><strong style="color:{TEXT}">Referral heute:</strong> {data.get("referral_sent_today", 0)} / {data.get("referral_sent_limit", 15)} · {_safe(data.get("referral_search_progress", "—"))}</p>' if data.get('referral_enabled') else ''}
     <p style="margin:0"><strong style="color:{TEXT}">Abmeldungen gesamt:</strong> {data.get('unsubscribes', 0)}</p>

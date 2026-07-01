@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+import time
 from contextlib import contextmanager
 from datetime import date, datetime
 from typing import Iterator
@@ -10,6 +11,7 @@ from typing import Iterator
 from outreach import config
 from outreach.config import DB_PATH, DATA_DIR
 from sqlite_util import connect as sqlite_connect
+from sqlite_util import wal_checkpoint as _wal_checkpoint
 
 _DB_READY = False
 
@@ -99,7 +101,14 @@ def _migrate_columns(conn: sqlite3.Connection) -> None:
             conn.execute(
                 f"ALTER TABLE daily_counters ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0"
             )
-    for col in ("bauherr_discovered", "bauherr_enriched", "bauherr_sent", "morning_report_sent"):
+    for col in (
+        "bauherr_discovered",
+        "bauherr_enriched",
+        "bauherr_sent",
+        "morning_report_sent",
+        "midday_report_sent",
+        "alert_sent",
+    ):
         if col not in counter_cols:
             conn.execute(
                 f"ALTER TABLE daily_counters ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0"
@@ -134,16 +143,38 @@ _CURSOR_IDS = {
 }
 
 
+def reset_connection() -> None:
+    global _DB_READY
+    _DB_READY = False
+
+
+def wal_checkpoint() -> None:
+    _wal_checkpoint(DB_PATH)
+
+
 @contextmanager
 def _conn() -> Iterator[sqlite3.Connection]:
-    if not _DB_READY:
-        init_db()
-    conn = sqlite_connect(DB_PATH, row_factory=True)
-    try:
-        yield conn
-        conn.commit()
-    finally:
-        conn.close()
+    last_exc: sqlite3.OperationalError | None = None
+    for attempt in range(4):
+        if not _DB_READY:
+            init_db()
+        conn = sqlite_connect(DB_PATH, row_factory=True)
+        try:
+            yield conn
+            conn.commit()
+            return
+        except sqlite3.OperationalError as exc:
+            last_exc = exc
+            conn.rollback()
+            reset_connection()
+            if attempt < 3:
+                time.sleep(0.25 * (attempt + 1))
+                continue
+            raise
+        finally:
+            conn.close()
+    if last_exc:
+        raise last_exc
 
 
 def _today() -> str:
@@ -485,7 +516,7 @@ def get_daily_counters(day: str) -> dict:
             SELECT discovered, enriched, sent, report_sent,
                    referral_discovered, referral_enriched, referral_sent,
                    bauherr_discovered, bauherr_enriched, bauherr_sent,
-                   morning_report_sent
+                   morning_report_sent, midday_report_sent, alert_sent
             FROM daily_counters WHERE day = ?
             """,
             (day,),
@@ -503,6 +534,8 @@ def get_daily_counters(day: str) -> dict:
             "bauherr_enriched": 0,
             "bauherr_sent": 0,
             "morning_report_sent": 0,
+            "midday_report_sent": 0,
+            "alert_sent": 0,
         }
     return {
         "discovered": int(row["discovered"]),
@@ -516,6 +549,8 @@ def get_daily_counters(day: str) -> dict:
         "bauherr_enriched": int(row["bauherr_enriched"] or 0),
         "bauherr_sent": int(row["bauherr_sent"] or 0),
         "morning_report_sent": int(row["morning_report_sent"] or 0),
+        "midday_report_sent": int(row["midday_report_sent"] or 0),
+        "alert_sent": int(row["alert_sent"] or 0),
     }
 
 
@@ -542,6 +577,38 @@ def mark_morning_report_sent(day: str) -> None:
             INSERT INTO daily_counters (day, discovered, enriched, sent, morning_report_sent)
             VALUES (?, 0, 0, 0, 1)
             ON CONFLICT(day) DO UPDATE SET morning_report_sent = 1
+            """,
+            (day,),
+        )
+
+
+def midday_report_was_sent(day: str) -> bool:
+    return get_daily_counters(day).get("midday_report_sent", 0) > 0
+
+
+def mark_midday_report_sent(day: str) -> None:
+    with _conn() as db:
+        db.execute(
+            """
+            INSERT INTO daily_counters (day, discovered, enriched, sent, midday_report_sent)
+            VALUES (?, 0, 0, 0, 1)
+            ON CONFLICT(day) DO UPDATE SET midday_report_sent = 1
+            """,
+            (day,),
+        )
+
+
+def alert_was_sent(day: str) -> bool:
+    return get_daily_counters(day).get("alert_sent", 0) > 0
+
+
+def mark_alert_sent(day: str) -> None:
+    with _conn() as db:
+        db.execute(
+            """
+            INSERT INTO daily_counters (day, discovered, enriched, sent, alert_sent)
+            VALUES (?, 0, 0, 0, 1)
+            ON CONFLICT(day) DO UPDATE SET alert_sent = 1
             """,
             (day,),
         )
