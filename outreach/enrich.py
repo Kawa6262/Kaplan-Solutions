@@ -111,6 +111,10 @@ def extract_best_email(website: str) -> str | None:
 
 def enrich_batch(limit: int) -> int:
     """Returns Anzahl erfolgreich angereicherter Prospects."""
+    from outreach import pacing
+
+    if not pacing.enrich_allowed():
+        return 0
     rows = storage.prospects_to_enrich(limit)
     enriched = 0
     for row in rows:

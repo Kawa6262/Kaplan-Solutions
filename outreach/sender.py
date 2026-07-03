@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
+import os
 from datetime import datetime
 from zoneinfo import ZoneInfo
-
-import os
 
 from outreach import config
 from outreach import pacing
@@ -24,10 +23,7 @@ except ImportError:
 
 
 def _in_send_window() -> bool:
-    now = datetime.now(ZoneInfo("Europe/Berlin"))
-    if config.SEND_WEEKDAYS_ONLY and now.weekday() >= 5:
-        return False
-    return config.SEND_HOUR_START <= now.hour < config.SEND_HOUR_END
+    return pacing.in_send_window()
 
 
 def _send_limits(campaign: str) -> tuple[int, str]:
@@ -112,12 +108,28 @@ def send_one(campaign: str = config.CAMPAIGN_PARTNER) -> bool:
         return False
 
 
+def _send_campaign_burst(campaign: str, cap: int) -> int:
+    sent = 0
+    for _ in range(max(0, cap)):
+        if not _in_send_window():
+            break
+        if send_one(campaign):
+            sent += 1
+        else:
+            break
+    return sent
+
+
 def send_batch(max_per_cycle: int | None = None) -> int:
     """Sendet Partner-, Referral- und Bauherr-Mails gleichmäßig über den Tag verteilt."""
+    if not _in_send_window():
+        return 0
+
+    if pacing.is_flush_window() and max_per_cycle is None:
+        return send_end_of_day_flush()
+
     if max_per_cycle is not None:
-        cap = max_per_cycle
-        ref_cap = max_per_cycle
-        bh_cap = max_per_cycle
+        cap = ref_cap = bh_cap = max_per_cycle
     else:
         cap = pacing.paced_batch_cap(
             config.DAILY_SEND_LIMIT, config.SEND_BATCH_PER_CYCLE, config.CAMPAIGN_PARTNER
@@ -133,24 +145,37 @@ def send_batch(max_per_cycle: int | None = None) -> int:
             config.CAMPAIGN_BAUHERR,
         )
 
-    sent = 0
-    for _ in range(max(0, cap)):
-        if send_one(config.CAMPAIGN_PARTNER):
-            sent += 1
-        else:
-            break
+    sent = _send_campaign_burst(config.CAMPAIGN_PARTNER, cap)
 
     if config.REFERRAL_ENABLED:
-        for _ in range(max(0, ref_cap)):
-            if send_one(config.CAMPAIGN_REFERRAL):
-                sent += 1
-            else:
-                break
+        sent += _send_campaign_burst(config.CAMPAIGN_REFERRAL, ref_cap)
 
     if config.BAUHERR_ENABLED:
-        for _ in range(max(0, bh_cap)):
-            if send_one(config.CAMPAIGN_BAUHERR):
-                sent += 1
-            else:
-                break
+        sent += _send_campaign_burst(config.CAMPAIGN_BAUHERR, bh_cap)
+
+    return sent
+
+
+def send_end_of_day_flush() -> int:
+    """17:00–18:00: verbleibendes Tageskontingent leeren (nie nach 18 Uhr)."""
+    if not pacing.is_flush_window():
+        return 0
+    sent = 0
+    for campaign in (
+        config.CAMPAIGN_PARTNER,
+        config.CAMPAIGN_REFERRAL,
+        config.CAMPAIGN_BAUHERR,
+    ):
+        if campaign == config.CAMPAIGN_REFERRAL and not config.REFERRAL_ENABLED:
+            continue
+        if campaign == config.CAMPAIGN_BAUHERR and not config.BAUHERR_ENABLED:
+            continue
+        daily_limit, _ = _send_limits(campaign)
+        remaining = daily_limit - storage.get_counter("sent", campaign)
+        if remaining <= 0:
+            continue
+        n = _send_campaign_burst(campaign, remaining)
+        sent += n
+        if n:
+            print(f"[outreach] ⏰ End-of-Day-Flush ({campaign}): +{n}", flush=True)
     return sent

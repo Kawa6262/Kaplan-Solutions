@@ -20,6 +20,33 @@ fi
 sed "s|__ROOT__|$ROOT|g; s|__PYTHON__|$PYTHON|g" "$PLIST_SRC" > "$PLIST_DST"
 sed "s|__ROOT__|$ROOT|g; s|__PYTHON__|$PYTHON|g" "$PLIST_AWAKE_SRC" > "$PLIST_AWAKE_DST"
 
+# .env in Plist injizieren — LaunchAgent darf iCloud/.env oft nicht lesen
+"$PYTHON" << PYEOF
+import plistlib, re
+from pathlib import Path
+
+root = Path("$ROOT")
+plist_path = Path("$PLIST_DST")
+env = {}
+for line in (root / ".env").read_text(encoding="utf-8", errors="replace").splitlines():
+    line = line.strip()
+    if not line or line.startswith("#") or "=" not in line:
+        continue
+    k, _, v = line.partition("=")
+    k, v = k.strip(), v.strip().strip('"').strip("'")
+    if k:
+        env[k] = v
+
+with plist_path.open("rb") as f:
+    plist = plistlib.load(f)
+base = dict(plist.get("EnvironmentVariables") or {})
+base.update(env)
+plist["EnvironmentVariables"] = base
+with plist_path.open("wb") as f:
+    plistlib.dump(plist, f)
+print(f"   Env: {len(env)} Variablen in LaunchAgent eingetragen")
+PYEOF
+
 launchctl bootout "gui/$(id -u)/com.kaplansolutions.outreach" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.kaplansolutions.outreach-awake" 2>/dev/null || true
 

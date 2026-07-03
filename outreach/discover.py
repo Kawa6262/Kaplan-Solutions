@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -121,7 +122,22 @@ def discover_batches(
 
 
 def discover_all_campaigns() -> int:
-    total = discover_batches(config.CAMPAIGN_PARTNER)
+    """Partner + Referral + Bauherr — Referral/Bauherr zuerst wenn Queue niedrig."""
+    total = 0
+    ref_q = storage.count_queued(config.CAMPAIGN_REFERRAL)
+    bh_q = storage.count_queued(config.CAMPAIGN_BAUHERR)
+    low_ref = int(os.getenv("OUTREACH_REFERRAL_QUEUE_BOOST", "12"))
+    low_bh = int(os.getenv("OUTREACH_BAUHERR_QUEUE_BOOST", "8"))
+
+    if config.REFERRAL_ENABLED and ref_q < low_ref:
+        extra = config.REFERRAL_DISCOVER_BATCHES_PER_CYCLE * 2
+        total += discover_batches(config.CAMPAIGN_REFERRAL, max_batches=extra)
+    if config.BAUHERR_ENABLED and bh_q < low_bh:
+        extra = config.BAUHERR_DISCOVER_BATCHES_PER_CYCLE * 2
+        total += discover_batches(config.CAMPAIGN_BAUHERR, max_batches=extra)
+
+    total += discover_batches(config.CAMPAIGN_PARTNER)
+
     if config.REFERRAL_ENABLED:
         total += discover_batches(config.CAMPAIGN_REFERRAL)
     if config.BAUHERR_ENABLED:

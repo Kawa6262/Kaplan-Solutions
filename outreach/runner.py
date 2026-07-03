@@ -12,6 +12,7 @@ Nutzung:
 from __future__ import annotations
 
 import argparse
+import os
 import sqlite3
 import sys
 import time
@@ -23,7 +24,12 @@ if str(ROOT) not in sys.path:
 
 try:
     from dotenv import load_dotenv
-    load_dotenv(ROOT / ".env")
+
+    if not os.getenv("RESEND_API_KEY") and not os.getenv("ADMIN_EMAIL"):
+        try:
+            load_dotenv(ROOT / ".env")
+        except OSError as exc:
+            print(f"[outreach] .env nicht lesbar ({exc}) — nutze System-Env", flush=True)
 except ImportError:
     pass
 
@@ -68,7 +74,13 @@ def run_cycle(last_run: float | None = None) -> float:
     discovered = discover.discover_all_campaigns()
     enriched = enrich.enrich_batch(config.ENRICH_BATCH)
     sent = sender.send_batch()
-    synced = sheet_sync.sync_batch()
+    pending_sync = storage.count_unsynced_sent()
+    sync_cap = config.SHEET_SYNC_BATCH
+    if pending_sync > 30:
+        sync_cap = min(pending_sync, config.SHEET_SYNC_BATCH * 6)
+    elif pending_sync > 10:
+        sync_cap = config.SHEET_SYNC_BATCH * 3
+    synced = sheet_sync.sync_batch(limit=sync_cap)
     reminded = reminder.process_reminders()
     morning = morning_report.maybe_send_morning_report()
     midday = midday_report.maybe_send_midday_report()

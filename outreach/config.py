@@ -37,6 +37,8 @@ SEND_HOUR_START = int(os.getenv("OUTREACH_HOUR_START", "8"))
 SEND_HOUR_END = int(os.getenv("OUTREACH_HOUR_END", "18"))
 SEND_WEEKDAYS_ONLY = os.getenv("OUTREACH_WEEKDAYS_ONLY", "1").strip() not in ("0", "false", "no")
 
+SHEET_SYNC_BATCH = int(os.getenv("OUTREACH_SHEET_SYNC_BATCH", "5"))
+
 GOOGLE_PLACES_KEY = os.getenv("GOOGLE_PLACES_API_KEY", "").strip()
 
 # Suchrotation: Gewerke × Städte

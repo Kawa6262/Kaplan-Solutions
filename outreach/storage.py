@@ -299,6 +299,15 @@ def set_search_cursor(
         )
 
 
+def count_queued(campaign: str = "partner") -> int:
+    with _conn() as db:
+        row = db.execute(
+            "SELECT COUNT(*) AS c FROM prospects WHERE status = 'queued' AND campaign = ?",
+            (campaign,),
+        ).fetchone()
+    return int(row["c"] or 0)
+
+
 def prospects_to_enrich(limit: int) -> list[sqlite3.Row]:
     with _conn() as db:
         return list(
@@ -306,7 +315,13 @@ def prospects_to_enrich(limit: int) -> list[sqlite3.Row]:
                 """
                 SELECT * FROM prospects
                 WHERE status = 'new' AND website IS NOT NULL AND website != ''
-                ORDER BY CASE campaign WHEN 'partner' THEN 0 ELSE 1 END, id ASC
+                ORDER BY
+                  CASE campaign
+                    WHEN 'referral' THEN 0
+                    WHEN 'bauherr' THEN 1
+                    ELSE 2
+                  END,
+                  id ASC
                 LIMIT ?
                 """,
                 (limit,),
@@ -381,6 +396,19 @@ def mark_sheet_synced(prospect_id: int, ref: str = "") -> None:
             """,
             (ref[:64], now, prospect_id),
         )
+
+
+def count_unsynced_sent() -> int:
+    with _conn() as db:
+        row = db.execute(
+            """
+            SELECT COUNT(*) AS c FROM prospects
+            WHERE status = 'sent' AND campaign = 'partner'
+              AND email IS NOT NULL AND email != ''
+              AND sheet_synced_at IS NULL
+            """
+        ).fetchone()
+    return int(row["c"] or 0)
 
 
 def unsynced_sent(limit: int = 20) -> list[sqlite3.Row]:
