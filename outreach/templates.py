@@ -41,14 +41,15 @@ def _postal_line() -> str:
 
 
 def build_subject(company: str, city: str) -> str:
-    """Kurze, sachliche Betreffzeilen — ohne Spam-Trigger."""
+    """Sachliche Betreffzeilen — wie persönliche B2B-Mail, ohne Marketing-Trigger."""
     v = _variant(company)
     region = city or "Ihrer Region"
+    short = company[:50] if company else "Ihr Unternehmen"
     if v == 0:
-        return f"Kaplan Solutions — Partnernetzwerk Bau ({region})"
+        return f"Kurze Anfrage — {short}"
     if v == 1:
-        return f"Kurze Anfrage an {company}"
-    return f"Bauvermittlung: Partneraufnahme {company}"
+        return f"Zusammenarbeit Bau ({region})"
+    return f"Rückfrage an {short}"
 
 
 def build_bodies(

@@ -43,11 +43,12 @@ def _postal_line() -> str:
 def build_subject(company: str, city: str) -> str:
     v = _variant(company)
     region = city or "Ihrer Region"
+    short = company[:50] if company else "Ihr Unternehmen"
     if v == 0:
-        return f"Bauherren-Vermittlung — Empfehlungspartner ({region})"
+        return f"Kurze Anfrage — {short}"
     if v == 1:
-        return f"Kurze Anfrage an {company} — Bauvermittlung"
-    return f"Kaplan Solutions · Bauherren an passende Firmen vermitteln"
+        return f"Bauherren vermitteln ({region})"
+    return f"Rückfrage an {short}"
 
 
 def build_bodies(

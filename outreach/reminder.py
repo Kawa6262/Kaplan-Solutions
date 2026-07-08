@@ -87,7 +87,7 @@ def send_one_reminder(row) -> bool:
         storage.mark_reminder_sent(int(row["id"]))
         return False
 
-    subject = f"Kaplan Solutions — noch Interesse, {company}?"
+    subject = f"Rückfrage — {company[:50]}"
     text, html = _build_reminder(company, city, email, int(row["id"]))
     try:
         send_email(

@@ -29,11 +29,12 @@ def _variant(company: str) -> int:
 def build_subject(company: str, city: str) -> str:
     region = city or "Ihrer Region"
     v = _variant(company)
+    short = company[:50] if company else "Ihr Unternehmen"
     if v == 0:
-        return f"Bauunternehmen für Ihr Projekt in {region} — kostenlose Vermittlung"
+        return f"Anfrage zu Projekten in {region}"
     if v == 1:
-        return f"Kaplan Solutions · Geprüfte Firmen für {company}"
-    return f"Kurze Anfrage — Bauvermittlung für Projekte in {region}"
+        return f"Kurze Rückfrage — {short}"
+    return f"Bauvermittlung ({region})"
 
 
 def build_bodies(
