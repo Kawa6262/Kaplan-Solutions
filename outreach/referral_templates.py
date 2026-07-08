@@ -6,9 +6,9 @@ import hashlib
 
 from company_config import COMPANY, company_footer_text
 from email_deliverability import public_site_url, unsubscribe_url
+from outreach.urls import partner_form_url, referral_bauherr_url
 
 SITE = public_site_url()
-BAUHERR_URL = f"{SITE}/bauherr"
 REPLY = COMPANY.get("email", "kontakt@kaplan-solutions.de")
 REGION_LABEL = COMPANY.get("region_label", "Berlin & DACH")
 
@@ -55,22 +55,27 @@ def build_bodies(
     city: str,
     trade: str,
     recipient_email: str = "",
+    prospect_id: int | None = None,
 ) -> tuple[str, str]:
     region = city or "Ihrer Region"
     trade_hint = trade.split()[0] if trade else "Immobilien"
     unsub = unsubscribe_url(recipient_email)
     postal = _postal_line()
+    bauherr_url = referral_bauherr_url(prospect_id)
+    partner_url = partner_form_url(prospect_id)
 
     text = f"""Sehr geehrte Damen und Herren,
 
 wir wenden uns an {company}, weil Sie in {region} als {trade_hint} für Bauherren und Immobilienprojekte tätig sind.
 
-Kaplan Solutions vermittelt Bauherren kostenlos an geprüfte Bauunternehmen im DACH-Raum. Wenn Ihre Mandanten oder Kunden ein passendes Bauunternehmen suchen, können Sie sie unverbindlich an uns weiterleiten — wir übernehmen die Vorauswahl und koordinieren den Erstkontakt.
+Kaplan Solutions vermittelt Bauherren kostenlos an geprüfte Bauunternehmen im DACH-Raum. Wenn Ihre Mandanten oder Kunden ein passendes Bauunternehmen suchen, leiten Sie sie gern weiter:
 
-Für Bauherren entstehen keine Kosten. Für Sie als Empfehlungspartner ebenfalls keine Gebühren.
+→ Für Ihre Mandanten (kostenlos): {bauherr_url}
 
-Interesse an einer unverbindlichen Zusammenarbeit?
-Kurzinfo für Bauherren: {BAUHERR_URL}
+Sie möchten selbst Aufträge über unser Netzwerk? Partner werden:
+→ {partner_url}
+
+Für Bauherren und für Sie als Empfehlungspartner entstehen keine Gebühren.
 
 Mit freundlichen Grüßen
 Kaplan Solutions
@@ -109,12 +114,11 @@ oder Antwort an {REPLY} mit Betreff „Abmeldung".
 </td></tr>
 
 <tr><td style="padding:8px 40px 32px" align="center">
-  <a href="{_safe(BAUHERR_URL)}" style="display:inline-block;padding:14px 28px;background:{GREEN};color:#ffffff;font-family:Arial,sans-serif;font-size:14px;font-weight:600;text-decoration:none;border-radius:2px">
-    Bauherren-Seite ansehen
+  <a href="{_safe(bauherr_url)}" style="display:inline-block;padding:14px 28px;background:{GREEN};color:#ffffff;font-family:Arial,sans-serif;font-size:14px;font-weight:600;text-decoration:none;border-radius:2px">
+    Link für Mandanten (kostenlos)
   </a>
   <p style="margin:14px 0 0;font-size:12px;color:#999;text-align:center;line-height:1.5">
-    Link für Ihre Mandanten · kostenlose Vermittlung<br>
-    <a href="{_safe(BAUHERR_URL)}" style="color:{GOLD};text-decoration:none">{_safe(BAUHERR_URL.replace('https://', ''))}</a>
+    <a href="{_safe(partner_url)}" style="color:{GOLD};text-decoration:none">Selbst Partner werden →</a>
   </p>
 </td></tr>
 

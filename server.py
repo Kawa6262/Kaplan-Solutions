@@ -1086,6 +1086,21 @@ def bauherr_landing():
     return send_from_directory(BASE_DIR, "bauherr.html")
 
 
+@app.route("/partner")
+def partner_redirect():
+    """Kurzlink für Partner-Outreach — Formular voreingestellt auf Auftragnehmer."""
+    record_view("partner")
+    qs = request.query_string.decode("utf-8")
+    if qs:
+        target = f"/?role=unternehmen&{qs}#contact"
+    else:
+        target = (
+            "/?role=unternehmen&utm_source=outreach&utm_medium=email"
+            "&utm_campaign=partner#contact"
+        )
+    return redirect(target, code=302)
+
+
 @app.route("/kostenlos")
 def kostenlos_redirect():
     qs = request.query_string.decode("utf-8")

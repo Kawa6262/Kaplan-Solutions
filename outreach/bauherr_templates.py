@@ -6,9 +6,9 @@ import hashlib
 
 from company_config import COMPANY, company_footer_text
 from email_deliverability import public_site_url, unsubscribe_url
+from outreach.urls import bauherr_form_url
 
 SITE = public_site_url()
-BAUHERR_URL = f"{SITE}/bauherr"
 REPLY = COMPANY.get("email", "kontakt@kaplan-solutions.de")
 
 
@@ -41,21 +41,23 @@ def build_bodies(
     city: str,
     trade: str,
     recipient_email: str = "",
+    prospect_id: int | None = None,
 ) -> tuple[str, str]:
     region = city or "Ihrer Region"
     trade_hint = trade or "Bauprojekt"
     unsub = unsubscribe_url(recipient_email)
+    form_url = bauherr_form_url(prospect_id)
 
     text = f"""Sehr geehrte Damen und Herren,
 
 wir wenden uns an {company}, weil Sie in {region} im Bereich {trade_hint} tätig sind.
 
-Kaplan Solutions vermittelt Bauherren und Projektverantwortliche kostenlos an geprüfte Bauunternehmen, Handwerksbetriebe und Generalunternehmer im DACH-Raum. Wir übernehmen die Vorauswahl nach Region, Gewerk und Kapazität — Sie erhalten nur passende, seriöse Anbieter.
+Kaplan Solutions vermittelt Bauherren und Projektverantwortliche kostenlos an geprüfte Bauunternehmen im DACH-Raum.
 
-Für Sie entstehen keine Kosten. Unser Honorar trägt ausschließlich der vermittelte Auftragnehmer bei erfolgreicher Beauftragung.
+Haben Sie ein anstehendes Bau- oder Sanierungsprojekt?
+→ Kostenlose Anfrage (2 Min.): {form_url}
 
-Haben Sie ein anstehendes Bau- oder Sanierungsprojekt — oder planen Sie in den nächsten Monaten?
-Unverbindliche Anfrage stellen: {BAUHERR_URL}
+Oder antworten Sie mit „Interesse" — wir melden uns persönlich.
 
 Mit freundlichen Grüßen
 Kaplan Solutions
@@ -71,7 +73,8 @@ Abmelden: {unsub}
 <p>wir wenden uns an <strong>{_safe(company)}</strong>, weil Sie in <strong>{_safe(region)}</strong> im Bereich {_safe(trade_hint)} tätig sind.</p>
 <p>Kaplan Solutions vermittelt Bauherren und Projektverantwortliche <strong>kostenlos</strong> an geprüfte Bauunternehmen, Handwerksbetriebe und Generalunternehmer im DACH-Raum.</p>
 <p style="background:#f5f5f5;padding:14px;border-left:4px solid #b87333">Haben Sie ein anstehendes Bau- oder Sanierungsprojekt?<br/>
-<a href="{BAUHERR_URL}" style="color:#0b3d2e;font-weight:700">→ Unverbindliche Anfrage stellen</a></p>
+<a href="{_safe(form_url)}" style="color:#0b3d2e;font-weight:700">→ Kostenlose Anfrage (2 Min.)</a></p>
+<p style="font-size:14px;color:#666">Oder auf diese E-Mail mit <strong>„Interesse"</strong> antworten.</p>
 <p>Mit freundlichen Grüßen<br/>Kaplan Solutions</p>
 <p style="font-size:11px;color:#888">{_safe(company_footer_text())}<br/>
 <a href="{unsub}" style="color:#888">Abmelden</a></p>

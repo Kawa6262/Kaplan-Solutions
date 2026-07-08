@@ -71,17 +71,17 @@ else:
     GERMAN_CITIES = _ALL_CITIES
 
 TRADE_QUERIES = [
-    "Bauunternehmen",
     "Generalunternehmer Bau",
-    "Tiefbau Unternehmen",
+    "Bauunternehmen",
     "Sanierungsbau Firma",
-    "Malerbetrieb",
-    "Dachdecker Betrieb",
-    "Elektroinstallateur Bau",
+    "Tiefbau Unternehmen",
     "SHK Betrieb Heizung Sanitär",
-    "Fliesenleger Betrieb",
-    "Estrichleger Firma",
+    "Elektroinstallateur Bau",
+    "Dachdecker Betrieb",
     "Trockenbau Firma",
+    "Estrichleger Firma",
+    "Fliesenleger Betrieb",
+    "Malerbetrieb",
     "Garten- und Landschaftsbau",
 ]
 

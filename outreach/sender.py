@@ -63,21 +63,24 @@ def send_one(campaign: str = config.CAMPAIGN_PARTNER) -> bool:
         storage.mark_enriched(row["id"], email, "unsubscribed")
         return False
 
+    pid = int(row["id"])
     if campaign == config.CAMPAIGN_REFERRAL:
         subject = build_referral_subject(company, city)
         text_body, html_body = build_referral_bodies(
-            company, city, trade, recipient_email=email
+            company, city, trade, recipient_email=email, prospect_id=pid
         )
         label = "Referral"
     elif campaign == config.CAMPAIGN_BAUHERR:
         subject = build_bauherr_subject(company, city)
         text_body, html_body = build_bauherr_bodies(
-            company, city, trade, recipient_email=email
+            company, city, trade, recipient_email=email, prospect_id=pid
         )
         label = "Bauherr"
     else:
         subject = build_subject(company, city)
-        text_body, html_body = build_bodies(company, city, trade, recipient_email=email)
+        text_body, html_body = build_bodies(
+            company, city, trade, recipient_email=email, prospect_id=pid
+        )
         label = "Partner"
 
     reply_to = os.getenv("REPLY_EMAIL", "kontakt@kaplan-solutions.de").strip()

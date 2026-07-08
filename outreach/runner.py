@@ -73,6 +73,7 @@ def run_cycle(last_run: float | None = None) -> float:
 
     discovered = discover.discover_all_campaigns()
     enriched = enrich.enrich_batch(config.ENRICH_BATCH)
+    reminded = reminder.process_reminders()
     sent = sender.send_batch()
     pending_sync = storage.count_unsynced_sent()
     sync_cap = config.SHEET_SYNC_BATCH
@@ -81,7 +82,6 @@ def run_cycle(last_run: float | None = None) -> float:
     elif pending_sync > 10:
         sync_cap = config.SHEET_SYNC_BATCH * 3
     synced = sheet_sync.sync_batch(limit=sync_cap)
-    reminded = reminder.process_reminders()
     morning = morning_report.maybe_send_morning_report()
     midday = midday_report.maybe_send_midday_report()
     reported = daily_report.maybe_send_report()
@@ -178,8 +178,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Kaplan Solutions B2B Outreach")
     parser.add_argument(
         "command",
-        choices=("once", "daemon", "status", "unsubscribe", "report", "midday", "sync-sheet"),
-        help="once=ein Zyklus, daemon=Hintergrund, status=Statistik, report=Tagesfazit, midday=Mittags-Update",
+        choices=("once", "daemon", "status", "verify", "unsubscribe", "report", "midday", "sync-sheet"),
+        help="once=ein Zyklus, daemon=Hintergrund, status=Statistik, verify=Resend-Abgleich, report=Tagesfazit",
     )
     parser.add_argument("email", nargs="?", help="Nur für unsubscribe")
     parser.add_argument(
@@ -191,6 +191,16 @@ def main() -> None:
 
     if args.command == "status":
         cmd_status()
+    elif args.command == "verify":
+        try:
+            from dotenv import load_dotenv
+
+            load_dotenv(ROOT / ".env")
+        except Exception:
+            pass
+        from outreach import verify as verify_delivery
+
+        verify_delivery.print_report()
     elif args.command == "unsubscribe":
         if not args.email:
             print("E-Mail angeben: python -m outreach.runner unsubscribe firma@example.de")

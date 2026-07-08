@@ -116,6 +116,12 @@
         setRole('bauherr');
     }
 
+    if (roleParam || window.location.hash === '#contact') {
+        setTimeout(() => {
+            document.getElementById('contact')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 400);
+    }
+
     function utmFields() {
         const keys = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'gclid'];
         const out = {};

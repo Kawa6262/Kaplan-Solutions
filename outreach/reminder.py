@@ -9,9 +9,9 @@ from zoneinfo import ZoneInfo
 from outreach import storage
 from company_config import company_footer_text
 from email_deliverability import public_site_url, unsubscribe_url
+from outreach.urls import bauherr_form_url, partner_form_url
 
 SITE = public_site_url()
-FORM_URL = f"{SITE}/#contact"
 REPLY = os.getenv("REPLY_EMAIL", "kontakt@kaplan-solutions.de").strip()
 
 try:
@@ -22,7 +22,7 @@ except ImportError:
 
 TZ = ZoneInfo("Europe/Berlin")
 REMINDER_DAYS = int(os.getenv("OUTREACH_REMINDER_DAYS", "3"))
-REMINDER_BATCH = int(os.getenv("OUTREACH_REMINDER_BATCH", "5"))
+REMINDER_BATCH = int(os.getenv("OUTREACH_REMINDER_BATCH", "8"))
 
 
 def _safe(s: str) -> str:
@@ -35,21 +35,21 @@ def _safe(s: str) -> str:
     )
 
 
-def _build_reminder(company: str, city: str, email: str) -> tuple[str, str]:
+def _build_reminder(company: str, city: str, email: str, prospect_id: int | None = None) -> tuple[str, str]:
     region = city or "Ihrer Region"
     unsub = unsubscribe_url(email)
-    bauherr_link = f"{SITE}/bauherr"
+    form_url = partner_form_url(prospect_id)
+    bauherr_link = bauherr_form_url(prospect_id)
     text = f"""Sehr geehrte Damen und Herren,
 
 vor einigen Tagen hatten wir uns kurz zu einer Partnerschaft im Baunetzwerk von Kaplan Solutions gemeldet ({company}, {region}).
 
-Falls Sie noch Interesse haben: Mit unserem kurzen Formular (ca. 3 Minuten) können wir Sie gezielt passenden Bauherren-Projekten zuordnen:
+Falls Sie noch Interesse haben — Partner werden (2 Min., voreingestellt):
+{form_url}
 
-{FORM_URL}
-Bitte „Ich suche Aufträge" wählen.
+Noch einfacher: Antworten Sie mit „Interesse" auf diese E-Mail.
 
-Kennen Sie Bauherren, die ein passendes Bauunternehmen suchen?
-Leiten Sie sie gern an unsere kostenlose Vermittlung weiter — für Bauherren entstehen keine Kosten:
+Kennen Sie Bauherren? Kostenlose Vermittlung für Mandanten:
 {bauherr_link}
 
 Mit freundlichen Grüßen
@@ -64,8 +64,9 @@ Abmelden: {unsub}
 <p>Sehr geehrte Damen und Herren,</p>
 <p>vor einigen Tagen hatten wir uns zu einer Partnerschaft bei <strong>{_safe(company)}</strong> ({_safe(region)}) gemeldet.</p>
 <p>Falls noch Interesse besteht — mit dem Formular (3 Min.) ordnen wir Sie passenden Projekten zu:</p>
-<p><a href="{_safe(FORM_URL)}" style="background:#0b3d2e;color:#fff;padding:12px 20px;text-decoration:none;border-radius:2px">Formular öffnen</a></p>
-<p style="font-size:12px;color:#888">„Ich suche Aufträge" wählen · <a href="{_safe(unsub)}">Abmelden</a></p>
+<p><a href="{_safe(form_url)}" style="background:#0b3d2e;color:#fff;padding:12px 20px;text-decoration:none;border-radius:2px">Partner werden — 2 Min.</a></p>
+<p style="font-size:13px;color:#666">Oder mit <strong>„Interesse"</strong> auf diese E-Mail antworten.</p>
+<p style="font-size:12px;color:#888"><a href="{_safe(unsub)}">Abmelden</a></p>
 <p style="margin-top:24px;padding-top:20px;border-top:1px solid #eee">
   <strong>Kennen Sie Bauherren?</strong><br>
   Leiten Sie sie gern an unsere <strong>kostenlose Vermittlung</strong> weiter — für Bauherren entstehen keine Kosten:<br>
@@ -87,7 +88,7 @@ def send_one_reminder(row) -> bool:
         return False
 
     subject = f"Kaplan Solutions — noch Interesse, {company}?"
-    text, html = _build_reminder(company, city, email)
+    text, html = _build_reminder(company, city, email, int(row["id"]))
     try:
         send_email(
             email,

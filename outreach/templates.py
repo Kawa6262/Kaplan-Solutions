@@ -6,9 +6,9 @@ import hashlib
 
 from company_config import COMPANY, company_footer_text
 from email_deliverability import public_site_url, unsubscribe_url
+from outreach.urls import partner_form_url
 
 SITE = public_site_url()
-FORM_URL = f"{SITE}/#contact"
 REPLY = COMPANY.get("email", "kontakt@kaplan-solutions.de")
 REGION_LABEL = COMPANY.get("region_label", "Berlin & DACH")
 
@@ -56,11 +56,13 @@ def build_bodies(
     city: str,
     trade: str,
     recipient_email: str = "",
+    prospect_id: int | None = None,
 ) -> tuple[str, str]:
     region = city or "Ihrer Region"
     trade_hint = trade.split()[0] if trade else "Bau"
     unsub = unsubscribe_url(recipient_email)
     postal = _postal_line()
+    form_url = partner_form_url(prospect_id)
 
     text = f"""Sehr geehrte Damen und Herren,
 
@@ -69,8 +71,10 @@ wir wenden uns an {company}, weil Sie in {region} im Bereich {trade_hint} tätig
 Kaplan Solutions vermittelt qualifizierte Bauaufträge im DACH-Raum — persönlich, diskret und ohne Listengebühren für Partner. Wir prüfen Anfragen und Projekte vor der Vermittlung und koordinieren den Erstkontakt.
 
 Interesse an einer unverbindlichen Partnerschaft?
-Kontaktformular (ca. 3 Minuten): {FORM_URL}
-Bitte „Ich suche Aufträge" wählen.
+→ Partner werden (ca. 2 Minuten): {form_url}
+Das Formular ist bereits auf „Ich suche Aufträge" voreingestellt.
+
+Noch einfacher: Antworten Sie auf diese E-Mail mit „Interesse" — wir melden uns persönlich.
 
 Mit freundlichen Grüßen
 Kaplan Solutions
@@ -102,18 +106,21 @@ oder Antwort an {REPLY} mit Betreff „Abmeldung".
     Kaplan Solutions vermittelt qualifizierte Bauaufträge ({REGION_LABEL}, deutschlandweit).
     Für Partner entstehen <strong style="color:{TEXT}">keine Listengebühren</strong> — Vergütung nur bei erfolgreicher Vermittlung.
   </p>
-  <p style="margin:0">
-    Bei Interesse freuen wir uns über eine kurze Anfrage über unser Kontaktformular.
+  <p style="margin:0 0 14px">
+    Bei Interesse: <strong style="color:{TEXT}">Partner werden in 2 Minuten</strong> — Formular ist voreingestellt.
+  </p>
+  <p style="margin:0;font-size:14px;color:{MUTED}">
+    Oder einfach auf diese E-Mail mit <strong>„Interesse"</strong> antworten.
   </p>
 </td></tr>
 
 <tr><td style="padding:8px 40px 32px" align="center">
-  <a href="{_safe(FORM_URL)}" style="display:inline-block;padding:14px 28px;background:{GREEN};color:#ffffff;font-family:Arial,sans-serif;font-size:14px;font-weight:600;text-decoration:none;border-radius:2px">
-    Unverbindlich anfragen
+  <a href="{_safe(form_url)}" style="display:inline-block;padding:14px 28px;background:{GREEN};color:#ffffff;font-family:Arial,sans-serif;font-size:14px;font-weight:600;text-decoration:none;border-radius:2px">
+    Partner werden — 2 Min.
   </a>
   <p style="margin:14px 0 0;font-size:12px;color:#999;text-align:center;line-height:1.5">
-    Formular: „Ich suche Aufträge" wählen<br>
-    <a href="{_safe(FORM_URL)}" style="color:{GOLD};text-decoration:none">{_safe(FORM_URL.replace('https://', ''))}</a>
+    Voreingestellt: „Ich suche Aufträge"<br>
+    <a href="{_safe(form_url)}" style="color:{GOLD};text-decoration:none">{_safe(form_url.replace('https://', ''))}</a>
   </p>
 </td></tr>
 
