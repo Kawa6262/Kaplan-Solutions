@@ -70,7 +70,7 @@ if _FOCUS:
 else:
     GERMAN_CITIES = _ALL_CITIES
 
-TRADE_QUERIES = [
+_DEFAULT_TRADES = [
     "Generalunternehmer Bau",
     "Bauunternehmen",
     "Sanierungsbau Firma",
@@ -83,7 +83,28 @@ TRADE_QUERIES = [
     "Fliesenleger Betrieb",
     "Malerbetrieb",
     "Garten- und Landschaftsbau",
+    "Zimmerei Holzbau",
+    "Gerüstbau Firma",
+    "Betonbau Stahlbetonbau",
+    "Fensterbau Montage",
+    "Innenausbau Firma",
+    "Klempnerei Spengler",
+    "Bodenleger Parkett",
+    "Stuckateur Verputzer",
+    "Abbruchunternehmen",
+    "Pflasterbau Straßenbau",
+    "Rohbau Firma",
+    "Schlüsselfertigbau",
+    "Wärmedämmung Fassade",
+    "Bauschlosserei Metallbau",
 ]
+
+_TRADE_ENV = os.getenv("OUTREACH_PARTNER_TRADES", "").strip()
+TRADE_QUERIES = (
+    [t.strip() for t in _TRADE_ENV.split(",") if t.strip()]
+    if _TRADE_ENV
+    else _DEFAULT_TRADES
+)
 
 PREFERRED_EMAIL_PREFIXES = (
     "info", "kontakt", "contact", "office", "buero", "mail", "anfrage",

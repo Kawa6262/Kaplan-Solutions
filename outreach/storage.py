@@ -113,6 +113,25 @@ def _migrate_columns(conn: sqlite3.Connection) -> None:
             conn.execute(
                 f"ALTER TABLE daily_counters ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0"
             )
+    # Alt-Schema hatte CHECK (id = 1) — blockierte Referral/Bauherr-Cursor (id 2/3).
+    cursor_sql = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE name = 'search_cursor'"
+    ).fetchone()
+    if cursor_sql and "CHECK" in (cursor_sql[0] or "").upper():
+        conn.executescript(
+            """
+            ALTER TABLE search_cursor RENAME TO search_cursor_old;
+            CREATE TABLE search_cursor (
+                id INTEGER PRIMARY KEY,
+                trade_idx INTEGER NOT NULL DEFAULT 0,
+                city_idx INTEGER NOT NULL DEFAULT 0,
+                next_page_token TEXT
+            );
+            INSERT INTO search_cursor (id, trade_idx, city_idx, next_page_token)
+                SELECT id, trade_idx, city_idx, next_page_token FROM search_cursor_old;
+            DROP TABLE search_cursor_old;
+            """
+        )
     conn.execute("INSERT OR IGNORE INTO search_cursor (id, trade_idx, city_idx) VALUES (2, 0, 0)")
     conn.execute("INSERT OR IGNORE INTO search_cursor (id, trade_idx, city_idx) VALUES (3, 0, 0)")
     conn.commit()
@@ -291,11 +310,14 @@ def set_search_cursor(
     with _conn() as db:
         db.execute(
             """
-            UPDATE search_cursor
-            SET trade_idx = ?, city_idx = ?, next_page_token = ?
-            WHERE id = ?
+            INSERT INTO search_cursor (id, trade_idx, city_idx, next_page_token)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                trade_idx = excluded.trade_idx,
+                city_idx = excluded.city_idx,
+                next_page_token = excluded.next_page_token
             """,
-            (trade_idx, city_idx, next_page_token, cursor_id),
+            (cursor_id, trade_idx, city_idx, next_page_token),
         )
 
 
