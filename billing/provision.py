@@ -21,7 +21,7 @@ def _fmt_eur(amount: float) -> str:
 def calculate_provision(netto_eur: float) -> dict:
     pct = float(str(PROVISIONS.get("partner_percent", "5")).replace(",", "."))
     min_e = _parse_eur(str(PROVISIONS.get("partner_min", "1500")))
-    max_e = _parse_eur(str(PROVISIONS.get("partner_max", "35000")))
+    max_e = _parse_eur(str(PROVISIONS.get("partner_max", "30000")))
     netto = max(0.0, float(netto_eur))
     provision_net = max(min_e, min(max_e, netto * pct / 100.0))
     vat_rate = 0.19

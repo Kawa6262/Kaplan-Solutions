@@ -25,11 +25,13 @@ if str(ROOT) not in sys.path:
 try:
     from dotenv import load_dotenv
 
-    if not os.getenv("RESEND_API_KEY") and not os.getenv("ADMIN_EMAIL"):
-        try:
-            load_dotenv(ROOT / ".env")
-        except OSError as exc:
-            print(f"[outreach] .env nicht lesbar ({exc}) — nutze System-Env", flush=True)
+    # Immer und mit Vorrang laden: launchd übergibt eine zum Installationszeitpunkt
+    # eingefrorene Kopie der Variablen. Ohne override liefen Änderungen an der
+    # .env ins Leere, weil der Daemon still die alten Werte weiterbenutzt hätte.
+    try:
+        load_dotenv(ROOT / ".env", override=True)
+    except OSError as exc:
+        print(f"[outreach] .env nicht lesbar ({exc}) — nutze System-Env", flush=True)
 except ImportError:
     pass
 
@@ -41,10 +43,15 @@ from outreach import storage
 from outreach import daily_report
 from outreach import reliability
 from outreach import reminder
+from outreach import bounce_sync
 from outreach import sheet_sync
 from outreach import morning_report
 from outreach import midday_report
 from outreach import health
+from outreach import power
+from outreach import quality
+from outreach import replies
+from outreach import system_state
 
 
 def _log(msg: str) -> None:
@@ -68,12 +75,25 @@ def run_cycle(last_run: float | None = None) -> float:
         storage.init_db()
 
     if last_run is not None:
-        reliability.catch_up_after_gap(now - last_run)
+        gap = now - last_run
+        power.report_gap(gap)
+        reliability.catch_up_after_gap(gap)
     reliability.keep_awake_for_cycle()
+    power.check_power(reliability.in_send_window_now())
 
     discovered = discover.discover_all_campaigns()
     enriched = enrich.enrich_batch(config.ENRICH_BATCH)
     reminded = reminder.process_reminders()
+    bounced = bounce_sync.sync_bounces()
+    answered = replies.check_replies()
+    try:
+        from business_model import contract_inbox
+        contracts = contract_inbox.check_contract_returns()
+    except Exception as exc:
+        contracts = 0
+        _log(f"[outreach] Vertrags-Postfach: {exc}")
+    if config.PROJEKT_ENABLED:
+        quality.backfill_ratings(config.CAMPAIGN_PROJEKT, limit=config.PROJEKT_RATING_BATCH)
     sent = sender.send_batch()
     pending_sync = storage.count_unsynced_sent()
     sync_cap = config.SHEET_SYNC_BATCH
@@ -110,6 +130,7 @@ def run_cycle(last_run: float | None = None) -> float:
             f"({reliability.window_status_line()})"
         )
     health.record_success()
+    system_state.record_cycle_ok()
     return now
 
 
@@ -139,14 +160,53 @@ def cmd_status() -> None:
         print(f"Versendet heute:      {s.get('today_bauherr_sent', 0)} / {config.BAUHERR_DAILY_SEND_LIMIT}")
         print(f"In Warteschlange:     {s.get('bauherr_queued', 0)}")
         print(f"Versendet (gesamt):   {s.get('bauherr_sent_all_time', 0)}")
+    if config.PROJEKT_ENABLED:
+        from outreach.projekt import AKTUELL
+
+        print(f"--- Projekt-Ausschreibung ({AKTUELL.referenz}, {AKTUELL.region}) ---")
+        print(f"Gefunden heute:       {s.get('today_projekt_discovered', 0)} / {config.PROJEKT_DAILY_DISCOVER_LIMIT}")
+        print(f"Versendet heute:      {s.get('today_projekt_sent', 0)} / {config.PROJEKT_DAILY_SEND_LIMIT}")
+        print(f"In Warteschlange:     {s.get('projekt_queued', 0)}")
+        print(f"Ohne E-Mail (neu):    {s.get('projekt_new', 0)}")
+        print(f"Versendet (gesamt):   {s.get('projekt_sent_all_time', 0)}")
+        print(f"Suchgebiet:           {len(config.PROJEKT_CITIES)} Städte, {len(config.PROJEKT_TRADE_QUERIES)} Gewerke")
     ss = storage.sheet_sync_stats()
     print(f"Sheet-Portfolio:      {ss['synced']} sync, {ss['pending']} ausstehend")
     print(f"Zuverlässigkeit:      caffeinate={'an' if config.CAFFEINATE_ENABLED else 'aus'}, "
           f"wake-catchup={'an' if config.WAKE_CATCHUP_ENABLED else 'aus'}")
     print(f"Sendefenster:         {reliability.window_status_line()}")
-    print(f"Reports:              Morgen 8 · Mittag 13 · Abend 18 Uhr")
+    print(f"Reports:              Health 8:30 · Watchdog 10/13/15/17 · Morgen 8 · Mittag 13 · Abend 18")
     print(f"DB:                   {config.DB_PATH}")
     print(f"Log:                  {config.LOG_PATH}")
+
+
+def cmd_test_projekt() -> int:
+    """Echte Projektmail an die Admin-Adresse — kein Prospect wird als versendet markiert."""
+    from dotenv import load_dotenv
+
+    load_dotenv(ROOT / ".env")
+    from mailer import email_configured, send_email
+    from outreach.projekt_templates import build_bodies, build_subject
+
+    storage.init_db()
+    admin = os.getenv("ADMIN_EMAIL", "").strip()
+    if not email_configured() or not admin:
+        print("ADMIN_EMAIL oder Mailversand nicht konfiguriert.")
+        return 1
+
+    row = storage.next_to_send(config.CAMPAIGN_PROJEKT)
+    if row:
+        company, city, trade = row["company_name"], row["city"], row["trade"]
+    else:
+        company, city, trade = "Musterbau GmbH", "Duisburg", "Generalunternehmer"
+
+    subject = build_subject(company, city)
+    text, html = build_bodies(company, city, trade, recipient_email=admin, prospect_id=0)
+    send_email(admin, f"[TEST] {subject}", text, html)
+    print(f"Testmail → {admin}")
+    print(f"Inhalt wie an: {company} · {city} · {trade}")
+    print(f"Betreff im Original: {subject}")
+    return 0
 
 
 def cmd_daemon() -> None:
@@ -178,14 +238,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Kaplan Solutions B2B Outreach")
     parser.add_argument(
         "command",
-        choices=("once", "daemon", "status", "verify", "unsubscribe", "report", "midday", "sync-sheet"),
-        help="once=ein Zyklus, daemon=Hintergrund, status=Statistik, verify=Resend-Abgleich, report=Tagesfazit",
+        choices=("once", "daemon", "status", "verify", "unsubscribe", "report", "midday", "sync-sheet", "healthcheck", "watchdog", "preview-projekt", "test-projekt", "replies"),
+        help="once, daemon, status, healthcheck (8:30), watchdog (Versand-Überwachung)",
     )
     parser.add_argument("email", nargs="?", help="Nur für unsubscribe")
     parser.add_argument(
         "--force",
         action="store_true",
-        help="Report erneut senden (mit report oder midday)",
+        help="Report erneut senden (mit report, midday oder healthcheck)",
     )
     args = parser.parse_args()
 
@@ -216,6 +276,34 @@ def main() -> None:
         storage.init_db()
         ok = midday_report.send_midday_report(force=args.force)
         sys.exit(0 if ok else 1)
+    elif args.command == "healthcheck":
+        storage.init_db()
+        from outreach import daily_health_check
+
+        ok = daily_health_check.run_daily_health_check(force=args.force)
+        sys.exit(0 if ok else 1)
+    elif args.command == "watchdog":
+        storage.init_db()
+        from outreach import watchdog
+
+        ok = watchdog.run_watchdog(force=args.force)
+        sys.exit(0 if ok else 1)
+    elif args.command == "replies":
+        from dotenv import load_dotenv
+
+        load_dotenv(ROOT / ".env")
+        storage.init_db()
+        if not replies.configured():
+            print("IMAP-Zugang fehlt — IMAP_HOST/IMAP_USER/IMAP_PASSWORD in .env setzen.")
+            sys.exit(1)
+        n = replies.check_replies()
+        print(f"{n} neue Firmenantworten verarbeitet")
+    elif args.command == "test-projekt":
+        sys.exit(cmd_test_projekt())
+    elif args.command == "preview-projekt":
+        from outreach import projekt_preview
+
+        projekt_preview.write_preview()
     elif args.command == "sync-sheet":
         storage.init_db()
         total = 0

@@ -162,6 +162,91 @@ BAUHERR_TRADE_QUERIES = [t.strip() for t in _BAUHERR_TRADES.split(",") if t.stri
     "Ingenieurbüro Bau",
 ]
 
+# Projekt-Outreach: konkrete Ausschreibung an ausführende Betriebe in der Region
+# des Bauvorhabens. Anders als die Partner-Kampagne wirbt sie nicht um eine
+# Netzwerk-Mitgliedschaft, sondern bietet einen benannten Auftrag an. Deshalb
+# eigene Städte- und Gewerkeliste: Ein Betrieb aus Hamburg nützt bei einem
+# Bauvorhaben in Duisburg nichts.
+PROJEKT_ENABLED = os.getenv("OUTREACH_PROJEKT_ENABLED", "1").strip().lower() not in (
+    "0",
+    "false",
+    "no",
+)
+# Suche und Anreicherung laufen sofort, der Versand aber erst nach ausdrücklicher
+# Freigabe. Eine Mail, die ein reales Bauvorhaben eines realen Auftraggebers
+# nennt, darf nicht durch einen Daemon-Zyklus ausgelöst werden.
+PROJEKT_SEND_ENABLED = os.getenv("OUTREACH_PROJEKT_SEND_ENABLED", "0").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
+PROJEKT_DAILY_SEND_LIMIT = int(os.getenv("OUTREACH_PROJEKT_DAILY_LIMIT", "60"))
+PROJEKT_DAILY_DISCOVER_LIMIT = int(os.getenv("OUTREACH_PROJEKT_DISCOVER_LIMIT", "200"))
+PROJEKT_SEND_BATCH_PER_CYCLE = int(os.getenv("OUTREACH_PROJEKT_SEND_BATCH", "8"))
+PROJEKT_DISCOVER_BATCHES_PER_CYCLE = int(os.getenv("OUTREACH_PROJEKT_DISCOVER_BATCH", "4"))
+
+# Ein Betrieb, der vor Kurzem schon eine Mail bekommen hat, darf nicht sofort
+# die nächste bekommen.
+PROJEKT_MIN_DAYS_SINCE_CONTACT = int(os.getenv("OUTREACH_PROJEKT_MIN_DAYS", "5"))
+# Hintergrund-Check: Betriebe mit schlechtem Ruf werden dem Auftraggeber
+# nicht vorgeschlagen. Erst ab genug Bewertungen ist das Urteil belastbar.
+PROJEKT_MIN_RATING = float(os.getenv("OUTREACH_PROJEKT_MIN_RATING", "3.5"))
+PROJEKT_MIN_RATING_COUNT = int(os.getenv("OUTREACH_PROJEKT_MIN_RATING_COUNT", "5"))
+PROJEKT_RATING_BATCH = int(os.getenv("OUTREACH_PROJEKT_RATING_BATCH", "12"))
+
+# Umkreis des Bauvorhabens, grob nach Entfernung sortiert.
+_PROJEKT_CITIES_ENV = os.getenv("OUTREACH_PROJEKT_CITIES", "").strip()
+_DEFAULT_PROJEKT_CITIES = [
+    "Duisburg", "Oberhausen", "Mülheim an der Ruhr", "Moers", "Dinslaken",
+    "Rheinberg", "Kamp-Lintfort", "Voerde", "Neukirchen-Vluyn", "Krefeld",
+    "Essen", "Bottrop", "Ratingen", "Düsseldorf", "Meerbusch", "Willich",
+    "Kempen", "Neuss", "Gelsenkirchen", "Wesel", "Bochum", "Herne",
+    "Recklinghausen", "Velbert", "Mönchengladbach", "Viersen", "Xanten",
+    "Geldern", "Dortmund", "Hilden",
+]
+PROJEKT_CITIES = [
+    c.strip() for c in _PROJEKT_CITIES_ENV.split(",") if c.strip()
+] or _DEFAULT_PROJEKT_CITIES
+
+# Reihenfolge ist Absicht: Der Bauherr sucht eine ausführende Firma für alles,
+# deshalb zuerst Generalunternehmer und Komplettsanierer, danach Einzelgewerke
+# aus dem Leistungsverzeichnis.
+_PROJEKT_TRADES_ENV = os.getenv("OUTREACH_PROJEKT_TRADES", "").strip()
+_DEFAULT_PROJEKT_TRADES = [
+    "Generalunternehmer Bau",
+    "Bauunternehmen Sanierung",
+    "Schlüsselfertigbau",
+    "Komplettsanierung Wohnung",
+    "Sanierungsbau Firma",
+    "Innenausbau Firma",
+    "Trockenbau Firma",
+    "Abbruch Rückbau Firma",
+    "Badsanierung Firma",
+    "SHK Betrieb Heizung Sanitär",
+    "Elektroinstallateur Bau",
+    "Malerbetrieb",
+    "Fliesenleger Betrieb",
+    "Bodenleger Parkett",
+    "Estrichleger Firma",
+    "Fensterbau Montage",
+    "Tischlerei Innenausbau",
+    "Maurerbetrieb",
+    "Brandschutz Fachbetrieb",
+    "Garten- und Landschaftsbau",
+]
+PROJEKT_TRADE_QUERIES = [
+    t.strip() for t in _PROJEKT_TRADES_ENV.split(",") if t.strip()
+] or _DEFAULT_PROJEKT_TRADES
+
 CAMPAIGN_PARTNER = "partner"
 CAMPAIGN_REFERRAL = "referral"
 CAMPAIGN_BAUHERR = "bauherr"
+CAMPAIGN_PROJEKT = "projekt"
+
+
+def cities_for(campaign: str) -> list[str]:
+    """Suchgebiet je Kampagne. Die Projekt-Kampagne ist an ein Bauvorhaben
+    gebunden und darf nicht der bundesweiten Fokusliste folgen."""
+    if campaign == CAMPAIGN_PROJEKT:
+        return PROJEKT_CITIES
+    return GERMAN_CITIES

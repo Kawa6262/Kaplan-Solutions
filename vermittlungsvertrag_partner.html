@@ -1,54 +1,43 @@
 {% extends "contract_base.html" %}
 {% block title %}Vermittlungsvertrag Partner-Unternehmen — Kaplan Solutions{% endblock %}
 {% block contract %}
-<div class="brand-bar">
-    <p class="brand">Kaplan Solutions</p>
-    <h1>Vermittlungsvertrag</h1>
-    <p class="sub">Partner-Unternehmen (Auftragnehmer) · Erfolgsbasierte Bauauftragsvermittlung</p>
+<div class="doc-header-row">
+    <div>
+        <span class="legal-tag">Vertraulich · Vermittlungsvertrag</span>
+        <h1>Vermittlungsvertrag</h1>
+        <p class="doc-sub">Partner-Unternehmen (Auftragnehmer) · Erfolgsbasierte Bauauftragsvermittlung</p>
+    </div>
+    <div class="doc-meta">Stand {{ updated }}<br />AGB Kaplan Solutions gelten ergänzend</div>
 </div>
 
-<div class="notice">
-    <strong>Mustervertrag.</strong> Verbindlich erst nach Unterzeichnung beider Parteien.
-    Vor Ersteinsatz durch einen Fachanwalt für Handels- und Gesellschaftsrecht prüfen lassen.
-    Es gelten ergänzend die <a href="/agb">AGB</a> von Kaplan Solutions.
-</div>
-
-<h2>Vertragsparteien</h2>
-
+<h2>§ 1 Vertragsparteien</h2>
+<div class="parties-grid">
 <div class="party-box">
-    <strong>Vermittler</strong><br />
-    {{ c.legal_name }}<br />
-    {% if c.is_privat %}
-    handelnd unter der Marke „{{ c.brand }}“<br />
-    {% endif %}
-    {{ c.street }}, {{ c.zip_city }}, {{ c.country }}<br />
-    E-Mail: {{ c.email }} · Telefon: {{ c.phone }}<br />
-    {% if c.vat_id %}USt-IdNr.: {{ c.vat_id }}<br />{% endif %}
-    (nachfolgend „<strong>Kaplan Solutions</strong>“)
+    <div class="party-label">Vermittler</div>
+    {{ c.legal_name }}{% if c.is_privat %}, Marke „{{ c.brand }}“{% endif %}<br />
+    {{ c.street }}, {{ c.zip_city }}<br />
+    {{ c.email }} · {{ c.phone }}{% if c.vat_id %} · USt-ID {{ c.vat_id }}{% endif %}
+    <div class="party-role">„<strong>Kaplan Solutions</strong>“</div>
 </div>
-
 <div class="party-box">
-    <strong>Partner-Unternehmen (Auftragnehmer)</strong><br />
-    Firma: <span class="fill-line"></span>
-    Rechtsform: <span class="fill-line"></span>
-    Vertretungsberechtigt: <span class="fill-line"></span>
-    Anschrift: <span class="fill-line"></span>
-    E-Mail: <span class="fill-line"></span>
-    Telefon: <span class="fill-line"></span>
-    USt-IdNr. / Steuernr.: <span class="fill-line"></span>
-    (nachfolgend „<strong>Partner</strong>“)
+    <div class="party-label">Partner-Unternehmen</div>
+    <div class="party-fields">
+        <div class="field-row"><span class="lbl">Firma:</span> <span class="fill-line"></span></div>
+        <div class="field-row"><span class="lbl">Rechtsform:</span> <span class="fill-line"></span></div>
+        <div class="field-row"><span class="lbl">Vertretung:</span> <span class="fill-line"></span></div>
+        <div class="field-row"><span class="lbl">Anschrift:</span> <span class="fill-line"></span></div>
+        <div class="field-row"><span class="lbl">E-Mail:</span> <span class="fill-line"></span></div>
+        <div class="field-row"><span class="lbl">Telefon:</span> <span class="fill-line"></span></div>
+        <div class="field-row" style="grid-column:1/-1"><span class="lbl">USt-IdNr.:</span> <span class="fill-line"></span></div>
+    </div>
+    <div class="party-role">„<strong>Partner</strong>“ (Auftragnehmer)</div>
 </div>
+</div>
+<p style="margin-bottom:10px">Kaplan Solutions und der Partner („<strong>Parteien</strong>“) schließen folgenden Vertrag. Kaplan Solutions vermittelt qualifizierte Bauaufträge im B2B-Bereich; der Partner wünscht die Vermittlung passender Auftraggeber.</p>
 
-<p>Kaplan Solutions und der Partner werden nachfolgend gemeinsam „<strong>Parteien</strong>“ genannt.</p>
+<div class="contract-main">
 
-<h2>Präambel</h2>
-<p>
-    Kaplan Solutions vermittelt qualifizierte Bauaufträge und Projektanfragen im B2B-Bereich.
-    Der Partner ist ein Bau- bzw. Handwerksunternehmen und wünscht die Vermittlung passender
-    Auftraggeber. Die Parteien schließen daher folgenden Vertrag.
-</p>
-
-<h2>§ 1 Vertragsgegenstand</h2>
+<h2>§ 2 Vertragsgegenstand</h2>
 <ol>
     <li>
         Kaplan Solutions erbringt gegenüber dem Partner <strong>Nachweis- und Vermittlungsleistungen</strong>
@@ -78,7 +67,7 @@
     </li>
 </ol>
 
-<h2>§ 2 Vergütung (Erfolgsprovision)</h2>
+<h2>§ 3 Vergütung (Erfolgsprovision)</h2>
 <ol>
     <li>
         Der Partner schuldet Kaplan Solutions eine <strong>Erfolgsprovision</strong> in Höhe von
@@ -100,9 +89,17 @@
         Alle Beträge verstehen sich zuzüglich der gesetzlichen Umsatzsteuer.
     </li>
     <li>
-        <strong>Fälligkeit:</strong> Die Provision ist zahlbar innerhalb von <strong>14 Kalendertagen</strong>
-        nach dem früheren der folgenden Ereignisse: (a) Unterzeichnung des Bauhauptvertrags durch beide Parteien,
-        (b) Beginn der Bauleistung, (c) Eingang der ersten vereinbarten Anzahlung beim Partner.
+        <strong>Fälligkeit:</strong> Die Provision ist als <strong>Einmalzahlung</strong> (keine
+        Ratenzahlung an Kaplan Solutions) innerhalb von <strong>14 Kalendertagen</strong>
+        nach dem früheren der folgenden Ereignisse fällig:
+        (a) Unterzeichnung des Bauhauptvertrags durch beide Parteien,
+        (b) Beginn der Bauleistung am vermittelten Objekt,
+        (c) Eingang der ersten vereinbarten Anzahlung oder Abschlagszahlung beim Partner.
+    </li>
+    <li>
+        <strong>Keine Staffelung:</strong> Eine Staffelung der Provision nach Baufortschritt ist
+        ausgeschlossen, es sei denn, Kaplan Solutions stimmt dies ausdrücklich schriftlich zu.
+        Die Fälligkeit nach Abs. 5 ist nicht vom vollständigen Baufortschritt abhängig.
     </li>
     <li>
         Kaplan Solutions stellt dem Partner eine ordnungsgemäße Rechnung. Bei Zahlungsverzug
@@ -115,7 +112,7 @@
     </li>
 </ol>
 
-<h2>§ 3 Entstehen des Provisionsanspruchs</h2>
+<h2>§ 4 Entstehen des Provisionsanspruchs</h2>
 <ol>
     <li>
         Der Provisionsanspruch entsteht, wenn infolge der Tätigkeit von Kaplan Solutions ein
@@ -135,8 +132,25 @@
     </li>
     <li>
         <strong>Umgehungsschutz:</strong> Wird ein vermittelter Auftrag über verbundene Unternehmen,
-        Ehegatten, nahe Angehörige oder sonstige Dritte abgewickelt, um die Provision zu umgehen,
-        besteht der Provisionsanspruch gleichwohl.
+        Ehegatten, eingetragene Lebenspartner, nahe Angehörige, Gesellschafter, Subunternehmer
+        oder sonstige Dritte abgewickelt, um die Provision zu umgehen, besteht der
+        Provisionsanspruch gleichwohl, als wäre der Partner selbst Vertragspartner geworden.
+    </li>
+    <li>
+        <strong>Vertragsstrafe bei Umgehung:</strong> Handelt der Partner vorsätzlich oder grob
+        fahrlässig gegen die Pflichten aus § 5 Abs. 4 (Abwerbeschutz) oder gegen den
+        Umgehungsschutz, ist er zusätzlich zur Provision zur Zahlung einer
+        <strong>Vertragsstrafe in Höhe der geschuldeten Provision</strong> verpflichtet.
+        Weitergehende Schadensersatzansprüche bleiben vorbehalten; eine angemessene Herabsetzung
+        durch das Gericht bleibt unberührt (§ 343 BGB).
+    </li>
+    <li>
+        <strong>§ 654 BGB — Keine Doppeltätigkeit:</strong> Der Partner bestätigt, dass Kaplan
+        Solutions nicht bereits als Makler ausschließlich für denselben Auftraggeber und dasselbe
+        Projekt durch einen Dritten beauftragt ist. Der Partner wird Kaplan Solutions
+        <strong>vor Annahme des Nachweises</strong> unverzüglich informieren, wenn bereits
+        aktive Vertragsverhandlungen oder ein bestehendes Maklerverhältnis mit dem betreffenden
+        Auftraggeber und Projekt besteht.
     </li>
     <li>
         <strong>Ausschluss:</strong> Keine Provision, wenn der Partner Kaplan Solutions
@@ -145,7 +159,7 @@
     </li>
 </ol>
 
-<h2>§ 4 Mitwirkungs- und Informationspflichten des Partners</h2>
+<h2>§ 5 Mitwirkungs- und Informationspflichten des Partners</h2>
 <ol>
     <li>
         Der Partner informiert Kaplan Solutions <strong>unverzüglich</strong> (innerhalb von 7 Werktagen)
@@ -166,14 +180,39 @@
         erfolgreichen Erstkontakt als vermittelt durch Kaplan Solutions nachzuweisen.
     </li>
     <li>
-        <strong>Abwerbeschutz:</strong> Der Partner verpflichtet sich, benannte Auftraggeber
-        (siehe Anlage) innerhalb von {{ p.partner_followup_months }} Monaten nach Erstbenennung
-        nicht ohne Beteiligung von Kaplan Solutions direkt zu kontaktieren oder zu beauftragen,
-        soweit der Erstkontakt auf die Tätigkeit von Kaplan Solutions zurückzuführen ist.
+        <strong>Abwerbeschutz:</strong> Der Partner verpflichtet sich, in der Anlage benannte
+        Auftraggeber innerhalb von {{ p.partner_followup_months }} Monaten nach Erstbenennung
+        nicht ohne Beteiligung von Kaplan Solutions direkt zu kontaktieren, Angebote abzugeben
+        oder zu beauftragen, soweit der Erstkontakt auf die Tätigkeit von Kaplan Solutions
+        zurückzuführen ist. Dies gilt auch für Projekte am selben Objekt / derselben
+        Projektreferenz.
+    </li>
+    <li>
+        <strong>Freigabe von Projektunterlagen:</strong> Detaillierte Projektunterlagen,
+        Adressen, Leistungsverzeichnisse und direkte Kontaktdaten des Auftraggebers erhält
+        der Partner erst nach Unterzeichnung dieses Vertrags und schriftlicher Freigabe durch
+        Kaplan Solutions (Intro-E-Mail mit Referenznummer genügt).
+    </li>
+    <li>
+        <strong>Elektronische Signatur:</strong> Der Vertrag kann rechtswirksam elektronisch
+        unterzeichnet werden (PDF-Signatur, qualifizierte oder fortgeschrittene elektronische
+        Signatur, oder scanneingereichte Unterschrift per E-Mail).
     </li>
 </ol>
 
-<h2>§ 5 Datenschutz und Auftragsverarbeitung</h2>
+<h2>§ 6 Abtretung und Aufrechnung</h2>
+<ol>
+    <li>
+        Kaplan Solutions ist berechtigt, Forderungen aus diesem Vertrag an Dritte abzutreten.
+        Der Partner wird hiervon in Textform informiert.
+    </li>
+    <li>
+        Aufrechnung oder Zurückbehaltungsrechte des Partners sind nur mit unbestrittenen oder
+        rechtskräftig festgestellten Gegenforderungen zulässig.
+    </li>
+</ol>
+
+<h2>§ 7 Datenschutz und Auftragsverarbeitung</h2>
 <ol>
     <li>
         Personenbezogene Daten werden gemäß der <a href="/datenschutz">Datenschutzerklärung</a>
@@ -187,7 +226,7 @@
     </li>
 </ol>
 
-<h2>§ 6 Laufzeit und Kündigung</h2>
+<h2>§ 8 Laufzeit und Kündigung</h2>
 <ol>
     <li>Der Vertrag beginnt mit Unterzeichnung durch beide Parteien und läuft auf unbestimmte Zeit.</li>
     <li>
@@ -199,11 +238,11 @@
     </li>
     <li>
         Provisionsansprüche für während der Vertragslaufzeit nachgewiesene Auftraggeber bleiben
-        gemäß § 3 auch nach Vertragsende bestehen.
+        gemäß § 4 auch nach Vertragsende bestehen.
     </li>
 </ol>
 
-<h2>§ 7 Haftung und Gewährleistung</h2>
+<h2>§ 9 Haftung und Gewährleistung</h2>
 <ol>
     <li>
         Kaplan Solutions haftet unbeschränkt bei Vorsatz, grober Fahrlässigkeit sowie bei Schäden
@@ -223,14 +262,14 @@
     </li>
 </ol>
 
-<h2>§ 8 Vertraulichkeit</h2>
+<h2>§ 10 Vertraulichkeit</h2>
 <p>
     Beide Parteien behandeln nicht öffentlich zugängliche Informationen der jeweils anderen Partei
     sowie von vermittelten Dritten vertraulich und geben diese nicht an unbefugte Dritte weiter,
     soweit keine gesetzliche Offenlegungspflicht besteht.
 </p>
 
-<h2>§ 9 Schlussbestimmungen</h2>
+<h2>§ 11 Schlussbestimmungen</h2>
 <ol>
     <li>Änderungen und Ergänzungen dieses Vertrags bedürfen der <strong>Schriftform</strong>.</li>
     <li>
@@ -251,37 +290,31 @@
     </li>
 </ol>
 
-<h2>Anlage: Vermittelter Kontakt (Pflicht bei jedem Erstkontakt)</h2>
-<p class="notice" style="margin-bottom:16px">
-    Diese Anlage wird bei jeder Benennung eines Auftraggebers ausgefüllt und dem Partner
-    per E-Mail übermittelt. Sie dient als Nachweis gemäß § 3 und Grundlage der Provisionsabrechnung.
-</p>
-<table class="meta">
-    <tr><td>Anfrage-Nr. Kaplan Solutions</td><td>&nbsp;</td></tr>
-    <tr><td>Auftraggeber (Name/Firma)</td><td>&nbsp;</td></tr>
-    <tr><td>Projekt / Region</td><td>&nbsp;</td></tr>
-    <tr><td>Datum Erstbenennung</td><td>&nbsp;</td></tr>
-    <tr><td>Netto-Auftragssumme (Plan)</td><td>&nbsp;</td></tr>
-</table>
+</div><!-- /.contract-main -->
 
+<div class="bottom-row">
+<div>
+<h2 style="margin-top:0;border:none">Anlage: Vermittelter Kontakt</h2>
+<table class="meta">
+    <tr><td>Anfrage-Nr.</td><td>&nbsp;</td></tr>
+    <tr><td>Auftraggeber</td><td>&nbsp;</td></tr>
+    <tr><td>Projekt / Region</td><td>&nbsp;</td></tr>
+    <tr><td>Datum / Netto (Plan)</td><td>&nbsp;</td></tr>
+</table>
+</div>
 <div class="signatures">
-    <h2>Unterschriften</h2>
-    <p>Ort, Datum: <span class="fill-line" style="max-width:280px;display:inline-block"></span></p>
+    <h2>Ort, Datum · Unterschriften</h2>
+    <p style="font-size:8.5pt;margin-bottom:8px">Ort, Datum: <span class="fill-line" style="max-width:200px"></span></p>
     <div class="sig-grid">
         <div class="sig-block">
-            <div class="fill-line"></div>
-            <p class="sig-label">{{ c.legal_name }}<br />{% if c.is_privat %}(handelnd unter der Marke {{ c.brand }}){% else %}(Kaplan Solutions){% endif %}</p>
+            <div class="sig-space"></div>
+            <p class="sig-label">{{ c.legal_name }}<br />(Kaplan Solutions)</p>
         </div>
         <div class="sig-block">
-            <div class="fill-line"></div>
-            <p class="sig-label">Partner-Unternehmen<br />(Firma, vertretungsberechtigte Person)</p>
+            <div class="sig-space"></div>
+            <p class="sig-label">Partner-Unternehmen<br />(vertretungsberechtigt)</p>
         </div>
     </div>
 </div>
-
-<p class="footer-note">
-    Kaplan Solutions · Vermittlungsvertrag Partner · Stand {{ updated }} ·
-    Konditionen: {{ p.partner_percent }}&nbsp;% (min. {{ p.partner_min }}&nbsp;€, max. {{ p.partner_max }}&nbsp;€) ·
-    Nachvertragliche Provision: {{ p.partner_followup_months }} Monate
-</p>
+</div>
 {% endblock %}

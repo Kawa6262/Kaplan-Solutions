@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="Kaplan Sales" />
     <title>Kaplan Sales — Salesforce CRM</title>
-    <link rel="stylesheet" href="/admin-crm.css?v=5" />
+    <link rel="stylesheet" href="/admin-crm.css?v=6" />
 </head>
 <body>
     <!-- Login (Salesforce-style) -->
@@ -90,8 +90,54 @@
         </form>
     </dialog>
 
+    <!-- Contract Generator Modal -->
+    <dialog id="contract-dialog" class="sf-modal sf-modal-wide">
+        <form id="contract-form">
+            <header class="sf-modal-header">
+                <h2 id="contract-title">Vertrag generieren</h2>
+                <button type="button" class="sf-modal-close" data-close aria-label="Schließen">×</button>
+            </header>
+            <div class="sf-modal-body">
+                <input type="hidden" id="contract-ref" />
+                <label>Vertragstyp
+                    <select id="contract-type">
+                        <option value="partner">Partner (Auftragnehmer)</option>
+                        <option value="bauherr">Bauherr (Auftraggeber)</option>
+                    </select>
+                </label>
+                <label>Auftragsvolumen netto (€)
+                    <input id="contract-netto" type="text" inputmode="decimal" placeholder="z. B. 635000" autocomplete="off" />
+                </label>
+                <div id="contract-provision-preview" class="sf-provision-preview hidden"></div>
+                <label>Projekt-Referenz
+                    <input id="contract-project-ref" value="KS-2026-DU-01" autocomplete="off" />
+                </label>
+                <label>Projektbezeichnung
+                    <input id="contract-project-name" placeholder="MFH-Modernisierung Duisburg" autocomplete="off" />
+                </label>
+                <label>Region
+                    <input id="contract-region" placeholder="Duisburg" autocomplete="off" />
+                </label>
+                <div id="contract-partner-fields">
+                    <label>Auftraggeber (Firma, für Anlage)
+                        <input id="contract-ag-firma" placeholder="BKI Gruppe" autocomplete="off" />
+                    </label>
+                </div>
+                <label class="sf-checkbox-row">
+                    <input type="checkbox" id="contract-mark-sent" checked />
+                    Stage auf „Vertrag versendet“ setzen
+                </label>
+            </div>
+            <footer class="sf-modal-footer">
+                <button type="button" class="slds-button slds-button_neutral" data-close>Abbrechen</button>
+                <button type="button" class="slds-button slds-button_neutral" id="contract-open-btn">Vertrag öffnen (PDF)</button>
+                <button type="submit" class="slds-button slds-button_brand" id="contract-send-modal-btn">Per E-Mail senden</button>
+            </footer>
+        </form>
+    </dialog>
+
     <div id="toast-root" class="sf-toast-root" aria-live="polite"></div>
 
-    <script src="/admin-crm.js?v=6"></script>
+    <script src="/admin-crm.js?v=9"></script>
 </body>
 </html>

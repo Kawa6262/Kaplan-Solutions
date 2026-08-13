@@ -120,5 +120,9 @@ def print_report(sample: int = 15) -> None:
     print()
     if r["resend_delivered"] > 0 and r["today_db"] > 0:
         print("→ Mails gehen REAL über Resend raus (API-Status 'delivered').")
+        if r["resend_bounced"] == 0:
+            print("→ Keine Bounces/Beschwerden in der Stichprobe — Domain-Reputation OK.")
+        print("→ 'delivered' = Empfänger-Server hat angenommen (nicht garantiert Posteingang).")
+        print("→ DNS SPF/DKIM/DMARC prüfen: python3 scripts/check-email-dns.py")
     elif not os.getenv("RESEND_API_KEY"):
         print("→ RESEND_API_KEY fehlt — Verifikation nur über DB möglich.")

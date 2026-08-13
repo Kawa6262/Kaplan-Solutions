@@ -13,6 +13,8 @@ from zoneinfo import ZoneInfo
 from outreach import config
 from outreach import storage
 from outreach.branche import categorize
+from outreach.projekt import AKTUELL
+from outreach.quality import quality_label
 
 TZ = ZoneInfo("Europe/Berlin")
 _WEBHOOK = os.getenv("SHEETS_WEBHOOK_URL", "").strip()
@@ -26,6 +28,32 @@ def _enabled() -> bool:
         os.getenv("OUTREACH_SHEET_SYNC", "1").strip().lower() not in ("0", "false", "no")
         and bool(_WEBHOOK)
         and _WEBHOOK.rstrip("/").endswith("/exec")
+    )
+
+
+def _row_value(row, key: str, default=None):
+    try:
+        return row[key]
+    except (IndexError, KeyError):
+        return default
+
+
+def _nachricht(row, trade: str) -> str:
+    """Der Sheet-Eintrag muss auf einen Blick zeigen, worum es ging."""
+    campaign = (_row_value(row, "campaign", "") or "").strip()
+    rating = _row_value(row, "rating")
+    count = _row_value(row, "rating_count", 0) or 0
+    ruf = quality_label(rating, count)
+
+    if campaign == config.CAMPAIGN_PROJEKT:
+        return (
+            f"Angeschrieben zur Ausschreibung {AKTUELL.referenz} "
+            f"({AKTUELL.titel}, {AKTUELL.region}). "
+            f"Gewerk: {trade or 'Bau'}. Google-Bewertung: {ruf}."
+        )
+    return (
+        f"Automatisch aus Outreach-Portfolio importiert "
+        f"(Gewerk: {trade or 'Bau'}, Quelle: Google Places). Google-Bewertung: {ruf}."
     )
 
 
@@ -46,10 +74,7 @@ def _payload_from_row(row) -> dict:
         "plz": "",
         "branche": branche,
         "gewerke": trade or branche,
-        "nachricht": (
-            f"Automatisch aus Outreach-Portfolio importiert "
-            f"(Gewerk: {trade or 'Bau'}, Quelle: Google Places)."
-        ),
+        "nachricht": _nachricht(row, trade),
         "outreach_id": int(row["id"]),
     }
 
@@ -76,6 +101,12 @@ def _post(payload: dict) -> dict:
                     return {"ok": False, "raw": raw[:300]}
         except urllib.error.HTTPError as exc:
             err = exc.read().decode("utf-8", errors="replace")
+            # Apps Script liefert unter Last sporadisch 404 oder 5xx zurück,
+            # obwohl das Skript erreichbar ist. Nur echte Ablehnungen aufgeben.
+            if exc.code in (404, 429, 500, 502, 503, 504) and attempt < _RETRIES:
+                last = f"HTTP {exc.code}"
+                time.sleep(3 * attempt)
+                continue
             return {"ok": False, "error": f"HTTP {exc.code}: {err[:200]}"}
         except Exception as exc:
             last = str(exc)

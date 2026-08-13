@@ -14,6 +14,8 @@ from outreach.referral_templates import build_bodies as build_referral_bodies
 from outreach.referral_templates import build_subject as build_referral_subject
 from outreach.bauherr_templates import build_bodies as build_bauherr_bodies
 from outreach.bauherr_templates import build_subject as build_bauherr_subject
+from outreach.projekt_templates import build_bodies as build_projekt_bodies
+from outreach.projekt_templates import build_subject as build_projekt_subject
 
 try:
     from mailer import email_configured, send_email
@@ -31,6 +33,8 @@ def _send_limits(campaign: str) -> tuple[int, str]:
         return config.REFERRAL_DAILY_SEND_LIMIT, "referral_outreach"
     if campaign == config.CAMPAIGN_BAUHERR:
         return config.BAUHERR_DAILY_SEND_LIMIT, "bauherr_outreach"
+    if campaign == config.CAMPAIGN_PROJEKT:
+        return config.PROJEKT_DAILY_SEND_LIMIT, "projekt_outreach"
     return config.DAILY_SEND_LIMIT, "outreach"
 
 
@@ -39,6 +43,10 @@ def send_one(campaign: str = config.CAMPAIGN_PARTNER) -> bool:
     if campaign == config.CAMPAIGN_REFERRAL and not config.REFERRAL_ENABLED:
         return False
     if campaign == config.CAMPAIGN_BAUHERR and not config.BAUHERR_ENABLED:
+        return False
+    if campaign == config.CAMPAIGN_PROJEKT and not (
+        config.PROJEKT_ENABLED and config.PROJEKT_SEND_ENABLED
+    ):
         return False
     if not email_configured():
         print("[outreach] E-Mail nicht konfiguriert (RESEND_API_KEY + ADMIN_EMAIL).", flush=True)
@@ -76,6 +84,12 @@ def send_one(campaign: str = config.CAMPAIGN_PARTNER) -> bool:
             company, city, trade, recipient_email=email, prospect_id=pid
         )
         label = "Bauherr"
+    elif campaign == config.CAMPAIGN_PROJEKT:
+        subject = build_projekt_subject(company, city)
+        text_body, html_body = build_projekt_bodies(
+            company, city, trade, recipient_email=email, prospect_id=pid
+        )
+        label = "Projekt"
     else:
         subject = build_subject(company, city)
         text_body, html_body = build_bodies(
@@ -97,7 +111,7 @@ def send_one(campaign: str = config.CAMPAIGN_PARTNER) -> bool:
         storage.mark_sent(row["id"])
         storage.bump_counter("sent", campaign=campaign)
         print(f"[outreach] ✓ {label} → {company} <{email}>", flush=True)
-        if campaign == config.CAMPAIGN_PARTNER:
+        if campaign in (config.CAMPAIGN_PARTNER, config.CAMPAIGN_PROJEKT):
             try:
                 from outreach import sheet_sync
 
@@ -132,7 +146,7 @@ def send_batch(max_per_cycle: int | None = None) -> int:
         return send_end_of_day_flush()
 
     if max_per_cycle is not None:
-        cap = ref_cap = bh_cap = max_per_cycle
+        cap = ref_cap = bh_cap = pj_cap = max_per_cycle
     else:
         cap = pacing.paced_batch_cap(
             config.DAILY_SEND_LIMIT, config.SEND_BATCH_PER_CYCLE, config.CAMPAIGN_PARTNER
@@ -147,8 +161,17 @@ def send_batch(max_per_cycle: int | None = None) -> int:
             config.BAUHERR_SEND_BATCH_PER_CYCLE,
             config.CAMPAIGN_BAUHERR,
         )
+        pj_cap = pacing.paced_batch_cap(
+            config.PROJEKT_DAILY_SEND_LIMIT,
+            config.PROJEKT_SEND_BATCH_PER_CYCLE,
+            config.CAMPAIGN_PROJEKT,
+        )
 
-    sent = _send_campaign_burst(config.CAMPAIGN_PARTNER, cap)
+    sent = 0
+    if config.PROJEKT_ENABLED and config.PROJEKT_SEND_ENABLED:
+        sent += _send_campaign_burst(config.CAMPAIGN_PROJEKT, pj_cap)
+
+    sent += _send_campaign_burst(config.CAMPAIGN_PARTNER, cap)
 
     if config.REFERRAL_ENABLED:
         sent += _send_campaign_burst(config.CAMPAIGN_REFERRAL, ref_cap)
@@ -165,6 +188,7 @@ def send_end_of_day_flush() -> int:
         return 0
     sent = 0
     for campaign in (
+        config.CAMPAIGN_PROJEKT,
         config.CAMPAIGN_PARTNER,
         config.CAMPAIGN_REFERRAL,
         config.CAMPAIGN_BAUHERR,
@@ -172,6 +196,10 @@ def send_end_of_day_flush() -> int:
         if campaign == config.CAMPAIGN_REFERRAL and not config.REFERRAL_ENABLED:
             continue
         if campaign == config.CAMPAIGN_BAUHERR and not config.BAUHERR_ENABLED:
+            continue
+        if campaign == config.CAMPAIGN_PROJEKT and not (
+            config.PROJEKT_ENABLED and config.PROJEKT_SEND_ENABLED
+        ):
             continue
         daily_limit, _ = _send_limits(campaign)
         remaining = daily_limit - storage.get_counter("sent", campaign)

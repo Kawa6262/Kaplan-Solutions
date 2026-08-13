@@ -4,22 +4,16 @@ from __future__ import annotations
 
 import hashlib
 
-from company_config import COMPANY, company_footer_text
-from email_deliverability import public_site_url, unsubscribe_url
+from outreach.email_layout import (
+    TEXT,
+    body_block,
+    highlight_box,
+    reply_hint_html,
+    safe,
+    text_footer,
+    wrap_outreach_email,
+)
 from outreach.urls import bauherr_form_url
-
-SITE = public_site_url()
-REPLY = COMPANY.get("email", "kontakt@kaplan-solutions.de")
-
-
-def _safe(s: str) -> str:
-    return (
-        str(s)
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace('"', "&quot;")
-    )
 
 
 def _variant(company: str) -> int:
@@ -46,7 +40,6 @@ def build_bodies(
 ) -> tuple[str, str]:
     region = city or "Ihrer Region"
     trade_hint = trade or "Bauprojekt"
-    unsub = unsubscribe_url(recipient_email)
     form_url = bauherr_form_url(prospect_id)
 
     text = f"""Sehr geehrte Damen und Herren,
@@ -62,23 +55,30 @@ Oder antworten Sie mit „Interesse" — wir melden uns persönlich.
 
 Mit freundlichen Grüßen
 Kaplan Solutions
-
-{company_footer_text()}
-{SITE}
-
-Abmelden: {unsub}
+{text_footer(recipient_email, "Geschäftliche Kontaktaufnahme gemäß § 7 Abs. 3 UWG (Bauleistungen).")}
 """
 
-    html = f"""<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;color:#1a1a1a;line-height:1.55;max-width:600px">
-<p>Sehr geehrte Damen und Herren,</p>
-<p>wir wenden uns an <strong>{_safe(company)}</strong>, weil Sie in <strong>{_safe(region)}</strong> im Bereich {_safe(trade_hint)} tätig sind.</p>
-<p>Kaplan Solutions vermittelt Bauherren und Projektverantwortliche <strong>kostenlos</strong> an geprüfte Bauunternehmen, Handwerksbetriebe und Generalunternehmer im DACH-Raum.</p>
-<p style="background:#f5f5f5;padding:14px;border-left:4px solid #b87333">Haben Sie ein anstehendes Bau- oder Sanierungsprojekt?<br/>
-<a href="{_safe(form_url)}" style="color:#0b3d2e;font-weight:700">→ Kostenlose Anfrage (2 Min.)</a></p>
-<p style="font-size:14px;color:#666">Oder auf diese E-Mail mit <strong>„Interesse"</strong> antworten.</p>
-<p>Mit freundlichen Grüßen<br/>Kaplan Solutions</p>
-<p style="font-size:11px;color:#888">{_safe(company_footer_text())}<br/>
-<a href="{unsub}" style="color:#888">Abmelden</a></p>
-</body></html>"""
+    highlight = highlight_box(
+        "Haben Sie ein anstehendes Bau- oder Sanierungsprojekt?<br>"
+        f'<span style="color:{TEXT};font-weight:600;">Wir vermitteln kostenlos an geprüfte Partner.</span>'
+    )
+
+    body_html = body_block(
+        f'wir wenden uns an <strong style="color:{TEXT};">{safe(company)}</strong>, weil Sie in '
+        f'<strong style="color:{TEXT};">{safe(region)}</strong> im Bereich {safe(trade_hint)} tätig sind.',
+        "Kaplan Solutions vermittelt Bauherren und Projektverantwortliche "
+        f'<strong style="color:{TEXT};">kostenlos</strong> an geprüfte Bauunternehmen, '
+        "Handwerksbetriebe und Generalunternehmer im DACH-Raum.",
+    ) + highlight + reply_hint_html()
+
+    html = wrap_outreach_email(
+        headline=f"Bauvermittlung — {company}",
+        eyebrow="Auftraggeber",
+        body_html=body_html,
+        cta_label="Kostenlose Anfrage — 2 Min.",
+        cta_url=form_url,
+        recipient_email=recipient_email,
+        legal="Geschäftliche Kontaktaufnahme gemäß § 7 Abs. 3 UWG (Bauleistungen).",
+    )
 
     return text, html

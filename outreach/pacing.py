@@ -55,13 +55,34 @@ def is_flush_window() -> bool:
     return now.hour >= FLUSH_HOUR
 
 
+# Gewichtung je Stunde: Sekretariate und Büros sichten die Post am frühen Morgen,
+# deshalb geht der Großteil bis 11 Uhr raus. Der Rest hält den Tag über nach.
+_HOUR_WEIGHTS = {7: 16, 8: 20, 9: 18, 10: 13, 11: 9, 12: 5, 13: 4, 14: 4, 15: 4, 16: 4, 17: 3}
+
+
+def _target_fraction() -> float:
+    """Anteil des Tageskontingents, der zum jetzigen Zeitpunkt raus sein soll."""
+    now = _now()
+    hours = range(config.SEND_HOUR_START, config.SEND_HOUR_END)
+    total = sum(_HOUR_WEIGHTS.get(h, 1) for h in hours)
+    if total <= 0:
+        return 1.0
+    done = sum(_HOUR_WEIGHTS.get(h, 1) for h in hours if h < now.hour)
+    if now.hour in hours:
+        done += _HOUR_WEIGHTS.get(now.hour, 1) * (now.minute / 60)
+    return min(1.0, done / total)
+
+
 def paced_batch_cap(daily_limit: int, max_batch: int, campaign: str) -> int:
-    """Max. Sends diesen Zyklus — im Flush-Fenster ohne Drosselung."""
-    remaining = daily_limit - storage.get_counter("sent", campaign)
+    """Max. Sends diesen Zyklus — vormittagslastig, im Flush-Fenster ohne Drosselung."""
+    sent = storage.get_counter("sent", campaign)
+    remaining = daily_limit - sent
     if remaining <= 0:
         return 0
     if is_flush_window():
-        return min(remaining, max_batch * 3, remaining)
-    cycles = _cycles_left_in_window()
-    paced = (remaining + cycles - 1) // cycles
-    return min(max(1, paced), max_batch, remaining)
+        return min(remaining, max_batch * 3)
+    target = -(-int(daily_limit * _target_fraction() * 100) // 100)  # aufrunden
+    allowed = target - sent
+    if allowed <= 0:
+        return 0
+    return min(allowed, max_batch, remaining)

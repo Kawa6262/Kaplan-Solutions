@@ -3,15 +3,20 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from outreach import storage
-from company_config import company_footer_text
-from email_deliverability import public_site_url, unsubscribe_url
+from outreach.email_layout import (
+    TEXT,
+    body_block,
+    highlight_box,
+    reply_hint_html,
+    safe,
+    text_footer,
+    wrap_outreach_email,
+)
 from outreach.urls import bauherr_form_url, partner_form_url
 
-SITE = public_site_url()
 REPLY = os.getenv("REPLY_EMAIL", "kontakt@kaplan-solutions.de").strip()
 
 try:
@@ -25,21 +30,11 @@ REMINDER_DAYS = int(os.getenv("OUTREACH_REMINDER_DAYS", "3"))
 REMINDER_BATCH = int(os.getenv("OUTREACH_REMINDER_BATCH", "8"))
 
 
-def _safe(s: str) -> str:
-    return (
-        str(s)
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace('"', "&quot;")
-    )
-
-
 def _build_reminder(company: str, city: str, email: str, prospect_id: int | None = None) -> tuple[str, str]:
     region = city or "Ihrer Region"
-    unsub = unsubscribe_url(email)
     form_url = partner_form_url(prospect_id)
     bauherr_link = bauherr_form_url(prospect_id)
+
     text = f"""Sehr geehrte Damen und Herren,
 
 vor einigen Tagen hatten wir uns kurz zu einer Partnerschaft im Baunetzwerk von Kaplan Solutions gemeldet ({company}, {region}).
@@ -54,26 +49,33 @@ Kennen Sie Bauherren? Kostenlose Vermittlung für Mandanten:
 
 Mit freundlichen Grüßen
 Kaplan Solutions
-
-{company_footer_text()}
-{SITE}
-
-Abmelden: {unsub}
+{text_footer(email, "Geschäftliche Kontaktaufnahme gemäß § 7 Abs. 3 UWG (Bauleistungen).")}
 """
-    html = f"""<!DOCTYPE html><html lang="de"><body style="font-family:Arial,sans-serif;color:#333;line-height:1.6">
-<p>Sehr geehrte Damen und Herren,</p>
-<p>vor einigen Tagen hatten wir uns zu einer Partnerschaft bei <strong>{_safe(company)}</strong> ({_safe(region)}) gemeldet.</p>
-<p>Falls noch Interesse besteht — mit dem Formular (3 Min.) ordnen wir Sie passenden Projekten zu:</p>
-<p><a href="{_safe(form_url)}" style="background:#0b3d2e;color:#fff;padding:12px 20px;text-decoration:none;border-radius:2px">Partner werden — 2 Min.</a></p>
-<p style="font-size:13px;color:#666">Oder mit <strong>„Interesse"</strong> auf diese E-Mail antworten.</p>
-<p style="font-size:12px;color:#888"><a href="{_safe(unsub)}">Abmelden</a></p>
-<p style="margin-top:24px;padding-top:20px;border-top:1px solid #eee">
-  <strong>Kennen Sie Bauherren?</strong><br>
-  Leiten Sie sie gern an unsere <strong>kostenlose Vermittlung</strong> weiter — für Bauherren entstehen keine Kosten:<br>
-  <a href="{_safe(bauherr_link)}">{_safe(bauherr_link)}</a>
-</p>
-<p>Mit freundlichen Grüßen<br><strong>Kaplan Solutions</strong></p>
-</body></html>"""
+
+    bauherr_box = highlight_box(
+        f'<strong style="color:{TEXT};">Kennen Sie Bauherren?</strong><br>'
+        "Leiten Sie sie gern an unsere "
+        f'<strong style="color:{TEXT};">kostenlose Vermittlung</strong> weiter — '
+        f"für Bauherren entstehen keine Kosten:<br>"
+        f'<a href="{safe(bauherr_link)}" style="color:{TEXT};text-decoration:none;font-weight:600;">'
+        f"{safe(bauherr_link.replace('https://', ''))}</a>"
+    )
+
+    body_html = body_block(
+        f'vor einigen Tagen hatten wir uns zu einer Partnerschaft bei '
+        f'<strong style="color:{TEXT};">{safe(company)}</strong> ({safe(region)}) gemeldet.',
+        "Falls noch Interesse besteht — mit dem Formular (ca. 2 Min.) ordnen wir Sie passenden Projekten zu.",
+    ) + reply_hint_html() + bauherr_box
+
+    html = wrap_outreach_email(
+        headline=f"Rückfrage — {company}",
+        eyebrow="Erinnerung",
+        body_html=body_html,
+        cta_label="Partner werden — 2 Min.",
+        cta_url=form_url,
+        recipient_email=email,
+        legal="Geschäftliche Kontaktaufnahme gemäß § 7 Abs. 3 UWG (Bauleistungen).",
+    )
     return text, html
 
 

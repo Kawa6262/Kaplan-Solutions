@@ -36,6 +36,8 @@ services:
     name: kaplan-outreach
     runtime: python
     plan: free
+    # Hinweis: Outreach-DB liegt auf dem Mac — Cron überspringt leere Cloud-DB automatisch.
+    # Für echtes Cloud-Outreach: Postgres/Supabase-Migration + OUTREACH_DB_URL.
     schedule: "*/5 6-16 * * 1-5"
     buildCommand: pip install -r requirements.txt
     startCommand: python scripts/render_cron_trigger.py outreach

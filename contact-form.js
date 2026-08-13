@@ -567,6 +567,9 @@
                     }
                     formSuccess.hidden = false;
                 }
+                if (window.KaplanAnalytics && typeof window.KaplanAnalytics.trackLead === 'function') {
+                    window.KaplanAnalytics.trackLead(role);
+                }
             } catch (err) {
                 if (formError) {
                     formError.textContent =

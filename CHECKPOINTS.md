@@ -2,6 +2,14 @@
 
 Gespeicherte Versionen des Projekts, auf die Sie jederzeit zurückspringen können.
 
+## Aktueller Arbeitsstand
+
+| Name | Datum | Beschreibung |
+|------|-------|--------------|
+| **`2026-08-02-outreach-laeuft`** | 02.08.2026 | Outreach stabil (90 Mails am 29.07.), Queue 3.085, Sheet 459. Montag: Netzteil → ~95/Tag. Siehe `checkpoints/2026-08-02-outreach-laeuft/STATUS.md` |
+
+---
+
 ## ★ Golden Master (Fundament)
 
 | Name | Datum | Beschreibung |

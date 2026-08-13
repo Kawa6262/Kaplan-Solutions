@@ -20,7 +20,7 @@ def _eur(key: str, default: str) -> str:
 # Partner-Unternehmen (Auftragnehmer) — Hauptvergütung
 PARTNER_PROVISION_PERCENT = _pct("PROVISION_PARTNER_PERCENT", "5.0")
 PARTNER_PROVISION_MIN_EUR = _eur("PROVISION_PARTNER_MIN_EUR", "1500")
-PARTNER_PROVISION_MAX_EUR = _eur("PROVISION_PARTNER_MAX_EUR", "35000")
+PARTNER_PROVISION_MAX_EUR = _eur("PROVISION_PARTNER_MAX_EUR", "30000")
 PARTNER_NACHVERTRAGLICH_MONTHS = os.getenv("PROVISION_PARTNER_FOLLOWUP_MONTHS", "12").strip()
 
 # Bauherren / Investoren — attraktiv: in der Regel kostenfrei

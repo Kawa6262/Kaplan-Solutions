@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 from outreach import config
 from outreach import schedule
 from outreach import storage
+from outreach.projekt import AKTUELL
 from outreach.report_template import build_daily_report
 
 try:
@@ -55,6 +56,8 @@ def _total_limit() -> int:
         total += config.REFERRAL_DAILY_SEND_LIMIT
     if config.BAUHERR_ENABLED:
         total += config.BAUHERR_DAILY_SEND_LIMIT
+    if config.PROJEKT_ENABLED and config.PROJEKT_SEND_ENABLED:
+        total += config.PROJEKT_DAILY_SEND_LIMIT
     return total
 
 
@@ -64,6 +67,8 @@ def _total_sent(counters: dict) -> int:
         total += counters.get("referral_sent", 0)
     if config.BAUHERR_ENABLED:
         total += counters.get("bauherr_sent", 0)
+    if config.PROJEKT_ENABLED and config.PROJEKT_SEND_ENABLED:
+        total += counters.get("projekt_sent", 0)
     return total
 
 
@@ -106,6 +111,16 @@ def gather_report_data(for_day: date | None = None) -> dict:
         "bauherr_sent_today": counters.get("bauherr_sent", 0),
         "bauherr_sent_limit": config.BAUHERR_DAILY_SEND_LIMIT,
         "bauherr_enabled": config.BAUHERR_ENABLED,
+        "projekt_enabled": config.PROJEKT_ENABLED and config.PROJEKT_SEND_ENABLED,
+        "projekt_sent_today": counters.get("projekt_sent", 0),
+        "projekt_sent_limit": config.PROJEKT_DAILY_SEND_LIMIT,
+        "projekt_discovered_today": counters.get("projekt_discovered", 0),
+        "projekt_queued": summary.get("projekt_queued", 0),
+        "projekt_total": summary.get("projekt_sent_all_time", 0),
+        "replies_today": len(storage.replies_on_day(day_iso)),
+        "replies_total": storage.reply_stats(config.CAMPAIGN_PROJEKT)["total"],
+        "projekt_ref": AKTUELL.referenz,
+        "projekt_region": AKTUELL.region,
     }
 
 
@@ -123,6 +138,10 @@ def should_send_report() -> bool:
 
     # Alle Kampagnen-Limits erreicht → Fazit ab REPORT_HOUR
     if total_sent >= total_limit:
+        return True
+
+    # Sendefenster geschlossen → es kommt nichts mehr dazu, Fazit sofort
+    if now.hour >= config.SEND_HOUR_END:
         return True
 
     # Sonst warten bis Sendefenster vorbei oder Final-Stunde (Nachholversand)

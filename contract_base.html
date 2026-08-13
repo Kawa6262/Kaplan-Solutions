@@ -6,167 +6,362 @@
     <meta name="robots" content="noindex, nofollow" />
     <title>{% block title %}Kaplan Solutions{% endblock %}</title>
     <style>
-        @page { margin: 22mm 18mm; size: A4; }
+        @page { size: A4; margin: 11mm 12mm; }
         * { box-sizing: border-box; }
+        html, body {
+            overflow-x: hidden;
+            max-width: 100%;
+        }
         body {
             margin: 0;
-            font-family: "Helvetica Neue", Arial, Helvetica, sans-serif;
-            font-size: 11pt;
-            line-height: 1.55;
-            color: #1a1a1a;
-            background: #f4f4f4;
+            font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+            font-size: 9.5pt;
+            line-height: 1.44;
+            color: #222;
+            background: #e5e2dc;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
         }
         .no-print {
             background: #0b3d2e;
             color: #fff;
-            padding: 12px 20px;
+            padding: 10px 20px;
             display: flex;
             flex-wrap: wrap;
             gap: 12px;
             align-items: center;
             justify-content: space-between;
         }
-        .no-print a { color: #d9b75a; }
         .no-print button {
             background: #b87333;
             color: #fff;
             border: none;
-            padding: 10px 18px;
-            font-size: 13px;
+            padding: 8px 16px;
+            font-size: 12px;
+            font-weight: 600;
             cursor: pointer;
             border-radius: 2px;
         }
+        /* Breiter auf dem Bildschirm — weniger „schmale Säule“ */
         .contract {
-            max-width: 210mm;
-            margin: 24px auto;
+            width: min(1100px, 96vw);
+            max-width: 1100px;
+            margin: 20px auto;
             background: #fff;
-            padding: 22mm 18mm;
-            box-shadow: 0 2px 24px rgba(0,0,0,.08);
+            box-shadow: 0 12px 40px rgba(11,61,46,.09), 0 0 0 1px rgba(184,115,51,.12);
+            border-top: 4px solid #b87333;
         }
-        .brand-bar {
-            border-bottom: 3px solid #b87333;
-            padding-bottom: 14px;
-            margin-bottom: 28px;
+        .doc-sheet {
+            padding: 10mm 12mm 8mm;
+            background: linear-gradient(180deg, #fdfcfa 0%, #fff 56px);
+            position: relative;
         }
-        .brand-bar .brand {
+        .doc-sheet::before {
+            content: "";
+            position: absolute;
+            top: 0; left: 12mm; right: 12mm;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, #d4b896 20%, #d4b896 80%, transparent);
+        }
+
+        .letterhead {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 16px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #0b3d2e;
+            margin-bottom: 4px;
+            position: relative;
+        }
+        .letterhead::after {
+            content: "";
+            position: absolute;
+            bottom: -5px;
+            left: 0;
+            width: 72px;
+            height: 3px;
+            background: #b87333;
+        }
+        .letterhead-logo img {
+            max-height: 56px;
+            width: auto;
+            max-width: min(340px, 72vw);
+            display: block;
+        }
+        .letterhead-meta {
+            text-align: right;
+            font-size: 8pt;
+            line-height: 1.35;
+            color: #5c5c5c;
+        }
+        .letterhead-meta strong {
+            color: #0b3d2e;
+            font-size: 8pt;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+
+        .doc-header-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            gap: 20px;
+            padding: 12px 0 14px;
+            border-bottom: 1px solid #e8e4dc;
+            margin-bottom: 12px;
+            background: linear-gradient(90deg, rgba(11,61,46,.03) 0%, transparent 40%);
+        }
+        .doc-header-row h1 {
+            font-family: Georgia, "Times New Roman", Times, serif;
+            font-size: 18pt;
+            font-weight: 400;
+            color: #0b3d2e;
+            margin: 6px 0 3px;
+            letter-spacing: 0.01em;
+        }
+        .doc-header-row .doc-sub {
             font-size: 9pt;
-            letter-spacing: .35em;
+            color: #666;
+            margin: 0;
+        }
+        .doc-header-row .doc-meta {
+            text-align: right;
+            font-size: 8pt;
+            color: #888;
+            white-space: nowrap;
+        }
+        .legal-tag {
+            display: inline-block;
+            font-size: 7pt;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            color: #8a5a28;
+            background: #faf6f0;
+            border: 1px solid #d4b896;
+            padding: 3px 10px;
+        }
+
+        h2 {
+            font-family: Georgia, "Times New Roman", Times, serif;
+            font-size: 10.5pt;
+            font-weight: 600;
+            color: #0b3d2e;
+            margin: 12px 0 5px;
+            padding: 0 0 4px 10px;
+            border-bottom: 1px solid #ebe8e2;
+            border-left: 3px solid #b87333;
+            break-after: avoid;
+            column-span: all;
+        }
+        h2:first-child { margin-top: 0; }
+        p { margin: 0 0 6px; text-align: justify; }
+        ol, ul { margin: 0 0 8px; padding-left: 18px; }
+        li { margin-bottom: 4px; }
+        li::marker { color: #b87333; font-weight: 600; }
+
+        /* ── Hauptinhalt: 2 Spalten = weniger Scrollen ── */
+        .contract-main {
+            column-count: 2;
+            column-gap: 22px;
+            column-rule: 1px solid #eceae6;
+            margin-top: 4px;
+        }
+        .contract-main .span-all,
+        .contract-main > table,
+        .contract-main > .provision-box {
+            column-span: all;
+        }
+        .contract-main h2 { column-span: all; }
+
+        .parties-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin: 8px 0 10px;
+        }
+        .party-box {
+            border: 1px solid #ddd8cf;
+            border-top: 3px solid #0b3d2e;
+            padding: 10px 12px;
+            background: linear-gradient(135deg, #faf9f7 0%, #fff 100%);
+            font-size: 9pt;
+            line-height: 1.4;
+            break-inside: avoid;
+            box-shadow: 0 1px 0 rgba(255,255,255,.8) inset;
+        }
+        .party-box .party-label {
+            font-size: 7pt;
+            letter-spacing: 0.1em;
             text-transform: uppercase;
             color: #b87333;
-            margin: 0 0 6px;
+            margin-bottom: 6px;
+            font-weight: 700;
         }
-        .brand-bar h1 {
-            font-family: Georgia, "Times New Roman", serif;
-            font-size: 22pt;
-            font-weight: 400;
-            margin: 0;
-            color: #0b3d2e;
-        }
-        .brand-bar .sub {
-            margin: 8px 0 0;
-            font-size: 10pt;
+        .party-box .party-role {
+            font-size: 8pt;
             color: #666;
+            margin-top: 6px;
+            font-style: italic;
         }
-        .notice {
-            background: #faf6f0;
-            border-left: 3px solid #b87333;
-            padding: 12px 16px;
-            margin-bottom: 28px;
-            font-size: 10pt;
-            color: #444;
+        .party-fields {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2px 12px;
         }
-        h2 {
-            font-family: Georgia, "Times New Roman", serif;
-            font-size: 13pt;
-            color: #0b3d2e;
-            margin: 28px 0 10px;
-            page-break-after: avoid;
-        }
-        h2:first-of-type { margin-top: 0; }
-        p { margin: 0 0 10px; }
-        ol, ul { margin: 0 0 12px; padding-left: 22px; }
-        li { margin-bottom: 6px; }
-        .party-box {
-            border: 1px solid #ddd;
-            padding: 14px 16px;
-            margin-bottom: 14px;
-            background: #fafafa;
-        }
-        .party-box strong { color: #0b3d2e; }
+        .field-row { margin-bottom: 2px; font-size: 8.5pt; }
+        .field-row .lbl { color: #555; }
         .fill-line {
-            border-bottom: 1px solid #999;
-            min-height: 22px;
-            margin: 6px 0 12px;
+            display: inline-block;
+            border-bottom: 1px solid #888;
+            min-width: 80px;
+            min-height: 14px;
+            vertical-align: bottom;
+            width: calc(100% - 4px);
         }
-        .checkbox-line { margin: 6px 0; }
+        .fill-value {
+            display: inline;
+            border-bottom: 1px solid #333;
+            padding: 0 2px 1px;
+            font-weight: 500;
+        }
+        .checkbox-line { margin: 3px 0; font-size: 9pt; }
         .checkbox {
             display: inline-block;
-            width: 14px;
-            height: 14px;
+            width: 11px;
+            height: 11px;
             border: 1px solid #333;
-            margin-right: 8px;
+            margin-right: 6px;
             vertical-align: middle;
         }
+
         table.meta {
             width: 100%;
             border-collapse: collapse;
-            margin: 12px 0 20px;
-            font-size: 10pt;
+            margin: 8px 0 10px;
+            font-size: 9pt;
         }
         table.meta td {
-            border: 1px solid #ddd;
-            padding: 8px 10px;
-            vertical-align: top;
+            border: 1px solid #d8d4cc;
+            padding: 6px 10px;
         }
         table.meta td:first-child {
-            width: 38%;
-            background: #f7f7f7;
-            color: #555;
+            width: 32%;
+            background: #f3f1ec;
+            color: #444;
+            font-weight: 600;
+            font-size: 8pt;
         }
-        .signatures {
-            margin-top: 36px;
-            page-break-inside: avoid;
+        .provision-box {
+            background: #f5faf8;
+            border: 1px solid #c5ddd3;
+            border-left: 3px solid #b87333;
+            padding: 10px 14px;
+            margin: 8px 0 10px;
+            font-size: 9pt;
+            break-inside: avoid;
         }
+
+        .bottom-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-top: 14px;
+            break-inside: avoid;
+        }
+        .signatures h2 { border: none; margin: 0 0 8px; font-size: 10pt; }
         .sig-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 40px;
-            margin-top: 24px;
+            gap: 24px;
         }
-        .sig-block .fill-line { margin-top: 48px; }
-        .sig-label { font-size: 9pt; color: #666; }
-        .footer-note {
-            margin-top: 32px;
-            padding-top: 16px;
-            border-top: 1px solid #eee;
-            font-size: 9pt;
+        .sig-block .sig-space {
+            height: 36px;
+            border-bottom: 1px solid #888;
+            margin-bottom: 4px;
+        }
+        .sig-label { font-size: 8pt; color: #555; line-height: 1.35; }
+
+        .doc-footer {
+            margin-top: 12px;
+            padding-top: 8px;
+            border-top: 1px solid #e0ddd6;
+            font-size: 7.5pt;
             color: #888;
+            text-align: center;
+            column-span: all;
         }
+        a { color: #0b3d2e; }
+
         @media print {
             body { background: #fff; }
             .no-print { display: none !important; }
+            .contract { width: 100%; max-width: none; margin: 0; box-shadow: none; }
+            .doc-sheet { padding: 0; }
+        }
+        @media (max-width: 900px) {
+            .contract-main { column-count: 1; column-gap: 0; column-rule: none; }
+        }
+        @media (max-width: 720px) {
+            body { background: #fff; }
+            .no-print {
+                padding: 10px 14px;
+                font-size: 11px;
+                gap: 8px;
+            }
+            .no-print span { flex: 1 1 100%; line-height: 1.4; }
             .contract {
+                width: 100%;
+                max-width: 100%;
                 margin: 0;
                 box-shadow: none;
-                padding: 0;
-                max-width: none;
             }
-            h2 { page-break-after: avoid; }
-            .signatures { page-break-inside: avoid; }
+            .doc-sheet {
+                padding: 16px 14px 20px;
+                overflow-x: hidden;
+                overflow-wrap: anywhere;
+                word-wrap: break-word;
+            }
+            .doc-sheet::before { left: 14px; right: 14px; }
+            .contract-main { column-count: 1; }
+            .parties-grid, .party-fields, .bottom-row, .sig-grid { grid-template-columns: 1fr; }
+            .letterhead { flex-direction: column; align-items: flex-start; gap: 10px; }
+            .letterhead-meta { text-align: left; font-size: 7.5pt; }
+            .doc-header-row {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 8px;
+            }
+            .doc-header-row .doc-meta {
+                text-align: left;
+                white-space: normal;
+            }
+            .doc-header-row h1 { font-size: 16pt; }
+            h2 { font-size: 10pt; padding-left: 8px; }
+            table.meta { font-size: 8.5pt; }
+            table.meta td:first-child { width: 38%; }
+            .doc-footer { font-size: 7pt; padding: 0 4px; }
         }
     </style>
 </head>
 <body>
     <div class="no-print">
-        <span><strong>Kaplan Solutions</strong> — Vertragsvorlage · Stand {{ updated }}</span>
-        <div>
-            <a href="/vermittlungsvertrag">Übersicht</a>
-            &nbsp;·&nbsp;
-            <button type="button" onclick="window.print()">Als PDF drucken / speichern</button>
-        </div>
+        <span><strong>Kaplan Solutions</strong> · Vertrag · {{ updated }}</span>
+        <button type="button" onclick="window.print()">Als PDF speichern</button>
     </div>
     <article class="contract">
-        {% block contract %}{% endblock %}
+        <div class="doc-sheet">
+            <header class="letterhead">
+                <div class="letterhead-logo">{{ logo_img }}</div>
+                <div class="letterhead-meta">
+                    <strong>Kaplan Solutions</strong> · {{ c.email }} · {{ c.phone }} · {{ c.website }}
+                </div>
+            </header>
+            {% block contract %}{% endblock %}
+            <footer class="doc-footer">
+                {{ c.legal_name }} · {{ c.street }} · {{ c.zip_city }} · Stand {{ updated }} · Vertraulich
+            </footer>
+        </div>
     </article>
 </body>
 </html>

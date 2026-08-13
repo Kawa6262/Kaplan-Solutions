@@ -131,6 +131,7 @@ def build_daily_report(data: dict) -> tuple[str, str, str]:
 KENNZAHLEN HEUTE
   Kontaktiert (gesamt): {total_sent} / {total_limit}
   Partner:              {sent} / {data.get('sent_limit')}
+  Bauvorhaben Duisburg: {data.get('projekt_sent_today', 0)} / {data.get('projekt_sent_limit', 0)}
   Referral:             {data.get('referral_sent_today', 0)} / {data.get('referral_sent_limit', 0)}
   Bauherr:              {data.get('bauherr_sent_today', 0)} / {data.get('bauherr_sent_limit', 0)}
   Firmen gefunden:      {data.get('discovered_today')} / {data.get('discover_limit')}
@@ -149,7 +150,7 @@ KONTAKTIERTE FIRMEN HEUTE
 
 {f'FEHLGESCHLAGEN{chr(10)}{text_failed}{chr(10)}' if failed else ''}
 SUCHFORTSCHRITT: {data.get('search_progress', '—')}
-{f"REFERRAL HEUTE: {data.get('referral_sent_today', 0)} / {data.get('referral_sent_limit', 15)} · {data.get('referral_search_progress', '—')}{chr(10)}" if data.get('referral_enabled') else ''}AUSBLICK MORGEN: Bis zu {data.get('sent_limit')} weitere Kontakte möglich · {data.get('queued')} in Warteschlange
+{f"BAUVORHABEN {data.get('projekt_region', '')} ({data.get('projekt_ref', '')}): heute {data.get('projekt_sent_today', 0)} von {data.get('projekt_sent_limit', 0)} Betrieben · insgesamt {data.get('projekt_total', 0)} · noch {data.get('projekt_queued', 0)} in der Liste{chr(10)}ANTWORTEN: heute {data.get('replies_today', 0)} · gesamt {data.get('replies_total', 0)}{chr(10)}" if data.get('projekt_enabled') else ''}{f"REFERRAL HEUTE: {data.get('referral_sent_today', 0)} / {data.get('referral_sent_limit', 15)} · {data.get('referral_search_progress', '—')}{chr(10)}" if data.get('referral_enabled') else ''}AUSBLICK MORGEN: Bis zu {data.get('sent_limit')} weitere Kontakte möglich · {data.get('queued')} in Warteschlange
 
 {company_footer_text()}
 """
@@ -186,6 +187,7 @@ SUCHFORTSCHRITT: {data.get('search_progress', '—')}
   {_kpi_row([
       ("Kontaktiert", total_sent, f"Limit {total_limit}", GOLD),
       ("Partner", sent, f"Limit {data.get('sent_limit')}", TEXT),
+      ("Bauvorhaben Duisburg", data.get("projekt_sent_today", 0), f"Limit {data.get('projekt_sent_limit', 0)}", TEXT),
       ("Referral", data.get("referral_sent_today", 0), f"Limit {data.get('referral_sent_limit', 0)}", TEXT),
   ])}
   </table>
@@ -252,6 +254,7 @@ SUCHFORTSCHRITT: {data.get('search_progress', '—')}
     <p style="margin:0 0 8px;color:{GOLD};font-size:11px;letter-spacing:0.14em;text-transform:uppercase">Ausblick</p>
     <p style="margin:0 0 8px"><strong style="color:{TEXT}">Morgen:</strong> Bis zu <strong style="color:{GOLD}">{total_limit}</strong> weitere Kontakte · <strong style="color:{TEXT}">{data.get('queued')}</strong> Firmen in der Warteschlange</p>
     <p style="margin:0 0 8px"><strong style="color:{TEXT}">Heute Partner:</strong> {sent} · Referral: {data.get("referral_sent_today", 0)} · Bauherr: {data.get("bauherr_sent_today", 0)}</p>
+    {f'<p style="margin:0 0 8px"><strong style="color:{TEXT}">Bauvorhaben {_safe(str(data.get("projekt_region", "")))} ({_safe(str(data.get("projekt_ref", "")))}):</strong> heute {data.get("projekt_sent_today", 0)} von {data.get("projekt_sent_limit", 0)} Betrieben angeschrieben · insgesamt {data.get("projekt_total", 0)} · noch {data.get("projekt_queued", 0)} in der Liste</p><p style="margin:0 0 8px;font-size:17px"><strong style="color:{TEXT}">Antworten:</strong> heute {data.get("replies_today", 0)} · gesamt {data.get("replies_total", 0)}</p>' if data.get("projekt_enabled") else ''}
     <p style="margin:0 0 8px"><strong style="color:{TEXT}">Suche:</strong> {_safe(data.get('search_progress', '—'))}</p>
     {f'<p style="margin:0 0 8px"><strong style="color:{TEXT}">Referral heute:</strong> {data.get("referral_sent_today", 0)} / {data.get("referral_sent_limit", 15)} · {_safe(data.get("referral_search_progress", "—"))}</p>' if data.get('referral_enabled') else ''}
     <p style="margin:0"><strong style="color:{TEXT}">Abmeldungen gesamt:</strong> {data.get('unsubscribes', 0)}</p>

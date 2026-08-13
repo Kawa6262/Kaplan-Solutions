@@ -16,6 +16,7 @@
         } catch (_) {
             /* private browsing */
         }
+        window.dispatchEvent(new CustomEvent('ks:cookie-consent'));
         setTimeout(() => {
             notice.hidden = true;
         }, 400);
@@ -26,6 +27,7 @@
     try {
         if (localStorage.getItem(STORAGE_KEY) === '1') {
             notice.hidden = true;
+            window.dispatchEvent(new CustomEvent('ks:cookie-consent'));
             return;
         }
     } catch (_) {

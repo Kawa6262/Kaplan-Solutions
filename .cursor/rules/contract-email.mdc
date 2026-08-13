@@ -1,0 +1,31 @@
+---
+description: Vermittlungsvertrag E-Mail — Layout, Logo, Farben, Spam-Vermeidung
+globs: business_model/contract_send.py,business_model/contract_branding.py
+alwaysApply: false
+---
+
+# Vertrags-E-Mail (Kaplan Solutions)
+
+## Layout
+- Professioneller Brief: Letterhead mit Logo, Georgia-Fließtext, dezenter Anhang-Hinweis, Signatur mit AGENT_NAME.
+- **Kein** Online-Signatur-Button, keine Betrags-/Provisions-Boxen in der Mail (Partner).
+- Anhang = reiner Vertrag (HTML); Kunde unterschreibt und sendet zurück an REPLY_EMAIL.
+
+## Logo
+- Gmail blockiert `data:` URIs → Logo als **Inline-Anhang** mit `content_id: ks-logo` und `<img src="cid:ks-logo">`.
+- Quelle: `email-logo.png` (560×100), Breite ~420px in Mails.
+- `logo_email_attachment()` immer vor dem Vertrags-Anhang mitsenden.
+
+## Farben (Marken)
+- Akzent/Überschriften: **Gold** `#b87333` / `#9a6328` (GOLD_DARK) — **nicht** Grün/Türkis in E-Mails.
+- Links und Referenz: GOLD. Linien: GOLD + GOLD_LIGHT.
+
+## Spam / Gmail Werbung vermeiden
+- Sachlicher Betreff: `Vermittlungsvertrag (Ref. …)` — kein „bitte unterschreiben“, „wichtig“, „jetzt“.
+- Keine Marketing-Boxen, keine CTA-Buttons, `mail_kind="transactional"`.
+- Keine Euro-Beträge oder „Provision“ in Partner-Hauptmail.
+
+## Posteingang
+- Zurückgesendete Verträge: `business_model/contract_inbox.py` (IMAP) → Admin „Kunde hat unterschrieben“.
+- Nach Website-Anfrage: `business_model/contract_auto.py` sendet Vertrag automatisch (Bestätigung + Vertrag am selben Tag).
+- Warteschlange bei Fehlern: `data/contract_auto_queue.json`, Retry via Cron `/api/cron/contract-inbox`.

@@ -592,6 +592,8 @@
                                 ${detailField('Notiz', 'notiz', l.notiz, 'textarea')}
                             </div>
                             <div class="sf-form-actions">
+                                <button type="button" class="slds-button slds-button_brand" id="contract-btn" title="Maßgeschneiderten Vermittlungsvertrag generieren">Vertrag generieren</button>
+                                <button type="button" class="slds-button slds-button_brand" id="contract-send-btn" title="Vertrag per E-Mail an den Lead senden">Vertrag per E-Mail senden</button>
                                 ${l.role_type === 'partner' && l.netto ? `<button type="button" class="slds-button slds-button_brand" id="invoice-btn" title="Rechnung generieren & versenden">Rechnung senden</button>` : ''}
                                 ${l.cold_lead ? `<button type="button" class="slds-button slds-button_neutral" id="activate-cold-btn">In Pipeline aktivieren</button>` : ''}
                                 <button type="button" class="slds-button slds-button_neutral" id="undo-lead-btn"${state.undoLead?.ref === l.ref ? '' : ' disabled'}>Rückgängig</button>
@@ -991,13 +993,23 @@
             };
         }
 
+        const contractBtn = $('#contract-btn');
+        if (contractBtn) {
+            contractBtn.onclick = () => quickGenerateContract(state.route.id);
+        }
+
+        const contractSendBtn = $('#contract-send-btn');
+        if (contractSendBtn) {
+            contractSendBtn.onclick = () => openContractModal(state.route.id, 'send');
+        }
+
         const invoiceBtn = $('#invoice-btn');
         if (invoiceBtn) {
             invoiceBtn.onclick = async () => {
                 if (!confirm('Rechnung jetzt generieren und an den Partner senden?')) return;
                 invoiceBtn.disabled = true;
                 try {
-                    const res = await api('/crm/invoice', {
+                    const res = await api('/api/crm/invoice', {
                         method: 'POST',
                         body: JSON.stringify({ ref: state.route.id }),
                     });
@@ -1146,6 +1158,199 @@
         };
     }
 
+    function parseNettoInput(raw) {
+        const s = String(raw || '').trim().replace(/€/g, '').replace(/\s/g, '');
+        if (!s) return 0;
+        if (s.includes(',') && s.includes('.')) return parseFloat(s.replace(/\./g, '').replace(',', '.')) || 0;
+        if (s.includes(',')) return parseFloat(s.replace(',', '.')) || 0;
+        if (/^\d{1,3}(\.\d{3})+$/.test(s)) return parseFloat(s.replace(/\./g, '')) || 0;
+        return parseFloat(s) || 0;
+    }
+
+    function formatProvisionPreview(calc) {
+        if (!calc) return '';
+        return `<strong>Provision (5&nbsp;%, Cap 30.000&nbsp;€):</strong> ${esc(calc.provision_net_fmt)}&nbsp;€ netto<br>` +
+            `zzgl. 19&nbsp;% USt: ${esc(calc.vat_amount_fmt)}&nbsp;€ · <strong>Gesamt: ${esc(calc.gross_total_fmt)}&nbsp;€ brutto</strong>`;
+    }
+
+    async function updateContractProvisionPreview() {
+        const box = $('#contract-provision-preview');
+        const type = $('#contract-type')?.value;
+        const nettoRaw = $('#contract-netto')?.value;
+        if (!box || type === 'bauherr') {
+            box?.classList.add('hidden');
+            return;
+        }
+        const netto = parseNettoInput(nettoRaw);
+        if (netto <= 0) {
+            box.classList.add('hidden');
+            box.innerHTML = '';
+            return;
+        }
+        try {
+            const res = await api('/api/crm/provision/calc', {
+                method: 'POST',
+                body: JSON.stringify({ netto_eur: netto }),
+            });
+            if (res.ok && res.provision) {
+                box.innerHTML = formatProvisionPreview(res.provision);
+                box.classList.remove('hidden');
+            }
+        } catch {
+            box.classList.add('hidden');
+        }
+    }
+
+    function buildContractPayloadFromLead(l, overrides = {}) {
+        return {
+            ref: l.ref,
+            type: l.role_type === 'bauherr' ? 'bauherr' : 'partner',
+            netto_eur: parseNettoInput(l.netto || l.budget || '635000'),
+            project_ref: l.projekt_ref || 'KS-2026-DU-01',
+            project_name: l.projekt || l.branche || '',
+            region: l.stadt || '',
+            ag_firma: l.ag_firma || '',
+            name: l.name,
+            firma: l.company || l.name,
+            email: l.email,
+            telefon: l.telefon,
+            mark_sent: false,
+            ...overrides,
+        };
+    }
+
+    function collectContractPayload() {
+        const l = state.contractLead || {};
+        return buildContractPayloadFromLead(l, {
+            ref: $('#contract-ref')?.value,
+            type: $('#contract-type')?.value,
+            netto_eur: parseNettoInput($('#contract-netto')?.value),
+            project_ref: $('#contract-project-ref')?.value?.trim(),
+            project_name: $('#contract-project-name')?.value?.trim(),
+            region: $('#contract-region')?.value?.trim(),
+            ag_firma: $('#contract-ag-firma')?.value?.trim(),
+            mark_sent: $('#contract-mark-sent')?.checked,
+        });
+    }
+
+    function openContractModal(ref, mode = 'open') {
+        const l = (state.data?.leads || []).find(x => x.ref === decodeURIComponent(ref));
+        if (!l) return;
+        const dialog = $('#contract-dialog');
+        if (!dialog || typeof dialog.showModal !== 'function') {
+            showToast('Dialog nicht unterstützt', 'warn');
+            return;
+        }
+        state.contractLead = l;
+        state.contractModalMode = mode;
+        $('#contract-ref').value = l.ref;
+        $('#contract-title').textContent = (mode === 'send' ? 'Vertrag senden — ' : 'Vertrag — ') + (l.company || l.name);
+        $('#contract-type').value = l.role_type === 'bauherr' ? 'bauherr' : 'partner';
+        $('#contract-netto').value = l.netto || l.budget || '635000';
+        $('#contract-project-ref').value = l.projekt_ref || 'KS-2026-DU-01';
+        $('#contract-project-name').value = l.projekt || l.branche || 'MFH-Modernisierung Duisburg (14 WE)';
+        $('#contract-region').value = l.stadt || 'Duisburg';
+        $('#contract-ag-firma').value = l.ag_firma || '';
+        $('#contract-mark-sent').checked = true;
+        toggleContractPartnerFields();
+        updateContractProvisionPreview();
+        dialog.showModal();
+        if (mode === 'send') {
+            setTimeout(() => $('#contract-send-modal-btn')?.focus(), 100);
+        }
+    }
+
+    function toggleContractPartnerFields() {
+        const isPartner = $('#contract-type')?.value === 'partner';
+        $('#contract-partner-fields')?.classList.toggle('hidden', !isPartner);
+        $('#contract-netto')?.closest('label')?.classList.toggle('hidden', !isPartner);
+        updateContractProvisionPreview();
+    }
+
+    function openContractHtml(html, filename) {
+        const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const w = window.open(url, '_blank');
+        if (!w) showToast('Pop-up blockiert — bitte erlauben', 'warn');
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+        showToast('Vertrag geöffnet — „Als PDF drucken“ im Browser nutzen', 'success');
+    }
+
+    async function quickGenerateContract(ref) {
+        const l = (state.data?.leads || []).find(x => x.ref === decodeURIComponent(ref));
+        if (!l) return;
+        const btn = $('#contract-btn');
+        if (btn) btn.disabled = true;
+        try {
+            const payload = buildContractPayloadFromLead(l, { mark_sent: false });
+            const res = await api('/api/crm/contract/generate', {
+                method: 'POST',
+                body: JSON.stringify(payload),
+            });
+            if (!res.ok) throw new Error(res.error || 'Vertrag fehlgeschlagen');
+            openContractHtml(res.html, res.filename);
+        } catch (err) {
+            showToast(err.message, 'warn');
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    }
+
+    async function generateContractFromModal() {
+        const btn = $('#contract-open-btn');
+        const payload = collectContractPayload();
+        if (btn) btn.disabled = true;
+        try {
+            const res = await api('/api/crm/contract/generate', {
+                method: 'POST',
+                body: JSON.stringify(payload),
+            });
+            if (!res.ok) throw new Error(res.error || 'Vertrag fehlgeschlagen');
+            openContractHtml(res.html, res.filename);
+            $('#contract-dialog')?.close();
+            await refreshData({ silent: true });
+            render();
+        } catch (err) {
+            showToast(err.message, 'warn');
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    }
+
+    async function sendContractFromModal() {
+        const l = state.contractLead;
+        const btn = $('#contract-send-modal-btn');
+        const payload = collectContractPayload();
+        const to = l?.email;
+        if (!to || !to.includes('@')) {
+            showToast('Keine gültige E-Mail beim Lead hinterlegt', 'warn');
+            return;
+        }
+        if (payload.type === 'partner' && parseNettoInput($('#contract-netto')?.value) <= 0) {
+            showToast('Bitte Auftragsvolumen netto eintragen', 'warn');
+            $('#contract-netto')?.focus();
+            return;
+        }
+        if (!confirm(`Vertrag jetzt an ${to} senden?`)) return;
+        if (btn) btn.disabled = true;
+        try {
+            const res = await api('/api/crm/contract/send', {
+                method: 'POST',
+                body: JSON.stringify({ ...payload, mark_sent: true }),
+            });
+            if (!res.ok) throw new Error(res.error || 'Versand fehlgeschlagen');
+            showToast('Vertrag gesendet an ' + res.to, 'success');
+            if (res.crm_warning) showToast(res.crm_warning, 'warn');
+            $('#contract-dialog')?.close();
+            await refreshData({ silent: true });
+            render();
+        } catch (err) {
+            showToast(err.message, 'warn');
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    }
+
     async function saveLead(ref, fields) {
         ref = decodeURIComponent(ref);
         state.undoLead = { ref, fields: snapshotLeadFields(ref) };
@@ -1249,7 +1454,23 @@
 
     $('#nav-toggle')?.addEventListener('click', () => $('#sf-nav').classList.toggle('open'));
 
-    $$('[data-close]').forEach(btn => btn.addEventListener('click', () => $('#activity-dialog')?.close()));
+    $$('[data-close]').forEach(btn => btn.addEventListener('click', () => {
+        btn.closest('dialog')?.close();
+    }));
+
+    $('#contract-type')?.addEventListener('change', toggleContractPartnerFields);
+    let provisionTimer;
+    $('#contract-netto')?.addEventListener('input', () => {
+        clearTimeout(provisionTimer);
+        provisionTimer = setTimeout(updateContractProvisionPreview, 300);
+    });
+
+    $('#contract-open-btn')?.addEventListener('click', () => generateContractFromModal());
+
+    $('#contract-form')?.addEventListener('submit', async e => {
+        e.preventDefault();
+        await sendContractFromModal();
+    });
 
     $('#activity-form')?.addEventListener('submit', async e => {
         e.preventDefault();

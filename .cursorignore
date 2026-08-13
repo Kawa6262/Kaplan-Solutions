@@ -1,0 +1,18 @@
+# Weniger Indexierung = Cursor bleibt fluessig
+venv/
+.venv/
+__pycache__/
+*.pyc
+data/
+checkpoints/
+*.log
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+node_modules/
+.git/
+*.png
+*.jpg
+*.webp
+*.pdf

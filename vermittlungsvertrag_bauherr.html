@@ -1,104 +1,121 @@
 {% extends "contract_base.html" %}
 {% block title %}Vermittlungsvertrag Bauherr — Kaplan Solutions{% endblock %}
 {% block contract %}
-<div class="brand-bar">
-    <p class="brand">Kaplan Solutions</p>
-    <h1>Vermittlungsvertrag</h1>
-    <p class="sub">Auftraggeber (Bauherr / Investor) · Kostenfreie Partnervermittlung</p>
+<div class="doc-header-row">
+    <div>
+        <span class="legal-tag">Vertraulich · Vermittlungsvertrag</span>
+        <h1>Vermittlungsvertrag</h1>
+        <p class="doc-sub">Auftraggeber (Bauherr / Investor) · Kostenfreie Partnervermittlung</p>
+    </div>
+    <div class="doc-meta">Stand {{ updated }}<br />AGB Kaplan Solutions gelten ergänzend</div>
 </div>
 
-<div class="notice">
-    <strong>Mustervertrag.</strong> Für Bauherren und Investoren — in der Regel ohne Erfolgsprovision.
-    Vor Unterzeichnung bei Bedarf rechtlich prüfen lassen. Es gelten ergänzend die <a href="/agb">AGB</a>.
-</div>
-
-<h2>Vertragsparteien</h2>
-
+<h2>§ 1 Vertragsparteien</h2>
+<div class="parties-grid">
 <div class="party-box">
-    <strong>Vermittler</strong><br />
+    <div class="party-label">Vermittler</div>
     {{ c.legal_name }}<br />
-    {{ c.street }}, {{ c.zip_city }}, {{ c.country }}<br />
-    E-Mail: {{ c.email }} · Telefon: {{ c.phone }}<br />
-    (nachfolgend „<strong>Kaplan Solutions</strong>“)
+    {{ c.street }}, {{ c.zip_city }}<br />
+    {{ c.email }} · {{ c.phone }}
+    <div class="party-role">„<strong>Kaplan Solutions</strong>“</div>
 </div>
-
 <div class="party-box">
-    <strong>Auftraggeber (Bauherr / Investor)</strong><br />
-    Name / Firma: <span class="fill-line"></span>
-    Anschrift: <span class="fill-line"></span>
-    E-Mail: <span class="fill-line"></span>
-    Telefon: <span class="fill-line"></span>
-    (nachfolgend „<strong>Auftraggeber</strong>“)
+    <div class="party-label">Auftraggeber</div>
+    <div class="party-fields">
+        <div class="field-row"><span class="lbl">Name / Firma:</span> <span class="fill-line"></span></div>
+        <div class="field-row"><span class="lbl">Rechtsform:</span> <span class="fill-line"></span></div>
+        <div class="field-row"><span class="lbl">Vertretung:</span> <span class="fill-line"></span></div>
+        <div class="field-row"><span class="lbl">Anschrift:</span> <span class="fill-line"></span></div>
+        <div class="field-row"><span class="lbl">E-Mail:</span> <span class="fill-line"></span></div>
+        <div class="field-row"><span class="lbl">Telefon:</span> <span class="fill-line"></span></div>
+    </div>
+    <div class="party-role">„<strong>Auftraggeber</strong>“ (Bauherr / Investor)</div>
+</div>
+</div>
+<p style="margin-bottom:10px">Kaplan Solutions und der Auftraggeber („<strong>Parteien</strong>“) schließen folgenden Vermittlungsrahmenvertrag zur qualifizierten Partnervermittlung im Bauwesen.</p>
+
+<div class="contract-main">
+
+<h2>§ 2 Vertragsgegenstand</h2>
+<ol>
+    <li>Kaplan Solutions vermittelt geeignete Bau- und Handwerksunternehmen (Partner) inkl. Nachweis, Vorauswahl, Seriositätsprüfung und Koordination des Erstkontakts bis zum Bauhauptvertrag (§§ 652, 652a BGB).</li>
+    <li>Kaplan Solutions führt keine Bauleistungen aus; Auswahl und Beauftragung obliegen dem Auftraggeber.</li>
+    <li>Projektangaben (Standort, Gewerke, Budget, Zeitrahmen) werden wahrheitsgemäß bereitgestellt.</li>
+    <li><strong>Projektbezug:</strong> Ref. <span class="fill-line"></span> · <span class="fill-line"></span> · Region <span class="fill-line"></span></li>
+</ol>
+
+<h2>§ 3 Vergütung</h2>
+<ol>
+    <li>Erstberatung und Vermittlung sind für den Auftraggeber <strong>kostenfrei</strong> (Standard: {{ p.bauherr_percent }}&nbsp;% nur bei schriftlicher Abweichung).</li>
+    <li>Das Honorar wird in der Regel vom Partner-Unternehmen getragen.</li>
+    <li>Dem Auftraggeber ist bekannt, dass Kaplan Solutions von Partnern eine erfolgsabhängige Provision verlangt.</li>
+</ol>
+
+<h2>§ 4 Vermittlungsablauf</h2>
+<ol>
+    <li>Zuerst Partnerprofile; vollständige Unterlagen erst nach Partner-Vertrag mit Kaplan Solutions.</li>
+    <li>Erstkontakt bevorzugt über Kaplan Solutions (Intro mit Referenznummer).</li>
+    <li>Jede Benennung erhält eine Anfrage-Nr. (z.&nbsp;B. KS-2026-XXXX).</li>
+</ol>
+
+<h2>§ 5 Mitwirkung &amp; Umgehungsschutz</h2>
+<ol>
+    <li>Meldung von Vertragsschlüssen innerhalb von <strong>7 Werktagen</strong>.</li>
+    <li>Auf Anfrage: Bestätigung der Netto-Auftragssumme innerhalb von 10 Werktagen.</li>
+    <li>Keine Direktbeauftragung benannter Partner ohne Kaplan Solutions für <strong>{{ p.partner_followup_months }} Monate</strong> nach Erstbenennung.</li>
+    <li>Bei Umgehung: Mitwirkung bei Provisionsklärung; Kaplan Solutions darf Erstbenennung nachweisen.</li>
+</ol>
+
+<h2>§ 6 Doppeltätigkeit (§ 654 BGB)</h2>
+<ol>
+    <li>Kaplan Solutions erhebt vom Auftraggeber keine Erfolgsprovision (Standard); Partner-Verträge mit Provision sind zulässig.</li>
+    <li>Doppelprovision vom Auftraggeber nur bei ausdrücklicher schriftlicher Vereinbarung.</li>
+</ol>
+
+<h2>§ 7 Haftung</h2>
+<ol>
+    <li>Unbeschränkte Haftung bei Vorsatz, grober Fahrlässigkeit, Personenschäden.</li>
+    <li>Bei leichter Fahrlässigkeit: Haftung begrenzt auf vorhersehbaren Schaden.</li>
+    <li>Keine Gewähr für Bonität, Kapazität oder Qualität vermittelter Partner.</li>
+</ol>
+
+<h2>§ 8 Datenschutz, Laufzeit</h2>
+<ol>
+    <li>Datenschutz gemäß <a href="/datenschutz">Datenschutzerklärung</a>; vertrauliche Behandlung von Projektunterlagen.</li>
+    <li>Unbefristet; Kündigung mit <strong>14 Tagen zum Monatsende</strong> (Textform).</li>
+    <li>Pflichten aus § 5 bleiben nach Vertragsende im vereinbarten Umfang bestehen.</li>
+</ol>
+
+<h2>§ 9 Schlussbestimmungen</h2>
+<ol>
+    <li>Schriftform für Änderungen; deutsches Recht; Gerichtsstand <strong>Berlin</strong> (Kaufleute).</li>
+    <li>Salvatorische Klausel; AGB ergänzend; dieser Vertrag geht vor.</li>
+</ol>
+
 </div>
 
-<h2>§ 1 Vertragsgegenstand</h2>
-<ol>
-    <li>
-        Kaplan Solutions vermittelt dem Auftraggeber geeignete Bau- und Handwerksunternehmen
-        (Partner) für das im Projektgespräch beschriebene Vorhaben. Die Leistung umfasst
-        Nachweis, Vorauswahl, Seriositätsprüfung und Koordination des Erstkontakts.
-    </li>
-    <li>
-        Kaplan Solutions führt keine Bauleistungen aus und übernimmt keine Gewährleistung
-        für die Ausführung durch vermittelte Unternehmen.
-    </li>
-    <li>
-        Der Auftraggeber stellt alle projektrelevanten Angaben (Standort, Gewerke, Budget,
-        Zeitrahmen) wahrheitsgemäß zur Verfügung.
-    </li>
-</ol>
-
-<h2>§ 2 Vergütung</h2>
-<ol>
-    <li>
-        Die Erstberatung und standardmäßige Vermittlung sind für den Auftraggeber
-        <strong>kostenfrei</strong>.
-    </li>
-    <li>
-        Eine Erfolgsprovision wird <strong>nicht</strong> erhoben, sofern nicht ausdrücklich
-        schriftlich abweichend vereinbart (Standard: {{ p.bauherr_percent }}&nbsp;%).
-    </li>
-    <li>
-        Das Honorar von Kaplan Solutions wird in der Regel durch die vermittelten
-        Partner-Unternehmen getragen (siehe deren Vermittlungsvertrag).
-    </li>
-</ol>
-
-<h2>§ 3 Mitwirkung</h2>
-<ol>
-    <li>
-        Der Auftraggeber informiert Kaplan Solutions über den Verlauf der Gespräche mit
-        vorgestellten Partnern und über einen etwaigen Vertragsabschluss.
-    </li>
-    <li>
-        Auswahl und Beauftragung eines Partner-Unternehmens obliegen allein dem Auftraggeber.
-    </li>
-</ol>
-
-<h2>§ 4 Haftung, Datenschutz, Laufzeit</h2>
-<ol>
-    <li>Es gelten die Haftungsregelungen der <a href="/agb">AGB</a>.</li>
-    <li>Datenschutz gemäß <a href="/datenschutz">Datenschutzerklärung</a>.</li>
-    <li>Der Vertrag läuft auf unbestimmte Zeit und kann mit 14 Tagen Frist zum Monatsende gekündigt werden.</li>
-    <li>Es gilt deutsches Recht; Gerichtsstand Berlin, soweit zulässig.</li>
-</ol>
-
+<div class="bottom-row">
+<div>
+<h2 style="margin-top:0;border:none">Anlage: Benannte Partner</h2>
+<table class="meta">
+    <tr><td>Anfrage-Nr.</td><td>&nbsp;</td></tr>
+    <tr><td>Partner-Firma</td><td>&nbsp;</td></tr>
+    <tr><td>Datum / Projekt-Ref.</td><td>&nbsp;</td></tr>
+</table>
+</div>
 <div class="signatures">
-    <h2>Unterschriften</h2>
-    <p>Ort, Datum: <span class="fill-line" style="max-width:280px;display:inline-block"></span></p>
+    <h2>Ort, Datum · Unterschriften</h2>
+    <p style="font-size:8.5pt;margin-bottom:8px">Ort, Datum: <span class="fill-line" style="max-width:200px"></span></p>
     <div class="sig-grid">
         <div class="sig-block">
-            <div class="fill-line"></div>
+            <div class="sig-space"></div>
             <p class="sig-label">{{ c.legal_name }}<br />(Kaplan Solutions)</p>
         </div>
         <div class="sig-block">
-            <div class="fill-line"></div>
-            <p class="sig-label">Auftraggeber</p>
+            <div class="sig-space"></div>
+            <p class="sig-label">Auftraggeber<br />(vertretungsberechtigt)</p>
         </div>
     </div>
 </div>
-
-<p class="footer-note">
-    Kaplan Solutions · Vermittlungsvertrag Bauherr · Stand {{ updated }}
-</p>
+</div>
 {% endblock %}

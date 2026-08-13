@@ -29,6 +29,12 @@ def _campaign_config(campaign: str) -> tuple[list[str], int, int]:
             config.BAUHERR_DAILY_DISCOVER_LIMIT,
             config.BAUHERR_DISCOVER_BATCHES_PER_CYCLE,
         )
+    if campaign == config.CAMPAIGN_PROJEKT:
+        return (
+            config.PROJEKT_TRADE_QUERIES,
+            config.PROJEKT_DAILY_DISCOVER_LIMIT,
+            config.PROJEKT_DISCOVER_BATCHES_PER_CYCLE,
+        )
     return (
         config.TRADE_QUERIES,
         config.DAILY_DISCOVER_LIMIT,
@@ -42,6 +48,8 @@ def discover_batch(campaign: str = config.CAMPAIGN_PARTNER) -> int:
         return 0
     if campaign == config.CAMPAIGN_BAUHERR and not config.BAUHERR_ENABLED:
         return 0
+    if campaign == config.CAMPAIGN_PROJEKT and not config.PROJEKT_ENABLED:
+        return 0
     if not config.GOOGLE_PLACES_KEY:
         print("[outreach] GOOGLE_PLACES_API_KEY fehlt — Discovery übersprungen.", flush=True)
         return 0
@@ -53,9 +61,10 @@ def discover_batch(campaign: str = config.CAMPAIGN_PARTNER) -> int:
     if storage.get_counter("discovered", campaign) >= discover_limit:
         return 0
 
+    cities = config.cities_for(campaign)
     trade_idx, city_idx, page_token = storage.get_search_cursor(campaign)
     trade = trades[trade_idx % len(trades)]
-    city = config.GERMAN_CITIES[city_idx % len(config.GERMAN_CITIES)]
+    city = cities[city_idx % len(cities)]
     query = f"{trade} {city}"
 
     results, next_token, error = text_search(query, page_token)
@@ -77,6 +86,8 @@ def discover_batch(campaign: str = config.CAMPAIGN_PARTNER) -> int:
         phone = item["phone"]
         if not website and not phone:
             continue
+        if item.get("business_status") == "CLOSED_PERMANENTLY":
+            continue
         if storage.upsert_prospect(
             place_id=place_id,
             company_name=name,
@@ -85,6 +96,9 @@ def discover_batch(campaign: str = config.CAMPAIGN_PARTNER) -> int:
             website=website,
             phone=phone,
             campaign=campaign,
+            rating=item.get("rating"),
+            rating_count=item.get("rating_count", 0),
+            business_status=item.get("business_status", ""),
         ):
             inserted += 1
             storage.bump_counter("discovered", campaign=campaign)
@@ -97,7 +111,7 @@ def discover_batch(campaign: str = config.CAMPAIGN_PARTNER) -> int:
     else:
         _advance_cursor(trade_idx, city_idx, None, len(trades), campaign)
 
-    label = {"referral": "Referral", "bauherr": "Bauherr"}.get(campaign, "Partner")
+    label = {"referral": "Referral", "bauherr": "Bauherr", "projekt": "Projekt"}.get(campaign, "Partner")
     if inserted:
         print(f"[outreach] +{inserted} {label} ({query})", flush=True)
     return inserted
@@ -136,6 +150,9 @@ def discover_all_campaigns() -> int:
         extra = config.BAUHERR_DISCOVER_BATCHES_PER_CYCLE * 2
         total += discover_batches(config.CAMPAIGN_BAUHERR, max_batches=extra)
 
+    if config.PROJEKT_ENABLED:
+        total += discover_batches(config.CAMPAIGN_PROJEKT)
+
     total += discover_batches(config.CAMPAIGN_PARTNER)
 
     if config.REFERRAL_ENABLED:
@@ -155,8 +172,19 @@ def _advance_cursor(
     if token:
         storage.set_search_cursor(trade_idx, city_idx, token, campaign)
         return
-    city_idx += 1
-    if city_idx >= len(config.GERMAN_CITIES):
-        city_idx = 0
+    if campaign == config.CAMPAIGN_PROJEKT:
+        # Städte sind nach Nähe zum Bauvorhaben sortiert. Erst alle Gewerke einer
+        # Stadt durchgehen, dann die nächste — so ist Duisburg vollständig
+        # abgedeckt, bevor der Umkreis dran ist.
         trade_idx += 1
+        if trade_idx >= trade_count:
+            trade_idx = 0
+            city_idx += 1
+            if city_idx >= len(config.cities_for(campaign)):
+                city_idx = 0
+    else:
+        city_idx += 1
+        if city_idx >= len(config.cities_for(campaign)):
+            city_idx = 0
+            trade_idx += 1
     storage.set_search_cursor(trade_idx, city_idx, None, campaign)

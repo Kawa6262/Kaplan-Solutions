@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Vertrag unterschreiben — Kaplan Solutions</title>
+    <style>
+        :root {
+            --green: #0b3d2e;
+            --gold: #b87333;
+            --cream: #faf8f5;
+            --border: #e4dfd6;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+            background: linear-gradient(160deg, #eceae6 0%, #f5f2ec 100%);
+            color: #1c1c1c;
+            min-height: 100vh;
+        }
+        .wrap { max-width: 640px; margin: 0 auto; padding: 16px 12px 40px; width: 100%; }
+        .card {
+            background: #fff;
+            border: 1px solid var(--border);
+            box-shadow: 0 12px 40px rgba(11,61,46,.1);
+            border-top: 4px solid var(--gold);
+            overflow: hidden;
+            width: 100%;
+        }
+        .head {
+            padding: 20px 18px;
+            border-bottom: 3px solid var(--green);
+            background: var(--cream);
+        }
+        .head img { max-height: 56px; width: auto; max-width: min(320px, 85vw); margin-bottom: 12px; display: block; }
+        .head h1 {
+            font-family: Georgia, "Times New Roman", serif;
+            font-size: 1.45rem;
+            font-weight: 400;
+            color: var(--green);
+            margin: 0 0 6px;
+        }
+        .head p { margin: 0; font-size: 0.9rem; color: #666; line-height: 1.5; }
+        .body { padding: 20px 18px; }
+        label {
+            display: block;
+            font-size: 0.72rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: #888;
+            margin-bottom: 4px;
+        }
+        input[type="text"] {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid var(--border);
+            font-size: 1rem;
+            margin-bottom: 16px;
+        }
+        .sig-wrap {
+            border: 1px solid var(--border);
+            background: #fff;
+            margin-bottom: 8px;
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: 140px;
+            touch-action: none;
+            cursor: crosshair;
+        }
+        .sig-actions { text-align: right; margin-bottom: 16px; }
+        .sig-actions button {
+            background: none;
+            border: none;
+            color: var(--gold);
+            font-size: 0.85rem;
+            cursor: pointer;
+            text-decoration: underline;
+        }
+        .check-row {
+            display: flex;
+            gap: 10px;
+            align-items: flex-start;
+            font-size: 0.88rem;
+            line-height: 1.45;
+            margin: 20px 0;
+        }
+        .check-row input { margin-top: 4px; }
+        .btn-primary {
+            width: 100%;
+            padding: 14px 20px;
+            background: var(--green);
+            color: #fff;
+            border: none;
+            font-size: 1rem;
+            font-weight: 600;
+            letter-spacing: 0.03em;
+            cursor: pointer;
+        }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+        .note {
+            background: #f5faf8;
+            border-left: 3px solid var(--gold);
+            padding: 14px 16px;
+            font-size: 0.88rem;
+            line-height: 1.55;
+            margin-bottom: 20px;
+            color: #444;
+        }
+        .err { color: #b00020; font-size: 0.9rem; margin-bottom: 12px; }
+        .hidden { display: none; }
+        .success {
+            text-align: center;
+            padding: 48px 28px;
+        }
+        .success h2 { color: var(--green); font-family: Georgia, serif; font-weight: 400; }
+        .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        @media (max-width: 480px) { .grid2 { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <div class="card" id="app">
+            {% if already_signed %}
+            <div class="success">
+                <h2>Bereits unterschrieben</h2>
+                <p>Dieser Vertrag wurde bereits digital unterzeichnet. Bei Fragen: {{ reply_email }}</p>
+            </div>
+            {% elif expired %}
+            <div class="success">
+                <h2>Link abgelaufen</h2>
+                <p>Bitte kontaktieren Sie uns für einen neuen Link: {{ reply_email }}</p>
+            </div>
+            {% else %}
+            <div class="head">
+                <img src="/email-logo.png" alt="Kaplan Solutions" />
+                <h1>Vertrag digital unterschreiben</h1>
+                <p>{{ contract_label }} · Anfrage-Nr. {{ ref }}</p>
+            </div>
+            <div class="body">
+                <div class="note">
+                    {{ sign_intro }}
+                </div>
+                <form id="sign-form">
+                    <input type="hidden" id="token" value="{{ token }}" />
+                    <label for="signer_name">Vollständiger Name (vertretungsberechtigt)</label>
+                    <input id="signer_name" type="text" required value="{{ signer_default }}" autocomplete="name" />
+
+                    <div class="grid2">
+                        <div>
+                            <label for="ort">Ort</label>
+                            <input id="ort" type="text" required autocomplete="address-level2" />
+                        </div>
+                        <div>
+                            <label for="datum">Datum</label>
+                            <input id="datum" type="text" required value="{{ today_de }}" />
+                        </div>
+                    </div>
+
+                    <label>Unterschrift (Maus oder Finger zeichnen)</label>
+                    <div class="sig-wrap">
+                        <canvas id="sig-canvas" width="560" height="140"></canvas>
+                    </div>
+                    <div class="sig-actions">
+                        <button type="button" id="sig-clear">Unterschrift löschen</button>
+                    </div>
+
+                    <label class="check-row">
+                        <input type="checkbox" id="accept" required />
+                        <span>Ich habe den Vermittlungsvertrag gelesen, akzeptiere die Bedingungen und unterschreibe verbindlich im Namen meines Unternehmens.</span>
+                    </label>
+
+                    <p class="err hidden" id="form-error"></p>
+                    <button type="submit" class="btn-primary" id="submit-btn">Vertrag abschließen</button>
+                </form>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    <script>
+    (function () {
+        const canvas = document.getElementById('sig-canvas');
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        let drawing = false;
+        let hasStroke = false;
+
+        function resize() {
+            const r = canvas.parentElement.getBoundingClientRect();
+            canvas.width = Math.floor(r.width * 2);
+            canvas.height = 280;
+            ctx.scale(2, 2);
+            ctx.strokeStyle = '#1a1a1a';
+            ctx.lineWidth = 2;
+            ctx.lineCap = 'round';
+        }
+        resize();
+        window.addEventListener('resize', () => { ctx.setTransform(1,0,0,1,0,0); resize(); });
+
+        function pos(e) {
+            const r = canvas.getBoundingClientRect();
+            const t = e.touches ? e.touches[0] : e;
+            return { x: t.clientX - r.left, y: t.clientY - r.top };
+        }
+        function start(e) { e.preventDefault(); drawing = true; const p = pos(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); }
+        function move(e) {
+            if (!drawing) return;
+            e.preventDefault();
+            hasStroke = true;
+            const p = pos(e);
+            ctx.lineTo(p.x, p.y);
+            ctx.stroke();
+        }
+        function end() { drawing = false; }
+
+        canvas.addEventListener('mousedown', start);
+        canvas.addEventListener('mousemove', move);
+        window.addEventListener('mouseup', end);
+        canvas.addEventListener('touchstart', start, { passive: false });
+        canvas.addEventListener('touchmove', move, { passive: false });
+        canvas.addEventListener('touchend', end);
+
+        document.getElementById('sig-clear').onclick = () => {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            hasStroke = false;
+        };
+
+        document.getElementById('sign-form').onsubmit = async (e) => {
+            e.preventDefault();
+            const err = document.getElementById('form-error');
+            const btn = document.getElementById('submit-btn');
+            err.classList.add('hidden');
+            if (!hasStroke) {
+                err.textContent = 'Bitte zeichnen Sie Ihre Unterschrift.';
+                err.classList.remove('hidden');
+                return;
+            }
+            btn.disabled = true;
+            try {
+                const res = await fetch('/api/vertrag/unterschreiben', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        token: document.getElementById('token').value,
+                        signer_name: document.getElementById('signer_name').value.trim(),
+                        ort: document.getElementById('ort').value.trim(),
+                        datum: document.getElementById('datum').value.trim(),
+                        signature: canvas.toDataURL('image/png'),
+                        accept: document.getElementById('accept').checked,
+                    }),
+                });
+                const data = await res.json();
+                if (!data.ok) throw new Error(data.error || 'Fehler');
+                document.getElementById('app').innerHTML = `
+                    <div class="success">
+                        <h2>Vertrag abgeschlossen — vielen Dank</h2>
+                        <p style="line-height:1.65;color:#555;max-width:420px;margin:0 auto">
+                        Ihre Unterschrift wurde erfolgreich übermittelt. <strong>Kaplan Solutions</strong>
+                        wurde sofort benachrichtigt und meldet sich <strong>in Kürze</strong>, um die nächsten Schritte
+                        einzuleiten — damit wir unverzüglich mit der Vermittlung beginnen können.</p>
+                    </div>`;
+            } catch (ex) {
+                err.textContent = ex.message;
+                err.classList.remove('hidden');
+                btn.disabled = false;
+            }
+        };
+    })();
+    </script>
+</body>
+</html>

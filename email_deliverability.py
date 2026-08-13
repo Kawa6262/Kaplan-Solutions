@@ -1,4 +1,4 @@
-"""Header und URLs für bessere Zustellbarkeit (Posteingang statt Spam)."""
+"""Header für bessere Zustellbarkeit (Posteingang statt Spam)."""
 
 from __future__ import annotations
 
@@ -20,13 +20,32 @@ def unsubscribe_url(email: str | None = None) -> str:
     return base
 
 
+def _domain() -> str:
+    return public_site_url().replace("https://", "").replace("http://", "")
+
+
 def deliverability_headers(recipient: str | None = None) -> dict[str, str]:
-    """RFC 8058-kompatible Abmelde-Header — Gmail bevorzugt https + mailto."""
+    """RFC 8058 + List-ID — nur für Outreach / Newsletter (nicht für Verträge)."""
     reply = os.getenv("REPLY_EMAIL", "kontakt@kaplan-solutions.de").strip()
     subject = urllib.parse.quote("Abmeldung Kaplan Solutions")
     mailto = f"<mailto:{reply}?subject={subject}>"
     web = f"<{unsubscribe_url(recipient)}>"
+    domain = _domain()
     return {
         "List-Unsubscribe": f"{mailto}, {web}",
         "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+        "List-ID": f"<outreach.{domain}>",
+        "List-Help": f"<mailto:{reply}?subject=Hilfe%20Abmeldung>",
+        "Feedback-ID": f"outreach:{domain}",
+        "X-Entity-Ref-ID": f"ks-outreach-{domain}",
+    }
+
+
+def transactional_headers(ref: str | None = None) -> dict[str, str]:
+    """Minimale Header für 1:1-Verträge, Rechnungen, Bestätigungen — kein List-Unsubscribe."""
+    domain = _domain()
+    suffix = (ref or "doc")[:40].replace(" ", "-")
+    return {
+        "X-Entity-Ref-ID": f"ks-contract-{suffix}-{domain}",
+        "X-Auto-Response-Suppress": "All",
     }

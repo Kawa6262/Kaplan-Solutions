@@ -1118,6 +1118,30 @@ def empfehlung_redirect():
     )
 
 
+@app.route("/google")
+def google_ads_redirect():
+    """Kurzlink für Google Ads — Landing Bauherr mit Standard-UTMs."""
+    record_view("google")
+    qs = request.query_string.decode("utf-8")
+    base = (
+        "utm_source=google&utm_medium=cpc&utm_campaign=bauherr_search"
+    )
+    target = "/bauherr?" + (f"{qs}&{base}" if qs else base)
+    return redirect(target, code=302)
+
+
+@app.route("/api/site-config")
+def site_config():
+    """Öffentliche Site-Konfiguration (Analytics-IDs, keine Secrets)."""
+    ads_id = os.getenv("GOOGLE_ADS_ID", "").strip()
+    conversion = os.getenv("GOOGLE_ADS_CONVERSION", "").strip()
+    return jsonify({
+        "googleAdsId": ads_id,
+        "googleAdsConversion": conversion,
+        "analyticsEnabled": bool(ads_id),
+    })
+
+
 @app.route("/api/stats")
 def stats_view():
     """Einfache Besucher-Statistik (mit ?key=… schützbar via STATS_TOKEN)."""
@@ -1189,6 +1213,88 @@ def vermittlungsvertrag_bauherr():
         "vermittlungsvertrag_bauherr.html",
         **legal_context("vermittlungsvertrag"),
     )
+
+
+@app.route("/vertrag/unterschreiben/<token>")
+def contract_sign_page(token: str):
+    """Digitale Vertragsunterschrift für Kunden."""
+    from business_model.contract_signing import load_signing_session
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    session = load_signing_session(token)
+    if not session:
+        return render_template(
+            "contract_sign.html",
+            expired=True,
+            already_signed=False,
+            reply_email=os.getenv("REPLY_EMAIL", "kontakt@kaplan-solutions.de"),
+        )
+    if session.get("already_signed"):
+        return render_template(
+            "contract_sign.html",
+            expired=False,
+            already_signed=True,
+            reply_email=os.getenv("REPLY_EMAIL", "kontakt@kaplan-solutions.de"),
+        )
+    ctype = session.get("contract_type", "partner")
+    if ctype == "bauherr":
+        label = "Vermittlungsvertrag Bauherr / Investor"
+        intro = (
+            "Bitte unterschreiben Sie den Vertrag zuerst gemeinsam mit uns — erst danach können wir "
+            "sofort mit der Arbeit beginnen und qualifizierte Auftragnehmer für Ihr Projekt finden. "
+            "Für Sie als Bauherr entstehen keinerlei Kosten: keine Gebühr, keine Provision, "
+            "keine versteckten Kosten."
+        )
+    else:
+        label = "Vermittlungsvertrag Partner / Auftragnehmer"
+        intro = (
+            "Bitte lesen Sie zuerst: Im Erfolgsfall fällt eine Provision an (nur bei tatsächlichem "
+            "Auftragsschluss — keine Vorabkosten). Den genauen Wortlaut nehmen wir gemeinsam im Vertrag auf. "
+            "Bitte unterschreiben Sie diesen zuerst mit uns — danach vermitteln wir Ihnen sofort "
+            "qualifizierte Auftraggeber und koordinieren den Erstkontakt."
+        )
+    today = datetime.now(ZoneInfo("Europe/Berlin")).strftime("%d.%m.%Y")
+    return render_template(
+        "contract_sign.html",
+        expired=False,
+        already_signed=False,
+        token=token,
+        ref=session.get("ref", ""),
+        contract_label=label,
+        sign_intro=intro,
+        signer_default=session.get("lead_name") or session.get("lead_company") or "",
+        today_de=today,
+        reply_email=os.getenv("REPLY_EMAIL", "kontakt@kaplan-solutions.de"),
+    )
+
+
+@app.post("/api/vertrag/unterschreiben")
+def api_contract_sign():
+    from business_model.contract_signing import complete_signing
+
+    data = request.get_json(silent=True) or {}
+    result = complete_signing(
+        (data.get("token") or "").strip(),
+        signer_name=(data.get("signer_name") or "").strip(),
+        ort=(data.get("ort") or "").strip(),
+        datum=(data.get("datum") or "").strip(),
+        signature_data_url=(data.get("signature") or "").strip(),
+        accept=bool(data.get("accept")),
+    )
+    status = 200 if result.get("ok") else 400
+    return jsonify(result), status
+
+
+@app.route("/vertrag/unterschrieben/<token>")
+def contract_signed_view(token: str):
+    """Unterschriebenes Dokument anzeigen (Link aus Admin-Benachrichtigung)."""
+    from business_model.contract_signing import read_signed_document_html
+
+    html = read_signed_document_html(token)
+    if not html:
+        abort(404)
+    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
 def _valid_email(email: str) -> bool:
@@ -1343,9 +1449,15 @@ def contact():
     try:
         send_admin_email(subject, text_body, html_body, payload["email"], attachments=attachments or None)
         send_customer_confirmation(payload, role_label, now)
-        (BASE_DIR / "data" / "contact.log").open("a", encoding="utf-8").write(
-            log_line.replace("| OK |", "| OK + Bestätigung |")
-        )
+        try:
+            from business_model.contract_auto import auto_send_contract_after_inquiry
+
+            auto_send_contract_after_inquiry(payload)
+            log_line = log_line.replace("| OK |", "| OK + Bestätigung + Vertrag |")
+        except Exception as exc:
+            print(f"[contract-auto] Auto-Versand: {exc}", flush=True)
+            log_line = log_line.replace("| OK |", "| OK + Bestätigung |")
+        (BASE_DIR / "data" / "contact.log").open("a", encoding="utf-8").write(log_line)
     except smtplib.SMTPAuthenticationError:
         notify_macos("Kaplan Solutions", f"Anfrage von {payload['name']} — Gmail-Login fehlgeschlagen")
         return jsonify({
@@ -1432,14 +1544,30 @@ def cron_outreach():
     if not _cron_auth_ok():
         abort(401)
     try:
-        from outreach.runner import run_cycle
-
-        run_cycle()
         from outreach import storage
 
         storage.init_db()
+        if os.getenv("RENDER") == "true":
+            row = storage.stats_summary()
+            total = int(row.get("total") or 0)
+            if total < 100:
+                return jsonify({
+                    "ok": True,
+                    "skipped": True,
+                    "reason": (
+                        "Cloud-Outreach pausiert: Outreach-DB liegt auf dem Mac "
+                        f"({total} Prospects hier). Mac-Daemon ist Primary."
+                    ),
+                })
+        from outreach.runner import run_cycle
+
+        run_cycle()
         summary = storage.stats_summary()
-        return jsonify({"ok": True, "today_sent": summary.get("today_sent", 0), "queued": summary.get("queued", 0)})
+        return jsonify({
+            "ok": True,
+            "today_sent": summary.get("today_sent", 0),
+            "queued": summary.get("queued", 0),
+        })
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
 
@@ -1453,6 +1581,131 @@ def cron_billing():
 
     result = process_due_invoices()
     return jsonify(result)
+
+
+def _crm_lead_by_ref(ref: str) -> tuple[dict | None, dict | None]:
+    """Lead aus CRM-Snapshot laden. Returns (lead, error_response)."""
+    snap = _sheet_action("crm_snapshot")
+    if not snap.get("ok"):
+        return None, snap
+    lead = next((l for l in (snap.get("leads") or []) if l.get("ref") == ref), None)
+    if not lead:
+        return None, {"ok": False, "error": "Lead nicht gefunden"}
+    return lead, None
+
+
+def _apply_contract_crm_updates(ref: str, data: dict, calc: dict | None) -> dict | None:
+    updates: dict = {}
+    if calc:
+        updates["netto"] = calc["netto_order_fmt"]
+        updates["provision"] = calc["provision_net_fmt"]
+    if data.get("mark_sent"):
+        updates["stage"] = "Vertrag versendet"
+        updates["naechster_schritt"] = "Vertrag nachfassen / Unterschrift einholen"
+    if not updates:
+        return None
+    upd = _sheet_action("crm_update", {"ref": ref, "fields": updates})
+    if not upd.get("ok"):
+        return upd
+    return None
+
+
+@app.post("/api/cron/contract-inbox")
+def cron_contract_inbox():
+    """Vertrags-Rücksendungen erkennen + Auto-Versand-Warteschlange."""
+    if not _cron_auth_ok():
+        abort(401)
+    from business_model.contract_auto import run_contract_inbox_jobs
+
+    return jsonify(run_contract_inbox_jobs())
+
+
+@app.post("/api/crm/contract/generate")
+def api_crm_contract_generate():
+    """Maßgeschneiderten Vermittlungsvertrag für einen Lead generieren."""
+    if not _crm_auth_ok():
+        abort(401)
+    data = request.get_json(silent=True) or {}
+    ref = (data.get("ref") or "").strip()
+    lead: dict = {}
+    if ref:
+        lead, err = _crm_lead_by_ref(ref)
+        if err:
+            status = 404 if err.get("error") == "Lead nicht gefunden" else 502
+            return jsonify(err), status
+
+    from business_model.contract_send import generate_contract_html, resolve_contract_type
+
+    html_out, contract_type, calc = generate_contract_html(data, lead)
+    ref = ref or lead.get("ref", "")
+    filename = f"Kaplan-Solutions-Vermittlungsvertrag-{'Partner' if contract_type == 'partner' else 'Bauherr'}"
+    if ref:
+        filename += f"-{ref}"
+    filename += ".html"
+
+    if ref:
+        crm_err = _apply_contract_crm_updates(ref, data, calc)
+        if crm_err:
+            return jsonify({**crm_err, "html": html_out}), 502
+
+    return jsonify({
+        "ok": True,
+        "ref": ref,
+        "contract_type": contract_type,
+        "filename": filename,
+        "html": html_out,
+        "provision": calc,
+    })
+
+
+@app.post("/api/crm/contract/send")
+def api_crm_contract_send():
+    """Maßgeschneiderten Vermittlungsvertrag per E-Mail an den Lead senden."""
+    if not _crm_auth_ok():
+        abort(401)
+    data = request.get_json(silent=True) or {}
+    ref = (data.get("ref") or "").strip()
+    if not ref:
+        return jsonify({"ok": False, "error": "ref fehlt"}), 400
+
+    lead, err = _crm_lead_by_ref(ref)
+    if err:
+        status = 404 if err.get("error") == "Lead nicht gefunden" else 502
+        return jsonify(err), status
+
+    from business_model.contract_send import generate_contract_html, send_contract_to_lead
+
+    try:
+        result = send_contract_to_lead(data, lead)
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 502
+
+    if not result.get("ok"):
+        status = 400 if "E-Mail" in str(result.get("error", "")) else 502
+        return jsonify(result), status
+
+    _, _, calc = generate_contract_html(data, lead)
+    send_updates = dict(data)
+    send_updates["mark_sent"] = True
+    crm_err = _apply_contract_crm_updates(ref, send_updates, calc)
+    if crm_err:
+        result["crm_warning"] = crm_err.get("error", "CRM-Update fehlgeschlagen")
+
+    return jsonify(result)
+
+
+@app.post("/api/crm/provision/calc")
+def api_crm_provision_calc():
+    if not _crm_auth_ok():
+        abort(401)
+    data = request.get_json(silent=True) or {}
+    from business_model.contract_send import parse_netto_eur
+    from billing.provision import calculate_provision
+
+    netto = parse_netto_eur(data.get("netto_eur") or data.get("netto") or 0)
+    if netto <= 0:
+        return jsonify({"ok": False, "error": "Ungültiger Netto-Betrag"}), 400
+    return jsonify({"ok": True, "provision": calculate_provision(netto)})
 
 
 @app.post("/api/crm/invoice")

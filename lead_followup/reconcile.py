@@ -70,9 +70,17 @@ def run_maintenance() -> dict:
     retried = retry_unscheduled()
     sent = process_due()
     digest = maybe_send_digest()
+    contract_jobs: dict = {}
+    try:
+        from business_model.contract_auto import run_contract_inbox_jobs
+
+        contract_jobs = run_contract_inbox_jobs()
+    except Exception as exc:
+        contract_jobs = {"ok": False, "error": str(exc)}
     return {
         "inbox": inbox,
         "retried": retried,
         "sent": sent,
         "digest_sent": digest,
+        "contract": contract_jobs,
     }

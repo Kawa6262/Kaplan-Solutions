@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 import time
 from contextlib import contextmanager
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Iterator
 
 from outreach import config
@@ -95,6 +95,38 @@ def _migrate_columns(conn: sqlite3.Connection) -> None:
         conn.execute(
             "ALTER TABLE prospects ADD COLUMN campaign TEXT NOT NULL DEFAULT 'partner'"
         )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS day_flags (
+            day TEXT NOT NULL,
+            key TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (day, key)
+        )
+        """
+    )
+    if "replied_at" not in prospect_cols:
+        conn.execute("ALTER TABLE prospects ADD COLUMN replied_at TEXT")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS replies (
+            message_id TEXT PRIMARY KEY,
+            prospect_id INTEGER,
+            from_email TEXT NOT NULL,
+            company_name TEXT,
+            subject TEXT,
+            snippet TEXT,
+            received_at TEXT NOT NULL,
+            crm_ref TEXT
+        )
+        """
+    )
+    if "rating" not in prospect_cols:
+        conn.execute("ALTER TABLE prospects ADD COLUMN rating REAL")
+    if "rating_count" not in prospect_cols:
+        conn.execute("ALTER TABLE prospects ADD COLUMN rating_count INTEGER NOT NULL DEFAULT 0")
+    if "business_status" not in prospect_cols:
+        conn.execute("ALTER TABLE prospects ADD COLUMN business_status TEXT")
     counter_cols = {row[1] for row in conn.execute("PRAGMA table_info(daily_counters)")}
     for col in ("referral_discovered", "referral_enriched", "referral_sent"):
         if col not in counter_cols:
@@ -105,9 +137,13 @@ def _migrate_columns(conn: sqlite3.Connection) -> None:
         "bauherr_discovered",
         "bauherr_enriched",
         "bauherr_sent",
+        "projekt_discovered",
+        "projekt_enriched",
+        "projekt_sent",
         "morning_report_sent",
         "midday_report_sent",
         "alert_sent",
+        "health_check_sent",
     ):
         if col not in counter_cols:
             conn.execute(
@@ -134,7 +170,24 @@ def _migrate_columns(conn: sqlite3.Connection) -> None:
         )
     conn.execute("INSERT OR IGNORE INTO search_cursor (id, trade_idx, city_idx) VALUES (2, 0, 0)")
     conn.execute("INSERT OR IGNORE INTO search_cursor (id, trade_idx, city_idx) VALUES (3, 0, 0)")
+    conn.execute("INSERT OR IGNORE INTO search_cursor (id, trade_idx, city_idx) VALUES (4, 0, 0)")
+    _migrate_sheet_sync_na(conn)
     conn.commit()
+
+
+def _migrate_sheet_sync_na(conn: sqlite3.Connection) -> None:
+    """Referral/Bauherr werden nicht ins Sheet importiert — Projekt schon."""
+    now = datetime.now().isoformat(timespec="seconds")
+    conn.execute(
+        """
+        UPDATE prospects
+        SET sheet_ref = 'n/a', sheet_synced_at = ?
+        WHERE status = 'sent'
+          AND campaign NOT IN ('partner', 'projekt')
+          AND sheet_synced_at IS NULL
+        """,
+        (now,),
+    )
 
 
 _COUNTER_MAP = {
@@ -153,12 +206,18 @@ _COUNTER_MAP = {
         "enriched": "bauherr_enriched",
         "sent": "bauherr_sent",
     },
+    "projekt": {
+        "discovered": "projekt_discovered",
+        "enriched": "projekt_enriched",
+        "sent": "projekt_sent",
+    },
 }
 
 _CURSOR_IDS = {
     "partner": 1,
     "referral": 2,
     "bauherr": 3,
+    "projekt": 4,
 }
 
 
@@ -268,6 +327,9 @@ def upsert_prospect(
     website: str = "",
     phone: str = "",
     campaign: str = "partner",
+    rating: float | None = None,
+    rating_count: int = 0,
+    business_status: str = "",
 ) -> bool:
     """Returns True if newly inserted."""
     now = datetime.now().isoformat(timespec="seconds")
@@ -276,15 +338,30 @@ def upsert_prospect(
         stored_id = f"referral:{place_id}"
     elif campaign == config.CAMPAIGN_BAUHERR:
         stored_id = f"bauherr:{place_id}"
+    elif campaign == config.CAMPAIGN_PROJEKT:
+        stored_id = f"projekt:{place_id}"
     with _conn() as db:
         cur = db.execute(
             """
             INSERT OR IGNORE INTO prospects
-                (place_id, company_name, city, trade, website, phone, status, created_at, campaign)
-            VALUES (?, ?, ?, ?, ?, ?, 'new', ?, ?)
+                (place_id, company_name, city, trade, website, phone, status, created_at,
+                 campaign, rating, rating_count, business_status)
+            VALUES (?, ?, ?, ?, ?, ?, 'new', ?, ?, ?, ?, ?)
             """,
-            (stored_id, company_name, city, trade, website, phone, now, campaign),
+            (
+                stored_id, company_name, city, trade, website, phone, now,
+                campaign, rating, rating_count, business_status,
+            ),
         )
+        if cur.rowcount == 0 and rating is not None:
+            # Bereits bekannte Firma: Bewertung nachtragen, sie kann sich geändert haben.
+            db.execute(
+                """
+                UPDATE prospects SET rating = ?, rating_count = ?, business_status = ?
+                WHERE place_id = ?
+                """,
+                (rating, rating_count, business_status, stored_id),
+            )
         return cur.rowcount > 0
 
 
@@ -339,9 +416,10 @@ def prospects_to_enrich(limit: int) -> list[sqlite3.Row]:
                 WHERE status = 'new' AND website IS NOT NULL AND website != ''
                 ORDER BY
                   CASE campaign
-                    WHEN 'referral' THEN 0
-                    WHEN 'bauherr' THEN 1
-                    ELSE 2
+                    WHEN 'projekt' THEN 0
+                    WHEN 'referral' THEN 1
+                    WHEN 'bauherr' THEN 2
+                    ELSE 3
                   END,
                   id ASC
                 LIMIT ?
@@ -373,8 +451,49 @@ def mark_enriched(prospect_id: int, email: str | None, status: str) -> None:
 
 
 def next_to_send(campaign: str = "partner") -> sqlite3.Row | None:
-    cities = config.GERMAN_CITIES
+    cities = config.cities_for(campaign)
     placeholders = ",".join("?" * len(cities))
+    # Die Projekt-Kampagne trifft Betriebe, die teils schon eine Partner-Mail
+    # bekommen haben. Zwei Mails kurz hintereinander an dieselbe Adresse sind
+    # der schnellste Weg in den Spam-Ordner, deshalb die Sperrfrist.
+    guard = ""
+    params: list[object] = [campaign, *cities]
+
+    # Wir empfehlen diese Betriebe einem echten Auftraggeber weiter. Firmen mit
+    # schlechtem Ruf schaden der Vermittlung, dauerhaft geschlossene sind wertlos.
+    quality = """
+              AND (business_status IS NULL OR business_status != 'CLOSED_PERMANENTLY')"""
+    order = "enriched_at ASC"
+    if campaign == config.CAMPAIGN_PROJEKT:
+        quality += f"""
+              AND NOT (rating IS NOT NULL
+                       AND rating < {config.PROJEKT_MIN_RATING}
+                       AND rating_count >= {config.PROJEKT_MIN_RATING_COUNT})"""
+        # Gut bewertete Betriebe zuerst — sie antworten eher und passen besser.
+        order = """
+            CASE
+                WHEN rating >= 4.5 AND rating_count >= 10 THEN 0
+                WHEN rating >= 4.0 AND rating_count >= 3  THEN 1
+                WHEN rating >= 4.0                        THEN 2
+                WHEN rating IS NULL                       THEN 3
+                ELSE 4
+            END,
+            rating_count DESC,
+            enriched_at ASC"""
+
+    if campaign == config.CAMPAIGN_PROJEKT:
+        guard = """
+              AND NOT EXISTS (
+                  SELECT 1 FROM prospects other
+                  WHERE lower(other.email) = lower(prospects.email)
+                    AND other.sent_at IS NOT NULL
+                    AND other.sent_at >= ?
+              )"""
+        cutoff = (
+            datetime.now() - timedelta(days=config.PROJEKT_MIN_DAYS_SINCE_CONTACT)
+        ).isoformat(timespec="seconds")
+        params.append(cutoff)
+
     with _conn() as db:
         return db.execute(
             f"""
@@ -382,21 +501,186 @@ def next_to_send(campaign: str = "partner") -> sqlite3.Row | None:
             WHERE status = 'queued'
               AND campaign = ?
               AND email IS NOT NULL AND email != ''
-              AND city IN ({placeholders})
-            ORDER BY enriched_at ASC
+              AND city IN ({placeholders}){quality}{guard}
+            ORDER BY {order}
             LIMIT 1
             """,
-            [campaign, *cities],
+            params,
         ).fetchone()
+
+
+def queued_without_rating(campaign: str, limit: int = 10) -> list[sqlite3.Row]:
+    with _conn() as db:
+        return db.execute(
+            """
+            SELECT id, company_name, city FROM prospects
+            WHERE status = 'queued' AND campaign = ? AND rating IS NULL
+              AND email IS NOT NULL AND email != ''
+              AND (business_status IS NULL OR business_status != 'RATING_CHECKED')
+            ORDER BY enriched_at ASC
+            LIMIT ?
+            """,
+            (campaign, limit),
+        ).fetchall()
+
+
+def set_rating(prospect_id: int, rating: float | None, rating_count: int) -> None:
+    """Merkt auch das Fehlen einer Bewertung, damit nicht erneut abgefragt wird."""
+    with _conn() as db:
+        if rating is None:
+            db.execute(
+                "UPDATE prospects SET business_status = 'RATING_CHECKED' WHERE id = ?",
+                (prospect_id,),
+            )
+        else:
+            db.execute(
+                "UPDATE prospects SET rating = ?, rating_count = ? WHERE id = ?",
+                (rating, rating_count, prospect_id),
+            )
+
+
+def flag_was_set(day_iso: str, key: str) -> bool:
+    with _conn() as db:
+        row = db.execute(
+            "SELECT 1 FROM day_flags WHERE day = ? AND key = ?", (day_iso, key)
+        ).fetchone()
+        return row is not None
+
+
+def set_flag(day_iso: str, key: str) -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _conn() as db:
+        db.execute(
+            "INSERT OR IGNORE INTO day_flags (day, key, created_at) VALUES (?, ?, ?)",
+            (day_iso, key, now),
+        )
+
+
+def get_prospect(prospect_id: int) -> sqlite3.Row | None:
+    with _conn() as db:
+        return db.execute(
+            "SELECT * FROM prospects WHERE id = ?", (prospect_id,)
+        ).fetchone()
+
+
+def reply_seen(message_id: str) -> bool:
+    with _conn() as db:
+        row = db.execute(
+            "SELECT 1 FROM replies WHERE message_id = ?", (message_id,)
+        ).fetchone()
+        return row is not None
+
+
+def record_reply(
+    *,
+    message_id: str,
+    prospect_id: int | None,
+    from_email: str,
+    company_name: str,
+    subject: str,
+    snippet: str,
+    crm_ref: str = "",
+) -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _conn() as db:
+        db.execute(
+            """
+            INSERT OR IGNORE INTO replies
+                (message_id, prospect_id, from_email, company_name, subject,
+                 snippet, received_at, crm_ref)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (message_id, prospect_id, from_email, company_name, subject, snippet, now, crm_ref),
+        )
+        if prospect_id:
+            db.execute(
+                "UPDATE prospects SET replied_at = ? WHERE id = ? AND replied_at IS NULL",
+                (now, prospect_id),
+            )
+
+
+def find_sent_prospect_by_email(email: str) -> sqlite3.Row | None:
+    """Antwortadresse zuordnen — zuerst exakt, sonst über die Domain.
+
+    Firmen antworten oft von einer persönlichen Adresse, obwohl die Anfrage
+    an info@ ging.
+    """
+    addr = (email or "").strip().lower()
+    if not addr or "@" not in addr:
+        return None
+    domain = addr.split("@", 1)[1]
+    with _conn() as db:
+        row = db.execute(
+            """
+            SELECT * FROM prospects
+            WHERE lower(email) = ? AND sent_at IS NOT NULL
+            ORDER BY sent_at DESC LIMIT 1
+            """,
+            (addr,),
+        ).fetchone()
+        if row:
+            return row
+        return db.execute(
+            """
+            SELECT * FROM prospects
+            WHERE lower(email) LIKE ? AND sent_at IS NOT NULL
+            ORDER BY sent_at DESC LIMIT 1
+            """,
+            (f"%@{domain}",),
+        ).fetchone()
+
+
+def replies_on_day(day_iso: str) -> list[sqlite3.Row]:
+    with _conn() as db:
+        return list(
+            db.execute(
+                """
+                SELECT * FROM replies WHERE date(received_at) = ?
+                ORDER BY received_at ASC
+                """,
+                (day_iso,),
+            ).fetchall()
+        )
+
+
+def reply_stats(campaign: str | None = None) -> dict:
+    with _conn() as db:
+        if campaign:
+            total = db.execute(
+                """
+                SELECT COUNT(*) FROM replies r
+                JOIN prospects p ON p.id = r.prospect_id
+                WHERE p.campaign = ?
+                """,
+                (campaign,),
+            ).fetchone()[0]
+        else:
+            total = db.execute("SELECT COUNT(*) FROM replies").fetchone()[0]
+        return {"total": total}
 
 
 def mark_sent(prospect_id: int) -> None:
     now = datetime.now().isoformat(timespec="seconds")
     with _conn() as db:
+        row = db.execute(
+            "SELECT campaign FROM prospects WHERE id = ?", (prospect_id,)
+        ).fetchone()
+        campaign = (row["campaign"] if row else config.CAMPAIGN_PARTNER) or config.CAMPAIGN_PARTNER
         db.execute(
             "UPDATE prospects SET status = 'sent', sent_at = ? WHERE id = ?",
             (now, prospect_id),
         )
+        # Referral und Bauherr gehören nicht ins Partner-Sheet. Projekt-Kontakte
+        # schon — sie werden gleich nach dem Versand dorthin übertragen.
+        if campaign not in (config.CAMPAIGN_PARTNER, config.CAMPAIGN_PROJEKT):
+            db.execute(
+                """
+                UPDATE prospects
+                SET sheet_ref = 'n/a', sheet_synced_at = ?
+                WHERE id = ?
+                """,
+                (now, prospect_id),
+            )
 
 
 def is_sheet_synced(prospect_id: int) -> bool:
@@ -425,7 +709,7 @@ def count_unsynced_sent() -> int:
         row = db.execute(
             """
             SELECT COUNT(*) AS c FROM prospects
-            WHERE status = 'sent' AND campaign = 'partner'
+            WHERE status = 'sent' AND campaign IN ('partner', 'projekt')
               AND email IS NOT NULL AND email != ''
               AND sheet_synced_at IS NULL
             """
@@ -440,7 +724,7 @@ def unsynced_sent(limit: int = 20) -> list[sqlite3.Row]:
                 """
                 SELECT * FROM prospects
                 WHERE status = 'sent'
-                  AND campaign = 'partner'
+                  AND campaign IN ('partner', 'projekt')
                   AND email IS NOT NULL AND email != ''
                   AND sheet_synced_at IS NULL
                 ORDER BY sent_at ASC
@@ -488,8 +772,11 @@ def sheet_sync_stats() -> dict:
         row = db.execute(
             """
             SELECT
-                SUM(CASE WHEN status = 'sent' AND sheet_synced_at IS NOT NULL THEN 1 ELSE 0 END) AS synced,
-                SUM(CASE WHEN status = 'sent' AND sheet_synced_at IS NULL THEN 1 ELSE 0 END) AS pending
+                SUM(CASE WHEN status = 'sent' AND campaign = 'partner'
+                    AND sheet_synced_at IS NOT NULL THEN 1 ELSE 0 END) AS synced,
+                SUM(CASE WHEN status = 'sent' AND campaign = 'partner'
+                    AND email IS NOT NULL AND email != ''
+                    AND sheet_synced_at IS NULL THEN 1 ELSE 0 END) AS pending
             FROM prospects
             """
         ).fetchone()
@@ -523,7 +810,10 @@ def stats_summary() -> dict:
                 SUM(CASE WHEN campaign = 'referral' AND status = 'queued' THEN 1 ELSE 0 END) AS referral_queued,
                 SUM(CASE WHEN campaign = 'bauherr' AND status = 'sent' THEN 1 ELSE 0 END) AS bauherr_sent_all,
                 SUM(CASE WHEN campaign = 'bauherr' AND status = 'queued' THEN 1 ELSE 0 END) AS bauherr_queued,
-                SUM(CASE WHEN campaign = 'partner' AND status = 'queued' THEN 1 ELSE 0 END) AS partner_queued
+                SUM(CASE WHEN campaign = 'partner' AND status = 'queued' THEN 1 ELSE 0 END) AS partner_queued,
+                SUM(CASE WHEN campaign = 'projekt' AND status = 'sent' THEN 1 ELSE 0 END) AS projekt_sent_all,
+                SUM(CASE WHEN campaign = 'projekt' AND status = 'queued' THEN 1 ELSE 0 END) AS projekt_queued,
+                SUM(CASE WHEN campaign = 'projekt' AND status = 'new' THEN 1 ELSE 0 END) AS projekt_new
             FROM prospects
             """
         ).fetchone()
@@ -531,7 +821,8 @@ def stats_summary() -> dict:
             """
             SELECT discovered, enriched, sent,
                    referral_discovered, referral_enriched, referral_sent,
-                   bauherr_discovered, bauherr_enriched, bauherr_sent
+                   bauherr_discovered, bauherr_enriched, bauherr_sent,
+                   projekt_discovered, projekt_enriched, projekt_sent
             FROM daily_counters WHERE day = ?
             """,
             (_today(),),
@@ -556,6 +847,11 @@ def stats_summary() -> dict:
         "today_referral_sent": int(today["referral_sent"] if today else 0),
         "today_bauherr_discovered": int((today["bauherr_discovered"] if today else 0) or 0),
         "today_bauherr_sent": int((today["bauherr_sent"] if today else 0) or 0),
+        "projekt_sent_all_time": int(totals["projekt_sent_all"] or 0),
+        "projekt_queued": int(totals["projekt_queued"] or 0),
+        "projekt_new": int(totals["projekt_new"] or 0),
+        "today_projekt_discovered": int((today["projekt_discovered"] if today else 0) or 0),
+        "today_projekt_sent": int((today["projekt_sent"] if today else 0) or 0),
     }
 
 
@@ -566,7 +862,8 @@ def get_daily_counters(day: str) -> dict:
             SELECT discovered, enriched, sent, report_sent,
                    referral_discovered, referral_enriched, referral_sent,
                    bauherr_discovered, bauherr_enriched, bauherr_sent,
-                   morning_report_sent, midday_report_sent, alert_sent
+                   morning_report_sent, midday_report_sent, alert_sent,
+                   health_check_sent
             FROM daily_counters WHERE day = ?
             """,
             (day,),
@@ -586,6 +883,7 @@ def get_daily_counters(day: str) -> dict:
             "morning_report_sent": 0,
             "midday_report_sent": 0,
             "alert_sent": 0,
+            "health_check_sent": 0,
         }
     return {
         "discovered": int(row["discovered"]),
@@ -601,6 +899,7 @@ def get_daily_counters(day: str) -> dict:
         "morning_report_sent": int(row["morning_report_sent"] or 0),
         "midday_report_sent": int(row["midday_report_sent"] or 0),
         "alert_sent": int(row["alert_sent"] or 0),
+        "health_check_sent": int(row["health_check_sent"] or 0),
     }
 
 
@@ -659,6 +958,22 @@ def mark_alert_sent(day: str) -> None:
             INSERT INTO daily_counters (day, discovered, enriched, sent, alert_sent)
             VALUES (?, 0, 0, 0, 1)
             ON CONFLICT(day) DO UPDATE SET alert_sent = 1
+            """,
+            (day,),
+        )
+
+
+def health_check_was_sent(day: str) -> bool:
+    return get_daily_counters(day).get("health_check_sent", 0) > 0
+
+
+def mark_health_check_sent(day: str) -> None:
+    with _conn() as db:
+        db.execute(
+            """
+            INSERT INTO daily_counters (day, discovered, enriched, sent, health_check_sent)
+            VALUES (?, 0, 0, 0, 1)
+            ON CONFLICT(day) DO UPDATE SET health_check_sent = 1
             """,
             (day,),
         )

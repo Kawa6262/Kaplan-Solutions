@@ -13,7 +13,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import TYPE_CHECKING
 
-from email_deliverability import deliverability_headers
+from email_deliverability import deliverability_headers, transactional_headers
 
 if TYPE_CHECKING:
     import types
@@ -53,6 +53,8 @@ def send_resend(
     attachments: list[dict] | None = None,
     scheduled_at: str | None = None,
     tags: list[dict[str, str]] | None = None,
+    mail_kind: str = "outreach",
+    entity_ref: str | None = None,
 ) -> str | None:
     payload: dict = {
         "from": RESEND_FROM,
@@ -64,7 +66,10 @@ def send_resend(
     reply = reply_to or os.getenv("REPLY_EMAIL", "").strip()
     if reply:
         payload["reply_to"] = reply
-    payload["headers"] = deliverability_headers(recipient=to)
+    if mail_kind == "transactional":
+        payload["headers"] = transactional_headers(entity_ref)
+    else:
+        payload["headers"] = deliverability_headers(recipient=to)
     if attachments:
         payload["attachments"] = attachments
     if scheduled_at:
@@ -99,7 +104,13 @@ def send_resend(
 
 
 def send_smtp(
-    to: str, subject: str, text_body: str, html_body: str, reply_to: str | None = None
+    to: str,
+    subject: str,
+    text_body: str,
+    html_body: str,
+    reply_to: str | None = None,
+    mail_kind: str = "outreach",
+    entity_ref: str | None = None,
 ) -> None:
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
@@ -107,6 +118,13 @@ def send_smtp(
     msg["To"] = to
     if reply_to:
         msg["Reply-To"] = reply_to
+    headers = (
+        transactional_headers(entity_ref)
+        if mail_kind == "transactional"
+        else deliverability_headers(recipient=to)
+    )
+    for key, value in headers.items():
+        msg[key] = value
     msg.attach(MIMEText(text_body, "plain", "utf-8"))
     msg.attach(MIMEText(html_body, "html", "utf-8"))
     context = ssl.create_default_context()
@@ -126,14 +144,20 @@ def send_email(
     reply_to: str | None = None,
     attachments: list[dict] | None = None,
     tags: list[dict[str, str]] | None = None,
+    mail_kind: str = "outreach",
+    entity_ref: str | None = None,
 ) -> None:
     if uses_resend():
         send_resend(
             to, subject, text_body, html_body,
             reply_to=reply_to, attachments=attachments, tags=tags,
+            mail_kind=mail_kind, entity_ref=entity_ref,
         )
     else:
-        send_smtp(to, subject, text_body, html_body, reply_to=reply_to)
+        send_smtp(
+            to, subject, text_body, html_body,
+            reply_to=reply_to, mail_kind=mail_kind, entity_ref=entity_ref,
+        )
 
 
 def send_email_scheduled(
@@ -290,6 +314,13 @@ def install(server: types.ModuleType) -> None:
             return jsonify({"ok": False, "error": _friendly_error(exc)}), 500
 
         send_customer_confirmation_safe(payload, role_label, now)
+        try:
+            from business_model.contract_auto import auto_send_contract_after_inquiry
+
+            auto_send_contract_after_inquiry(payload)
+            log_line = log_line.replace("| OK |", "| OK + Bestätigung + Vertrag |")
+        except Exception as exc:
+            print(f"[contract-auto] Auto-Versand: {exc}", flush=True)
         try:
             from lead_followup import schedule_followup
 

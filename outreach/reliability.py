@@ -8,6 +8,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from outreach import config
+from outreach import pacing
 from outreach import sender
 from outreach import storage
 
@@ -49,12 +50,38 @@ def catch_up_after_gap(gap_seconds: float) -> int:
     """
     if not config.WAKE_CATCHUP_ENABLED:
         return 0
-    if gap_seconds < config.DAEMON_INTERVAL * 1.5:
-        return 0
     if not sender._in_send_window():
         return 0
 
+    # Mehrere Stunden/Tage Pause → aggressiv alles Tageskontingent nachholen
+    if gap_seconds >= 3600 * 4:
+        _log(
+            f"Lange Pause ({gap_seconds / 3600:.1f}h) — "
+            f"aggressiver Nachholversand bis Tageslimit"
+        )
+        total = 0
+        for _ in range(30):
+            if not sender._in_send_window():
+                break
+            sent = sender.send_end_of_day_flush() if pacing.is_flush_window() else sender.send_batch(max_per_cycle=12)
+            if sent <= 0:
+                sent = sender.send_batch(max_per_cycle=12)
+            if sent <= 0:
+                break
+            total += sent
+            time.sleep(1)
+        if total:
+            _log(f"Langer Nachholversand: {total} Mails")
+        return total
+
+    if gap_seconds < config.DAEMON_INTERVAL * 1.5:
+        return 0
+
     remaining = config.DAILY_SEND_LIMIT - storage.get_counter("sent")
+    if config.PROJEKT_ENABLED and config.PROJEKT_SEND_ENABLED:
+        remaining += config.PROJEKT_DAILY_SEND_LIMIT - storage.get_counter(
+            "sent", config.CAMPAIGN_PROJEKT
+        )
     if remaining <= 0:
         return 0
 

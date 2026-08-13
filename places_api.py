@@ -67,7 +67,10 @@ def text_search(
     data = _request(
         SEARCH_URL,
         method="POST",
-        field_mask="places.id,places.displayName,places.websiteUri,places.nationalPhoneNumber",
+        field_mask=(
+            "places.id,places.displayName,places.websiteUri,places.nationalPhoneNumber,"
+            "places.rating,places.userRatingCount,places.businessStatus"
+        ),
         body=body,
     )
     if data.get("error"):
@@ -80,11 +83,15 @@ def text_search(
         name = _display_name(place)
         if not place_id or not name:
             continue
+        rating = place.get("rating")
         results.append({
             "place_id": place_id,
             "name": name,
             "website": (place.get("websiteUri") or "").strip(),
             "phone": (place.get("nationalPhoneNumber") or "").strip(),
+            "rating": float(rating) if rating is not None else None,
+            "rating_count": int(place.get("userRatingCount") or 0),
+            "business_status": (place.get("businessStatus") or "").strip(),
         })
 
     return results, data.get("nextPageToken"), None
