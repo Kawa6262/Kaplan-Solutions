@@ -160,6 +160,12 @@ function doPost(e) {
     if (data.action === 'crm_opportunity_update') {
       return handleCrmOpportunityUpdate_(data);
     }
+    if (data.action === 'outreach_live_save') {
+      return handleOutreachLiveSave_(data);
+    }
+    if (data.action === 'outreach_live_get') {
+      return handleOutreachLiveGet_(data);
+    }
     if (data.action === 'match_pair_for_ref') {
       return handleMatchPairForRef_(data);
     }
@@ -2336,6 +2342,57 @@ function computeCrmFingerprint_(leads, opportunities, activities) {
     opportunities.map(function (o) { return o.id + ':' + o.stage; }).join('|')
   ];
   return Utilities.base64EncodeWebSafe(String(parts.join('::')).substring(0, 500));
+}
+
+var TAB_OUTREACH_LIVE = '_OutreachLive';
+
+function handleOutreachLiveSave_(data) {
+  if (!verifyCrmSecret_(data)) {
+    return jsonResponse_({ ok: false, error: 'unauthorized' });
+  }
+  var payload = data.payload;
+  if (!payload) {
+    return jsonResponse_({ ok: false, error: 'payload fehlt' });
+  }
+  var json = typeof payload === 'string' ? payload : JSON.stringify(payload);
+  if (json.length > 49000) {
+    var obj = typeof payload === 'string' ? JSON.parse(payload) : payload;
+    if (obj.sends && obj.sends.length > 300) {
+      obj.sends = obj.sends.slice(0, 300);
+      obj.sends_truncated = true;
+    }
+    json = JSON.stringify(obj);
+  }
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName(TAB_OUTREACH_LIVE);
+  if (!sh) {
+    sh = ss.insertSheet(TAB_OUTREACH_LIVE);
+    try { sh.hideSheet(); } catch (e) {}
+  }
+  sh.clear();
+  sh.getRange(1, 1).setValue(json);
+  sh.getRange(2, 1).setValue(Utilities.formatDate(new Date(), TZ, "yyyy-MM-dd'T'HH:mm:ss"));
+  return jsonResponse_({ ok: true, bytes: json.length });
+}
+
+function handleOutreachLiveGet_(data) {
+  if (!verifyCrmSecret_(data)) {
+    return jsonResponse_({ ok: false, error: 'unauthorized' });
+  }
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName(TAB_OUTREACH_LIVE);
+  if (!sh || sh.getLastRow() < 1) {
+    return jsonResponse_({ ok: false, error: 'Keine Outreach-Daten — Mac-Sync ausstehend' });
+  }
+  var raw = sh.getRange(1, 1).getValue();
+  if (!raw) {
+    return jsonResponse_({ ok: false, error: 'Outreach-Snapshot leer' });
+  }
+  var obj = JSON.parse(String(raw));
+  obj.ok = true;
+  obj.source = obj.source || 'sheet_sync';
+  obj.synced_at = sh.getRange(2, 1).getValue() || '';
+  return jsonResponse_(obj);
 }
 
 function handleCrmSnapshot_(data) {

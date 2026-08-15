@@ -7,11 +7,9 @@ import os
 import time
 import urllib.error
 import urllib.request
-from pathlib import Path
 
 from outreach import config, dashboard
 
-ROOT = config.ROOT
 LAST_PUSH_PATH = config.DATA_DIR / "outreach_live_last_push.txt"
 _MIN_INTERVAL_SEC = int(os.getenv("OUTREACH_LIVE_SYNC_INTERVAL", "60"))
 
@@ -32,26 +30,22 @@ def _mark_pushed() -> None:
     LAST_PUSH_PATH.write_text(str(time.time()), encoding="utf-8")
 
 
-def push_to_cloud(*, force: bool = False) -> dict:
-    """POST Dashboard-Snapshot an Render (CRON_SECRET)."""
-    if not _sync_enabled():
-        return {"ok": False, "skipped": True, "reason": "OUTREACH_LIVE_SYNC aus"}
+def _compact_payload(payload: dict) -> dict:
+    out = dict(payload)
+    max_sends = int(os.getenv("OUTREACH_LIVE_SYNC_SENDS", "800"))
+    sends = list(out.get("sends") or [])
+    if len(sends) > max_sends:
+        out["sends"] = sends[:max_sends]
+        out["sends_truncated"] = True
+    return out
 
-    if not force and time.time() - _last_push_ts() < _MIN_INTERVAL_SEC:
-        return {"ok": True, "skipped": True, "reason": "throttled"}
 
+def _push_render(payload: dict) -> dict:
     base = os.getenv("COMPANY_WEBSITE", "https://kaplan-solutions.de").strip().rstrip("/")
-    secret = os.getenv("CRON_SECRET", "").strip()
     crm = os.getenv("ADMIN_CRM_SECRET", "").strip()
-    if not secret and not crm:
-        return {"ok": False, "error": "CRON_SECRET oder ADMIN_CRM_SECRET fehlt für Live-Sync"}
-
-    payload = dashboard.gather_dashboard(
-        campaign="all",
-        day="all",
-        sends_limit=int(os.getenv("OUTREACH_LIVE_SYNC_SENDS", "2500")),
-        source="mac_sync",
-    )
+    cron = os.getenv("CRON_SECRET", "").strip()
+    if not crm and not cron:
+        return {"ok": False, "error": "Kein Secret für Render-Push"}
 
     url = f"{base}/api/outreach/push"
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -59,28 +53,64 @@ def push_to_cloud(*, force: bool = False) -> dict:
         "Content-Type": "application/json",
         "User-Agent": "KaplanSolutions-OutreachLiveSync/1.0",
     }
-    if secret:
-        headers["X-Cron-Secret"] = secret
     if crm:
         headers["X-Admin-Crm-Secret"] = crm
-    req = urllib.request.Request(
-        url,
-        data=body,
-        headers=headers,
-        method="POST",
-    )
+    if cron:
+        headers["X-Cron-Secret"] = cron
+    req = urllib.request.Request(url, data=body, headers=headers, method="POST")
     try:
         with urllib.request.urlopen(req, timeout=90) as resp:
             raw = resp.read().decode("utf-8", errors="replace")
-            result = json.loads(raw) if raw.strip() else {"ok": True}
-            if result.get("ok"):
-                _mark_pushed()
-            return result
+            return json.loads(raw) if raw.strip() else {"ok": True, "via": "render"}
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")[:400]
-        return {"ok": False, "error": f"HTTP {exc.code}: {detail}"}
+        return {"ok": False, "error": f"HTTP {exc.code}: {detail}", "via": "render"}
     except Exception as exc:
-        return {"ok": False, "error": str(exc)}
+        return {"ok": False, "error": str(exc), "via": "render"}
+
+
+def _push_sheet(payload: dict) -> dict:
+    from sheet_client import sheet_action
+
+    result = sheet_action("outreach_live_save", {"payload": payload})
+    if result.get("ok"):
+        result["via"] = "sheet"
+    return result
+
+
+def push_to_cloud(*, force: bool = False) -> dict:
+    """Snapshot an Render und/oder Google Sheet (Fallback)."""
+    if not _sync_enabled():
+        return {"ok": False, "skipped": True, "reason": "OUTREACH_LIVE_SYNC aus"}
+
+    if not force and time.time() - _last_push_ts() < _MIN_INTERVAL_SEC:
+        return {"ok": True, "skipped": True, "reason": "throttled"}
+
+    payload = _compact_payload(
+        dashboard.gather_dashboard(
+            campaign="all",
+            day="all",
+            sends_limit=int(os.getenv("OUTREACH_LIVE_SYNC_SENDS", "800")),
+            source="mac_sync",
+        )
+    )
+
+    render = _push_render(payload)
+    if render.get("ok"):
+        _mark_pushed()
+        return render
+
+    sheet = _push_sheet(payload)
+    if sheet.get("ok"):
+        _mark_pushed()
+        return sheet
+
+    return {
+        "ok": False,
+        "error": sheet.get("error") or render.get("error") or "Sync fehlgeschlagen",
+        "render": render.get("error"),
+        "sheet": sheet.get("error"),
+    }
 
 
 def push_if_due(*, force: bool = False) -> dict:

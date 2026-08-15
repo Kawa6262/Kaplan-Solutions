@@ -1930,6 +1930,10 @@ def _outreach_dashboard_response(
             pass
     live = _load_outreach_live()
     if not live:
+        sheet = _sheet_action("outreach_live_get")
+        if sheet.get("ok") and (sheet.get("campaigns") or sheet.get("sends")):
+            live = sheet
+    if not live:
         return {"ok": False, "error": "Keine Outreach-Daten — Mac-Daemon muss laufen"}
     return _filter_live_payload(
         live, campaign=campaign, day=day, limit=limit, offset=offset
