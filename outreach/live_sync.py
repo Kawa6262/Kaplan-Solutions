@@ -73,8 +73,18 @@ def _push_sheet(payload: dict) -> dict:
     from sheet_client import sheet_action
 
     result = sheet_action("outreach_live_save", {"payload": payload})
-    if result.get("ok"):
+    if result.get("ok") and result.get("bytes") is not None:
         result["via"] = "sheet"
+        return result
+    if result.get("junk"):
+        return {
+            "ok": False,
+            "error": "Apps Script: outreach_live_save deployen (google-leads-automation.gs)",
+            "via": "sheet",
+        }
+    if result.get("ok"):
+        return result
+    result["via"] = "sheet"
     return result
 
 
