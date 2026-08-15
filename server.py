@@ -1833,6 +1833,166 @@ def api_crm_opportunity_update():
     return jsonify(_sheet_action("crm_opportunity_update", data))
 
 
+# ── Outreach Live-Dashboard (Kaplan Sales) ─────────────────────────────────────
+
+OUTREACH_LIVE_PATH = BASE_DIR / "data" / "outreach_live.json"
+
+
+def _load_outreach_live() -> dict | None:
+    if not OUTREACH_LIVE_PATH.is_file():
+        return None
+    try:
+        data = json.loads(OUTREACH_LIVE_PATH.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) and data.get("ok") else None
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def _save_outreach_live(payload: dict) -> None:
+    OUTREACH_LIVE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    OUTREACH_LIVE_PATH.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def _filter_live_payload(
+    live: dict,
+    *,
+    campaign: str | None,
+    day: str | None,
+    limit: int,
+    offset: int,
+) -> dict:
+    out = dict(live)
+    sends = list(live.get("sends") or [])
+    if campaign and campaign != "all":
+        sends = [s for s in sends if (s.get("campaign") or "partner") == campaign]
+    if day and day != "all":
+        sends = [
+            s
+            for s in sends
+            if (s.get("date") or str(s.get("sent_at") or "")[:10]) == day
+        ]
+    total = len(sends)
+    page = sends[offset : offset + limit]
+    out["sends"] = page
+    out["sends_total"] = total
+    out["sends_limit"] = limit
+    out["sends_offset"] = offset
+    out["campaign_filter"] = campaign or "all"
+    if day:
+        out["day"] = day
+    by_city: dict[str, int] = {}
+    by_trade: dict[str, int] = {}
+    for s in sends:
+        c = (s.get("city") or "").strip()
+        t = (s.get("trade") or "").strip()
+        if c:
+            by_city[c] = by_city.get(c, 0) + 1
+        if t:
+            by_trade[t] = by_trade.get(t, 0) + 1
+    out["by_city"] = sorted(
+        [{"city": k, "count": v} for k, v in by_city.items()],
+        key=lambda x: -x["count"],
+    )[:15]
+    out["by_trade"] = sorted(
+        [{"trade": k, "count": v} for k, v in by_trade.items()],
+        key=lambda x: -x["count"],
+    )[:15]
+    out["source"] = live.get("source", "sync") + "_filtered"
+    return out
+
+
+def _outreach_dashboard_response(
+    *,
+    campaign: str | None,
+    day: str | None,
+    limit: int,
+    offset: int,
+    prefer_local: bool = True,
+) -> dict:
+    if prefer_local:
+        try:
+            from outreach import dashboard, storage
+
+            storage.init_db()
+            summary = storage.stats_summary()
+            if int(summary.get("total") or 0) >= 50:
+                return dashboard.gather_dashboard(
+                    campaign=campaign,
+                    day=day,
+                    sends_limit=limit,
+                    sends_offset=offset,
+                    source="local",
+                )
+        except Exception:
+            pass
+    live = _load_outreach_live()
+    if not live:
+        return {"ok": False, "error": "Keine Outreach-Daten — Mac-Daemon muss laufen"}
+    return _filter_live_payload(
+        live, campaign=campaign, day=day, limit=limit, offset=offset
+    )
+
+
+@app.get("/api/outreach/dashboard")
+def api_outreach_dashboard():
+    if not _crm_auth_ok():
+        abort(401)
+    campaign = (request.args.get("campaign") or "all").strip()
+    day = (request.args.get("day") or "").strip() or None
+    limit = min(int(request.args.get("limit", 1000)), 5000)
+    offset = max(0, int(request.args.get("offset", 0)))
+    try:
+        from outreach import dashboard, storage
+
+        storage.init_db()
+        if int(storage.stats_summary().get("total") or 0) >= 50:
+            payload = dashboard.gather_dashboard(
+                campaign=campaign,
+                day=day,
+                sends_limit=limit,
+                sends_offset=offset,
+                source="local",
+            )
+        else:
+            payload = _outreach_dashboard_response(
+                campaign=campaign,
+                day=day,
+                limit=limit,
+                offset=offset,
+                prefer_local=False,
+            )
+    except Exception as exc:
+        payload = _outreach_dashboard_response(
+            campaign=campaign,
+            day=day,
+            limit=limit,
+            offset=offset,
+            prefer_local=False,
+        )
+        if not payload.get("ok"):
+            payload["error"] = str(exc)
+    resp = jsonify(payload)
+    r = app.make_response(resp)
+    r.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    return r
+
+
+@app.post("/api/outreach/push")
+def api_outreach_push():
+    """Mac-Daemon → Cloud: Outreach-Snapshot speichern."""
+    if not _cron_auth_ok():
+        abort(401)
+    data = request.get_json(silent=True) or {}
+    if not data.get("ok"):
+        return jsonify({"ok": False, "error": "Payload ungültig"}), 400
+    data["synced_at"] = datetime.now().isoformat(timespec="seconds")
+    _save_outreach_live(data)
+    return jsonify({"ok": True, "sends": len(data.get("sends") or []), "updated_at": data.get("updated_at")})
+
+
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "8080"))
     if not email_configured():

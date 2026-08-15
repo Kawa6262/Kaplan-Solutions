@@ -16,13 +16,12 @@ from outreach.email_layout import (
     TEXT,
     body_block,
     highlight_box,
-    reply_hint_html,
     safe,
     text_footer,
     wrap_outreach_email,
 )
 from outreach.projekt import AKTUELL, Ausschreibung
-from outreach.urls import partner_form_url
+from outreach.urls import projekt_form_url
 
 # Welche Leistungen einen Betrieb betreffen. Ein Elektriker soll nicht über
 # Spielplätze lesen, sondern über seinen eigenen Anteil.
@@ -138,79 +137,90 @@ def build_bodies(
 ) -> tuple[str, str]:
     region = ausschreibung.region
     standort = city or region
-    form_url = partner_form_url(prospect_id)
+    form_url = projekt_form_url(prospect_id)
     intro, leistungen = _focus_lines(trade, ausschreibung)
     volumen = _euro(ausschreibung.volumen_gesamt)
     einheiten = ausschreibung.einheiten_gesamt
-
-    objekt_text = "\n\n".join(
-        f"{o.bezeichnung} — {o.einheiten}, rund {_euro(o.volumen_brutto)} brutto\n{o.umfang}"
-        for o in ausschreibung.objekte
+    anfrage_hinweis = (
+        f"Bitte vermerken Sie in der Beschreibung: „Projekt {region} / Vermittlung“ — "
+        "so ordnen wir Ihre Anfrage dem Bauvorhaben zu."
     )
+
     leistungs_text = "\n".join(f"- {l}" for l in leistungen)
     hinweis_text = "\n".join(f"- {h}" for h in ausschreibung.hinweise)
 
     text = f"""Sehr geehrte Damen und Herren,
 
-uns liegt ein konkretes Bauvorhaben in {region} vor, und wir suchen dafür eine ausführende Firma. Wir schreiben {company} an, weil Sie in {standort} tätig sind und das Objekt in Ihrem Einzugsgebiet liegt.
+wir vermitteln derzeit ein konkretes Bauvorhaben in {region} und suchen dafür eine ausführende Firma in Ihrer Region. {company} in {standort} ist uns dabei als möglicher Partner aufgefallen.
 
-Zwei Mehrfamilienhäuser in {region}, zusammen {einheiten} Wohneinheiten, Gesamtvolumen rund {volumen} brutto.
-
-{objekt_text}
+Das Vorhaben umfasst die Modernisierung von zwei Mehrfamilienhäusern mit insgesamt {einheiten} Wohneinheiten. Das Gesamtvolumen liegt bei rund {volumen} brutto. Der Auftraggeber bleibt bis zur vertraglichen Einbindung vertraulich — Details und Unterlagen erhalten Sie erst nach einem persönlichen Abstimmungsgespräch.
 
 {intro}
 
+Leistungsumfang (Auszug):
 {leistungs_text}
 
 Rahmenbedingungen:
 {hinweis_text}
 
-Passt das zu Ihrer Kapazität?
-Antworten Sie einfach auf diese E-Mail mit Ihrem Gewerk und dem möglichen Ausführungszeitraum. Wir melden uns persönlich und stimmen einen Ortstermin ab.
+Passt das zu Ihrer Kapazität und Ihrem Leistungsspektrum?
+Stellen Sie bitte eine kurze Anfrage über unsere Website:
 
-Zur Einordnung: Kaplan Solutions vermittelt das Bauvorhaben. Für Sie entstehen keine Listengebühren und keine Kosten für die Anfrage. Eine Vergütung fällt ausschließlich im Erfolgsfall an, wenn der Bauvertrag zustande kommt.
+{form_url}
 
-Referenz: {ausschreibung.referenz}
+{anfrage_hinweis}
+
+Kaplan Solutions vermittelt Bauleistungen zwischen Auftraggebern und ausführenden Betrieben. Für Sie entstehen keine Listengebühren und keine Kosten für die Anfrage. Eine Vergütung fällt ausschließlich im Erfolgsfall an, wenn der Bauvertrag zustande kommt.
 
 Mit freundlichen Grüßen
 Kaplan Solutions
 {text_footer(recipient_email, "Geschäftliche Kontaktaufnahme gemäß § 7 Abs. 3 UWG (Bauleistungen).")}
 """
 
-    objekt_html = "".join(
-        f'<p style="margin:0 0 14px 0;">'
-        f'<strong style="color:{TEXT};">{safe(o.bezeichnung)} — {safe(o.einheiten)}, '
-        f'rund {_euro(o.volumen_brutto)} brutto</strong><br>{safe(o.umfang)}</p>'
-        for o in ausschreibung.objekte
-    )
     leistungs_html = "".join(f"<li style='margin:0 0 6px 0;'>{safe(l)}</li>" for l in leistungen)
     hinweis_html = "".join(f"<li style='margin:0 0 6px 0;'>{safe(h)}</li>" for h in ausschreibung.hinweise)
 
     body_html = body_block(
-        f'uns liegt ein konkretes Bauvorhaben in <strong style="color:{TEXT};">{safe(region)}</strong> '
-        f'vor, und wir suchen dafür eine ausführende Firma. Wir schreiben '
-        f'<strong style="color:{TEXT};">{safe(company)}</strong> an, weil Sie in '
-        f'{safe(standort)} tätig sind und das Objekt in Ihrem Einzugsgebiet liegt.',
+        f'wir vermitteln derzeit ein konkretes Bauvorhaben in '
+        f'<strong style="color:{TEXT};">{safe(region)}</strong> und suchen dafür eine '
+        f'ausführende Firma in Ihrer Region. '
+        f'<strong style="color:{TEXT};">{safe(company)}</strong> in {safe(standort)} '
+        "ist uns dabei als möglicher Partner aufgefallen.",
+        f"Das Vorhaben umfasst die Modernisierung von zwei Mehrfamilienhäusern mit "
+        f"insgesamt {einheiten} Wohneinheiten. Der Auftraggeber bleibt bis zur "
+        "vertraglichen Einbindung vertraulich — Details und Unterlagen erhalten Sie "
+        "erst nach einem persönlichen Abstimmungsgespräch.",
+        intro,
     ) + highlight_box(
-        f'Zwei Mehrfamilienhäuser, zusammen {einheiten} Wohneinheiten<br>'
         f'<span style="color:{TEXT};font-weight:600;">Gesamtvolumen rund {volumen} brutto</span>'
-    ) + body_block(objekt_html, intro) + (
+        f"<br>{einheiten} Wohneinheiten · {safe(region)} und Umgebung"
+    ) + (
+        f'<p style="margin:0 0 8px 0;color:{TEXT};font-size:15px;font-weight:600;">'
+        f"Leistungsumfang (Auszug)</p>"
         f'<ul style="margin:0 0 20px 0;padding-left:20px;color:{TEXT};font-size:15px;line-height:1.6;">'
         f'{leistungs_html}</ul>'
         f'<p style="margin:0 0 8px 0;color:{TEXT};font-size:15px;font-weight:600;">Rahmenbedingungen</p>'
         f'<ul style="margin:0 0 18px 0;padding-left:20px;color:{TEXT};font-size:15px;line-height:1.6;">'
         f'{hinweis_html}</ul>'
     ) + body_block(
+        "Passt das zu Ihrer Kapazität und Ihrem Leistungsspektrum? "
+        "Stellen Sie bitte eine kurze Anfrage über unsere Website — "
+        "wir melden uns zeitnah persönlich bei Ihnen.",
+    ) + highlight_box(
+        f'<strong style="color:{TEXT};">Bitte in der Beschreibung vermerken:</strong><br>'
+        f'„Projekt {safe(region)} / Vermittlung“<br>'
+        "<span style='font-size:14px;'>So ordnen wir Ihre Anfrage dem Bauvorhaben zu.</span>"
+    ) + body_block(
         f'Für Sie entstehen <strong style="color:{TEXT};">keine Listengebühren</strong> und keine '
         "Kosten für die Anfrage. Eine Vergütung fällt ausschließlich im Erfolgsfall an, wenn der "
-        f"Bauvertrag zustande kommt. Referenz: {safe(ausschreibung.referenz)}",
-    ) + reply_hint_html()
+        "Bauvertrag zustande kommt.",
+    )
 
     html = wrap_outreach_email(
         headline=f"Bauvorhaben {region} — {einheiten} Wohneinheiten",
         eyebrow="Konkrete Ausschreibung",
         body_html=body_html,
-        cta_label="Unterlagen anfordern",
+        cta_label="Anfrage auf kaplan-solutions.de",
         cta_url=form_url,
         recipient_email=recipient_email,
         legal="Geschäftliche Kontaktaufnahme gemäß § 7 Abs. 3 UWG (Bauleistungen).",

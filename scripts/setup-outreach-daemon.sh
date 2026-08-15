@@ -76,7 +76,7 @@ launchctl enable "gui/$(id -u)/com.kaplansolutions.outreach-health"
 launchctl bootstrap "gui/$(id -u)" "$PLIST_WATCHDOG_DST"
 launchctl enable "gui/$(id -u)/com.kaplansolutions.outreach-watchdog"
 
-echo "✅ Outreach-Daemon läuft (Mo–Fr 8–18 Uhr)."
+echo "✅ Outreach-Daemon läuft (Mo–Fr 7–18 Uhr)."
 echo "✅ Health-Check: Mo–Fr 8:30 Uhr"
 echo "✅ Watchdog: Mo–Fr 10 / 13 / 15 / 17 Uhr"
 echo ""

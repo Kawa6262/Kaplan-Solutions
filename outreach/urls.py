@@ -42,6 +42,20 @@ def partner_form_url(prospect_id: int | None = None) -> str:
     return f"{site}/?{urlencode(params)}#contact"
 
 
+def projekt_form_url(prospect_id: int | None = None) -> str:
+    """Anfrageformular für die Projekt-Ausschreibung (Auftragnehmer, Duisburg)."""
+    site = public_site_url().rstrip("/")
+    params: dict[str, str] = {
+        "role": "unternehmen",
+        "utm_source": "outreach",
+        "utm_medium": "email",
+        "utm_campaign": "projekt_duisburg",
+    }
+    if prospect_id is not None:
+        params["utm_content"] = f"p{prospect_id}"
+    return f"{site}/?{urlencode(params)}#contact"
+
+
 def referral_bauherr_url(prospect_id: int | None = None) -> str:
     return tracked_url("/empfehlung", "referral_cold", prospect_id)
 

@@ -92,6 +92,13 @@ def run_cycle(last_run: float | None = None) -> float:
     except Exception as exc:
         contracts = 0
         _log(f"[outreach] Vertrags-Postfach: {exc}")
+    try:
+        from business_model.contract_send import finalize_due_scheduled_contracts
+        scheduled_contracts = finalize_due_scheduled_contracts()
+        if scheduled_contracts:
+            _log(f"[outreach] Geplante Verträge abgeschlossen: {scheduled_contracts}")
+    except Exception as exc:
+        _log(f"[outreach] Geplante Verträge: {exc}")
     if config.PROJEKT_ENABLED:
         quality.backfill_ratings(config.CAMPAIGN_PROJEKT, limit=config.PROJEKT_RATING_BATCH)
     sent = sender.send_batch()
@@ -129,6 +136,14 @@ def run_cycle(last_run: float | None = None) -> float:
             "[outreach] Zyklus: nichts zu tun "
             f"({reliability.window_status_line()})"
         )
+    try:
+        from outreach import live_sync
+
+        sync_result = live_sync.push_if_due(force=bool(sent))
+        if sync_result.get("ok") and not sync_result.get("skipped"):
+            _log("[outreach] CRM Live-Sync ✓")
+    except Exception as exc:
+        _log(f"[outreach] CRM Live-Sync: {exc}")
     health.record_success()
     system_state.record_cycle_ok()
     return now
@@ -194,11 +209,8 @@ def cmd_test_projekt() -> int:
         print("ADMIN_EMAIL oder Mailversand nicht konfiguriert.")
         return 1
 
-    row = storage.next_to_send(config.CAMPAIGN_PROJEKT)
-    if row:
-        company, city, trade = row["company_name"], row["city"], row["trade"]
-    else:
-        company, city, trade = "Musterbau GmbH", "Duisburg", "Generalunternehmer"
+    # Vorschau immer als Generalunternehmer in Duisburg — so sieht die Prioritäts-Mail aus.
+    company, city, trade = "Musterbau GmbH", "Duisburg", "Generalunternehmer Bau"
 
     subject = build_subject(company, city)
     text, html = build_bodies(company, city, trade, recipient_email=admin, prospect_id=0)

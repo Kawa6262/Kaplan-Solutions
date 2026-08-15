@@ -33,7 +33,7 @@ WAKE_CATCHUP_ENABLED = os.getenv("OUTREACH_WAKE_CATCHUP", "1").strip().lower() n
 )
 
 # Versand nur werktags 08:00–18:00 Europe/Berlin
-SEND_HOUR_START = int(os.getenv("OUTREACH_HOUR_START", "8"))
+SEND_HOUR_START = int(os.getenv("OUTREACH_HOUR_START", "7"))
 SEND_HOUR_END = int(os.getenv("OUTREACH_HOUR_END", "18"))
 SEND_WEEKDAYS_ONLY = os.getenv("OUTREACH_WEEKDAYS_ONLY", "1").strip() not in ("0", "false", "no")
 

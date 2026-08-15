@@ -103,6 +103,27 @@ def send_resend(
         raise RuntimeError(f"Resend Fehler ({exc.code}): {body}") from exc
 
 
+def cancel_resend_email(email_id: str) -> bool:
+    """Geplanten Resend-Versand stornieren (nur solange status=scheduled)."""
+    if not uses_resend() or not email_id:
+        return False
+    req = urllib.request.Request(
+        f"https://api.resend.com/emails/{email_id}/cancel",
+        data=b"{}",
+        headers={
+            "Authorization": f"Bearer {RESEND_API_KEY}",
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (compatible; KaplanSolutions/1.0)",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return resp.status < 300
+    except urllib.error.HTTPError:
+        return False
+
+
 def send_smtp(
     to: str,
     subject: str,

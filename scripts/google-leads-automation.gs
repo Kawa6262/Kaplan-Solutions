@@ -2509,6 +2509,8 @@ function handleCrmUpdate_(data) {
   var fields = data.fields || data.updates || {};
   var colMap = {
     stage: 7,
+    branche: 5,
+    stadt: 6,
     naechster_termin: 11,
     quelle: 12,
     naechster_schritt: 13,

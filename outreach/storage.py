@@ -469,8 +469,17 @@ def next_to_send(campaign: str = "partner") -> sqlite3.Row | None:
               AND NOT (rating IS NOT NULL
                        AND rating < {config.PROJEKT_MIN_RATING}
                        AND rating_count >= {config.PROJEKT_MIN_RATING_COUNT})"""
-        # Gut bewertete Betriebe zuerst — sie antworten eher und passen besser.
-        order = """
+        # Generalunternehmer zuerst (eine Provision statt viele Einzelgewerke),
+        # dann Duisburg vor Umkreis, dann Bewertung.
+        trade_cases = " ".join(
+            f"WHEN trade = ? THEN {i}" for i in range(len(config.PROJEKT_TRADE_QUERIES))
+        )
+        city_cases = " ".join(
+            f"WHEN city = ? THEN {i}" for i in range(len(config.PROJEKT_CITIES))
+        )
+        order = f"""
+            CASE {trade_cases} ELSE 999 END,
+            CASE {city_cases} ELSE 999 END,
             CASE
                 WHEN rating >= 4.5 AND rating_count >= 10 THEN 0
                 WHEN rating >= 4.0 AND rating_count >= 3  THEN 1
@@ -493,6 +502,8 @@ def next_to_send(campaign: str = "partner") -> sqlite3.Row | None:
             datetime.now() - timedelta(days=config.PROJEKT_MIN_DAYS_SINCE_CONTACT)
         ).isoformat(timespec="seconds")
         params.append(cutoff)
+        params.extend(config.PROJEKT_TRADE_QUERIES)
+        params.extend(config.PROJEKT_CITIES)
 
     with _conn() as db:
         return db.execute(
@@ -1051,36 +1062,150 @@ def skipped_on_day(day: str) -> int:
     return int(row["c"] or 0)
 
 
-def sent_breakdown_by_city(day: str) -> list[dict]:
+def sent_breakdown_by_city(day: str | None = None, campaign: str | None = None) -> list[dict]:
+    params: list = []
+    where = ["status = 'sent'", "city IS NOT NULL", "city != ''"]
+    if day:
+        where.append("sent_at LIKE ?")
+        params.append(f"{day}%")
+    if campaign:
+        where.append("campaign = ?")
+        params.append(campaign)
+    clause = " AND ".join(where)
     with _conn() as db:
         rows = db.execute(
-            """
+            f"""
             SELECT city, COUNT(*) AS count
             FROM prospects
-            WHERE status = 'sent' AND sent_at LIKE ? AND city IS NOT NULL AND city != ''
+            WHERE {clause}
             GROUP BY city
             ORDER BY count DESC
-            LIMIT 10
+            LIMIT 15
             """,
-            (f"{day}%",),
+            params,
         ).fetchall()
     return [{"city": r["city"], "count": int(r["count"])} for r in rows]
 
 
-def sent_breakdown_by_trade(day: str) -> list[dict]:
+def sent_breakdown_by_trade(day: str | None = None, campaign: str | None = None) -> list[dict]:
+    params: list = []
+    where = ["status = 'sent'", "trade IS NOT NULL", "trade != ''"]
+    if day:
+        where.append("sent_at LIKE ?")
+        params.append(f"{day}%")
+    if campaign:
+        where.append("campaign = ?")
+        params.append(campaign)
+    clause = " AND ".join(where)
+    with _conn() as db:
+        rows = db.execute(
+            f"""
+            SELECT trade, COUNT(*) AS count
+            FROM prospects
+            WHERE {clause}
+            GROUP BY trade
+            ORDER BY count DESC
+            LIMIT 15
+            """,
+            params,
+        ).fetchall()
+    return [{"trade": r["trade"], "count": int(r["count"])} for r in rows]
+
+
+def campaign_stats() -> dict:
+    """Kennzahlen pro Kampagne inkl. heute versendet."""
+    day = _today()
     with _conn() as db:
         rows = db.execute(
             """
-            SELECT trade, COUNT(*) AS count
+            SELECT
+                campaign,
+                SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END) AS sent_all,
+                SUM(CASE WHEN status = 'queued' THEN 1 ELSE 0 END) AS queued,
+                SUM(CASE WHEN status = 'new' THEN 1 ELSE 0 END) AS new_count,
+                SUM(CASE WHEN status = 'new' AND email IS NOT NULL AND email != '' THEN 1 ELSE 0 END) AS new_with_email,
+                SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed,
+                SUM(CASE WHEN status = 'skipped' THEN 1 ELSE 0 END) AS skipped,
+                SUM(CASE WHEN status = 'unsubscribed' THEN 1 ELSE 0 END) AS unsubscribed,
+                SUM(CASE WHEN status = 'sent' AND sent_at LIKE ? THEN 1 ELSE 0 END) AS today_sent
             FROM prospects
-            WHERE status = 'sent' AND sent_at LIKE ? AND trade IS NOT NULL AND trade != ''
-            GROUP BY trade
-            ORDER BY count DESC
-            LIMIT 10
+            GROUP BY campaign
             """,
             (f"{day}%",),
         ).fetchall()
-    return [{"trade": r["trade"], "count": int(r["count"])} for r in rows]
+    out: dict = {}
+    for row in rows:
+        key = row["campaign"] or "partner"
+        out[key] = {
+            "sent_all": int(row["sent_all"] or 0),
+            "queued": int(row["queued"] or 0),
+            "new": int(row["new_count"] or 0),
+            "new_with_email": int(row["new_with_email"] or 0),
+            "failed": int(row["failed"] or 0),
+            "skipped": int(row["skipped"] or 0),
+            "unsubscribed": int(row["unsubscribed"] or 0),
+            "today_sent": int(row["today_sent"] or 0),
+        }
+    return out
+
+
+def list_sends(
+    *,
+    campaign: str | None = None,
+    day: str | None = None,
+    limit: int = 500,
+    offset: int = 0,
+) -> tuple[list[dict], int]:
+    """Versendete Mails mit Ziel — für CRM-Tabelle."""
+    limit = max(1, min(int(limit), 5000))
+    offset = max(0, int(offset))
+    where = ["status IN ('sent', 'unsubscribed')", "sent_at IS NOT NULL"]
+    params: list = []
+    if campaign:
+        where.append("campaign = ?")
+        params.append(campaign)
+    if day:
+        where.append("sent_at LIKE ?")
+        params.append(f"{day}%")
+    clause = " AND ".join(where)
+    with _conn() as db:
+        total = int(
+            db.execute(f"SELECT COUNT(*) AS c FROM prospects WHERE {clause}", params).fetchone()["c"]
+            or 0
+        )
+        rows = db.execute(
+            f"""
+            SELECT id, company_name, city, trade, email, phone, campaign, status,
+                   sent_at, sheet_ref, rating, rating_count
+            FROM prospects
+            WHERE {clause}
+            ORDER BY sent_at DESC
+            LIMIT ? OFFSET ?
+            """,
+            [*params, limit, offset],
+        ).fetchall()
+    sends = []
+    for row in rows:
+        ts = row["sent_at"] or ""
+        sends.append(
+            {
+                "id": row["id"],
+                "company": row["company_name"] or "",
+                "city": row["city"] or "",
+                "trade": row["trade"] or "",
+                "email": row["email"] or "",
+                "phone": row["phone"] or "",
+                "campaign": row["campaign"] or "partner",
+                "status": row["status"] or "sent",
+                "sent_at": ts,
+                "time": ts.split("T")[1][:5] if "T" in ts else "",
+                "date": ts.split("T")[0] if "T" in ts else ts[:10],
+                "sheet_ref": row["sheet_ref"] or "",
+                "rating": row["rating"],
+                "rating_count": int(row["rating_count"] or 0),
+            }
+        )
+    return sends, total
 
 
 def unsubscribe_count() -> int:

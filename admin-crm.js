@@ -7,8 +7,14 @@
     const STORAGE_KEY = 'ks_crm_secret';
     const SYNC_MS = 60000;
     const SYNC_MS_ACTIVE = 15000;
+    const OUTREACH_SYNC_MS = 15000;
     const state = {
         data: null,
+        outreach: null,
+        outreachFilters: {
+            campaign: 'projekt',
+            day: 'all',
+        },
         route: parseRoute(),
         listView: localStorage.getItem('ks_list_view') || 'inbound',
         displayMode: 'table',
@@ -24,6 +30,7 @@
         undoLead: null,
     };
     let syncTimer = null;
+    let outreachTimer = null;
     let syncing = false;
 
     const $ = (sel, root = document) => root.querySelector(sel);
@@ -830,6 +837,136 @@
             `<div class="sf-list-wrap">${body || '<div class="sf-empty">Keine Termine — im Lead-Profil „Neuer Termin“ anlegen</div>'}</div>`;
     }
 
+    function stopOutreachSync() {
+        if (outreachTimer) clearInterval(outreachTimer);
+        outreachTimer = null;
+    }
+
+    function startOutreachSync() {
+        stopOutreachSync();
+        const tick = () => {
+            if (document.hidden || parseRoute().page !== 'outreach') return;
+            loadOutreach({ silent: true }).catch(() => {});
+        };
+        outreachTimer = setInterval(tick, OUTREACH_SYNC_MS);
+    }
+
+    async function loadOutreach(opts = {}) {
+        const f = state.outreachFilters;
+        const q = new URLSearchParams({
+            campaign: f.campaign || 'all',
+            day: f.day || 'all',
+            limit: '2000',
+        });
+        const data = await api('/api/outreach/dashboard?' + q.toString(), opts);
+        if (!data.ok) throw new Error(data.error || 'Outreach-Daten nicht verfügbar');
+        state.outreach = data;
+        state.outreachLastAt = Date.now();
+        if (parseRoute().page === 'outreach') render();
+        return data;
+    }
+
+    function fmtOutreachTime(iso) {
+        if (!iso) return '—';
+        const d = iso.includes('T') ? iso.replace('T', ' ').slice(0, 16) : iso;
+        return d;
+    }
+
+    function renderOutreachBreakdown(title, items, key) {
+        if (!items?.length) return `<div class="sf-widget"><div class="sf-widget-header">${esc(title)}</div><div class="sf-widget-body sf-empty">Keine Daten</div></div>`;
+        const max = items[0]?.count || 1;
+        return `<div class="sf-widget">
+            <div class="sf-widget-header">${esc(title)}</div>
+            <div class="sf-widget-body sf-outreach-breakdown">
+                ${items.slice(0, 10).map(it => {
+                    const label = it[key] || '—';
+                    const pct = Math.round((it.count / max) * 100);
+                    return `<div class="sf-outreach-bar-row">
+                        <span class="sf-outreach-bar-label">${esc(label)}</span>
+                        <span class="sf-outreach-bar-track"><span style="width:${pct}%"></span></span>
+                        <strong>${it.count}</strong>
+                    </div>`;
+                }).join('')}
+            </div>
+        </div>`;
+    }
+
+    function renderOutreach() {
+        const o = state.outreach;
+        if (!o) {
+            return pageHeader('📧', 'outreach', 'Mailversand', 'Laden…') +
+                '<div class="sf-empty" style="padding:40px">Outreach-Daten werden geladen…</div>';
+        }
+        const camp = o.campaigns?.[state.outreachFilters.campaign] || {};
+        const proj = o.projekt || {};
+        const win = o.window || {};
+        const srcLabel = o.source === 'local' ? 'Live (Mac)' : o.source?.includes('mac') ? 'Sync Mac → Cloud' : 'Sync';
+        const updated = fmtOutreachTime(o.updated_at);
+        const pending = (camp.pending_total ?? ((camp.queued || 0) + (camp.new_with_email || 0)));
+        const remaining = camp.remaining_today ?? 0;
+        const limit = camp.daily_limit ?? 0;
+        const todaySent = camp.today_sent ?? 0;
+        const sentAll = camp.sent_all ?? 0;
+
+        const toolbar = `<div class="sf-view-toolbar sf-outreach-toolbar">
+            <select id="outreach-campaign">
+                <option value="projekt"${state.outreachFilters.campaign === 'projekt' ? ' selected' : ''}>Projekt-Ausschreibung</option>
+                <option value="partner"${state.outreachFilters.campaign === 'partner' ? ' selected' : ''}>Partner-Outreach</option>
+                <option value="referral"${state.outreachFilters.campaign === 'referral' ? ' selected' : ''}>Empfehlungen</option>
+                <option value="bauherr"${state.outreachFilters.campaign === 'bauherr' ? ' selected' : ''}>Bauherren</option>
+                <option value="all"${state.outreachFilters.campaign === 'all' ? ' selected' : ''}>Alle Kampagnen</option>
+            </select>
+            <select id="outreach-day">
+                <option value="all"${state.outreachFilters.day === 'all' ? ' selected' : ''}>Alle Tage</option>
+                <option value="${esc(new Date().toISOString().slice(0, 10))}"${state.outreachFilters.day === new Date().toISOString().slice(0, 10) ? ' selected' : ''}>Heute</option>
+            </select>
+            <input type="date" id="outreach-day-picker" value="${state.outreachFilters.day !== 'all' ? esc(state.outreachFilters.day) : ''}" title="Tag wählen" />
+            <button type="button" class="slds-button slds-button_neutral" id="outreach-refresh">↻ Aktualisieren</button>
+            <span class="sf-outreach-meta">${esc(srcLabel)} · ${esc(updated)} · Fenster ${win.active ? 'aktiv' : 'inaktiv'}</span>
+        </div>`;
+
+        const projBanner = proj.referenz ? `<div class="sf-outreach-project">
+            <strong>${esc(proj.referenz)}</strong> — ${esc(proj.titel || '')} · ${esc(proj.region || '')}
+            <span>${esc((proj.cities || []).slice(0, 4).join(', '))}${(proj.cities || []).length > 4 ? '…' : ''}</span>
+        </div>` : '';
+
+        const rows = (o.sends || []).map(s => `<tr>
+            <td>${esc(s.date || '')} ${esc(s.time || '')}</td>
+            <td>${esc(s.company)}</td>
+            <td>${esc(s.city)}</td>
+            <td>${esc(s.trade)}</td>
+            <td><a href="mailto:${esc(s.email)}">${esc(s.email)}</a></td>
+            <td class="col-ref">${s.sheet_ref ? `<a href="#/leads/${esc(s.sheet_ref)}">${esc(s.sheet_ref)}</a>` : '—'}</td>
+            <td>${s.status === 'unsubscribed' ? '<span class="sf-badge-warn">Abgemeldet</span>' : '✓'}</td>
+        </tr>`).join('');
+
+        return pageHeader('📧', 'outreach', 'Mailversand',
+            `${o.sends_total ?? 0} Einträge · ${esc(win.status || '')}`,
+            '') + projBanner + toolbar + `
+        <div class="sf-kpi-row sf-outreach-kpi">
+            <div class="sf-kpi"><strong>${todaySent}</strong><span>Heute versendet</span></div>
+            <div class="sf-kpi"><strong>${remaining}${limit ? ' / ' + limit : ''}</strong><span>Noch heute möglich</span></div>
+            <div class="sf-kpi"><strong>${pending}</strong><span>In Warteschlange</span></div>
+            <div class="sf-kpi"><strong>${sentAll}</strong><span>Gesamt versendet</span></div>
+            <div class="sf-kpi"><strong>${o.replies?.total ?? 0}</strong><span>Antworten</span></div>
+            <div class="sf-kpi"><strong>${o.unsubscribes ?? 0}</strong><span>Abmeldungen</span></div>
+        </div>
+        <div class="sf-home-grid sf-outreach-grid">
+            ${renderOutreachBreakdown('Nach Stadt', o.by_city, 'city')}
+            ${renderOutreachBreakdown('Nach Gewerk', o.by_trade, 'trade')}
+        </div>
+        <div class="sf-list-wrap" style="margin-top:16px">
+            <div class="sf-table-wrap">
+                <table class="sf-table">
+                    <thead><tr>
+                        <th>Zeit</th><th>Firma</th><th>Stadt</th><th>Gewerk</th><th>E-Mail</th><th>CRM</th><th>Status</th>
+                    </tr></thead>
+                    <tbody>${rows || '<tr><td colspan="7" class="sf-empty">Keine Versendungen für Filter</td></tr>'}</tbody>
+                </table>
+            </div>
+        </div>`;
+    }
+
     function renderSearch(q) {
         const ql = q.trim();
         const leads = (state.data?.leads || []).filter(l => leadMatchesQuery(l, ql));
@@ -876,11 +1013,20 @@
         else if (page === 'contacts') html = renderContacts();
         else if (page === 'tasks') html = renderTasks();
         else if (page === 'calendar') html = renderCalendar();
+        else if (page === 'outreach') html = renderOutreach();
         else html = renderHome();
 
         $('#sf-main').innerHTML = html;
         bindPageEvents();
         updateNavBadges();
+        if (page === 'outreach') {
+            startOutreachSync();
+            if (!state.outreach) {
+                loadOutreach().catch(e => showToast(e.message, 'warn'));
+            }
+        } else {
+            stopOutreachSync();
+        }
         $('#view-new-leads')?.addEventListener('click', () => {
             state.pendingNewLeads = [];
             state.listView = 'all';
@@ -901,6 +1047,36 @@
         }
         $$('[data-mode]').forEach(btn => {
             btn.onclick = () => { state.displayMode = btn.dataset.mode; render(); };
+        });
+
+        const outreachCamp = $('#outreach-campaign');
+        if (outreachCamp) {
+            outreachCamp.onchange = () => {
+                state.outreachFilters.campaign = outreachCamp.value;
+                loadOutreach().catch(e => showToast(e.message, 'warn'));
+            };
+        }
+        const outreachDay = $('#outreach-day');
+        if (outreachDay) {
+            outreachDay.onchange = () => {
+                state.outreachFilters.day = outreachDay.value;
+                const picker = $('#outreach-day-picker');
+                if (picker) picker.value = outreachDay.value === 'all' ? '' : outreachDay.value;
+                loadOutreach().catch(e => showToast(e.message, 'warn'));
+            };
+        }
+        const outreachPicker = $('#outreach-day-picker');
+        if (outreachPicker) {
+            outreachPicker.onchange = () => {
+                if (outreachPicker.value) {
+                    state.outreachFilters.day = outreachPicker.value;
+                    if (outreachDay) outreachDay.value = outreachPicker.value;
+                    loadOutreach().catch(e => showToast(e.message, 'warn'));
+                }
+            };
+        }
+        $('#outreach-refresh')?.addEventListener('click', () => {
+            loadOutreach().catch(e => showToast(e.message, 'warn'));
         });
 
         // Path click → update stage

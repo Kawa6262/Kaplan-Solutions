@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import base64
+import json
 import re
+from datetime import datetime
+from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from business_model.contract_branding import (
     GOLD,
@@ -19,6 +23,24 @@ from company_config import COMPANY, company_footer_text
 from lead_followup.config import AGENT_NAME, REPLY_EMAIL
 from lead_followup.template import _safe
 from mailer import email_configured, send_email
+
+TZ = ZoneInfo("Europe/Berlin")
+SCHEDULED_PATH = Path(__file__).resolve().parent.parent / "data" / "contract_scheduled.json"
+
+
+def _load_scheduled() -> dict:
+    if not SCHEDULED_PATH.is_file():
+        return {}
+    try:
+        data = json.loads(SCHEDULED_PATH.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _save_scheduled(data: dict) -> None:
+    SCHEDULED_PATH.parent.mkdir(parents=True, exist_ok=True)
+    SCHEDULED_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def parse_netto_eur(val: Any) -> float:
@@ -160,6 +182,7 @@ def _professional_email_body(
     attachment_label: str,
     ref: str,
     closing: str,
+    highlight_html: str = "",
 ) -> str:
     body = "".join(
         f'<p style="margin:0 0 16px;color:{TEXT}">{_safe(p)}</p>' for p in paragraphs
@@ -177,6 +200,7 @@ def _professional_email_body(
 <tr><td style="padding:8px 36px 28px;font-family:Georgia,'Times New Roman',serif;
   font-size:15px;line-height:1.75;color:{TEXT}">
   <p style="margin:0 0 18px">{_safe(greeting)},</p>
+  {highlight_html}
   {body}
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0"
     style="margin:22px 0 20px;background:#f7f6f3;border:1px solid #e4dfd6">
@@ -205,21 +229,31 @@ def build_contract_email(
     greeting = _greeting(lead.get("name") or "")
     ref_tail = f" (Ref. {ref})" if ref else ""
 
+    highlight_html = ""
     if contract_type == "bauherr":
         subject = f"Vermittlungsvertrag{ref_tail}"
         headline = "Ihr Vermittlungsvertrag"
         attachment_label = "Vermittlungsvertrag Bauherr (HTML)"
+        highlight_html = (
+            f'<table role="presentation" width="100%" cellspacing="0" cellpadding="0" '
+            f'style="margin:0 0 20px;background:#faf8f3;border:1px solid {GOLD};'
+            f'border-left:4px solid {GOLD}">'
+            f'<tr><td style="padding:16px 18px;font-family:Arial,Helvetica,sans-serif;'
+            f'font-size:14px;line-height:1.55;color:{TEXT}">'
+            f'<strong style="color:{GOLD_DARK};font-size:15px;display:block;margin-bottom:6px">'
+            f"Keine Kosten für Sie als Auftraggeber</strong>"
+            f"Die Vermittlung ist für Sie <strong>kostenfrei</strong>. "
+            f"Es fallen weder Vermittlungsgebühren noch sonstige Entgelte an — "
+            f"<strong>auf Sie kommen keine Kosten zu</strong>."
+            f"</td></tr></table>"
+        )
         paragraphs = [
-            "anbei sende ich Ihnen unseren Vermittlungsvertrag.",
+            "anbei erhalten Sie unseren Vermittlungsrahmenvertrag für Ihr Projekt.",
             (
-                "Bitte öffnen Sie die Datei im Anhang, lesen Sie den Vertrag in Ruhe durch "
-                "und senden Sie uns das unterschriebene Dokument per E-Mail zurück an "
-                f"{REPLY_EMAIL}."
-            ),
-            (
-                "Erst nach Eingang Ihrer Unterschrift können wir mit der Vermittlung passender "
-                "Unternehmen für Ihr Projekt beginnen. Für Sie als Bauherr ist die Vermittlung "
-                "ohne Berechnung."
+                "Bitte lesen Sie den Vertrag im Anhang, unterschreiben Sie ihn und senden "
+                f"uns das Dokument per E-Mail zurück an {REPLY_EMAIL}. "
+                "Mit Ihrer Unterschrift bestätigen Sie die vertraglichen Rahmenbedingungen — "
+                "erst danach beginnen wir mit der Vermittlung passender Unternehmen."
             ),
         ]
     else:
@@ -241,20 +275,35 @@ def build_contract_email(
         ]
 
     closing = "Mit freundlichen Grüßen"
-    text = f"""{greeting},
-
-{chr(10).join(paragraphs)}
-
-Anhang: {attachment_label}
-{f'Referenz: {ref}' + chr(10) if ref else ''}
-{closing}
-
-{AGENT_NAME}
-Kaplan Solutions
-{REPLY_EMAIL} · {COMPANY['phone']}
-
-{company_footer_text()}
-"""
+    text_blocks = [f"{greeting},", ""]
+    if contract_type == "bauherr":
+        text_blocks.extend(
+            [
+                ">>> KEINE KOSTEN FÜR SIE ALS AUFTRAGGEBER <<<",
+                (
+                    "Die Vermittlung ist kostenfrei. Es fallen weder Vermittlungsgebühren "
+                    "noch sonstige Entgelte an — auf Sie kommen keine Kosten zu."
+                ),
+                "",
+            ]
+        )
+    text_blocks.extend(paragraphs)
+    text_blocks.extend(
+        [
+            "",
+            f"Anhang: {attachment_label}",
+            *( [f"Referenz: {ref}"] if ref else [] ),
+            "",
+            closing,
+            "",
+            AGENT_NAME,
+            "Kaplan Solutions",
+            f"{REPLY_EMAIL} · {COMPANY['phone']}",
+            "",
+            company_footer_text(),
+        ]
+    )
+    text = "\n".join(text_blocks)
     inner = _professional_email_body(
         greeting=greeting,
         headline=headline,
@@ -262,6 +311,7 @@ Kaplan Solutions
         attachment_label=attachment_label,
         ref=ref,
         closing=closing,
+        highlight_html=highlight_html,
     )
     html = _transactional_email_wrap(inner)
     return subject, text, html
@@ -310,6 +360,302 @@ def send_contract_to_lead(data: dict, lead: dict | None = None) -> dict:
         "ok": True,
         "to": to_email,
         "subject": subject,
+        "filename": filename,
+        "contract_type": contract_type,
+        "provision": calc,
+    }
+
+
+def schedule_contract_to_lead(
+    data: dict,
+    lead: dict | None = None,
+    *,
+    scheduled_for: datetime,
+) -> dict:
+    """Vertrag per Resend zu festem Zeitpunkt senden (z. B. 7:00 Bürozeit)."""
+    from mailer import ADMIN_EMAIL, send_resend, uses_resend
+
+    if not email_configured():
+        return {"ok": False, "error": "E-Mail nicht konfiguriert (Resend/SMTP)"}
+    if not uses_resend():
+        return {"ok": False, "error": "Geplanter Versand erfordert Resend (scheduled_at)"}
+
+    lead = dict(lead or {})
+    payload = lead_payload_from_request({**data, "mark_sent": False}, lead)
+    to_email = (payload.get("email") or "").strip()
+    if not to_email or "@" not in to_email:
+        return {"ok": False, "error": "Keine gültige E-Mail-Adresse beim Lead"}
+
+    ref = payload.get("ref") or "Lead"
+    scheduled = _load_scheduled()
+    if ref in scheduled and not scheduled[ref].get("crm_done") and not data.get("replace_scheduled"):
+        existing = scheduled[ref]
+        return {
+            "ok": True,
+            "scheduled": True,
+            "skipped": "already_scheduled",
+            "scheduled_for": existing.get("scheduled_for"),
+            "to": existing.get("to"),
+        }
+    if ref in scheduled and data.get("replace_scheduled"):
+        from mailer import cancel_resend_email
+
+        old_id = (scheduled.get(ref) or {}).get("resend_id")
+        if old_id:
+            cancel_resend_email(old_id)
+        scheduled.pop(ref, None)
+        _save_scheduled(scheduled)
+
+    dt = scheduled_for
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=TZ)
+    now = datetime.now(TZ)
+    if dt <= now:
+        return send_contract_to_lead({**data, "mark_sent": True}, lead)
+
+    html_contract, contract_type, calc = generate_contract_html(data, lead)
+    subject, text, html = build_contract_email(payload, contract_type, calc)
+
+    kind = "Partner" if contract_type == "partner" else "Bauherr"
+    filename = f"Kaplan-Solutions-Vermittlungsvertrag-{kind}-{ref}.html"
+    attachments = [contract_attachment(html_contract, filename)]
+    logo_att = logo_email_attachment()
+    if logo_att:
+        attachments.insert(0, logo_att)
+
+    scheduled_at = dt.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%dT%H:%M:%SZ")
+    try:
+        resend_id = send_resend(
+            to_email,
+            subject,
+            text,
+            html,
+            reply_to=REPLY_EMAIL,
+            attachments=attachments,
+            scheduled_at=scheduled_at,
+            mail_kind="transactional",
+            entity_ref=ref,
+        )
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+    company = payload.get("company") or payload.get("firma") or payload.get("name") or "Lead"
+    scheduled[ref] = {
+        "ref": ref,
+        "to": to_email,
+        "company": company,
+        "name": payload.get("name", ""),
+        "scheduled_for": dt.isoformat(timespec="seconds"),
+        "resend_id": resend_id,
+        "calc": calc,
+        "crm_done": False,
+        "filename": filename,
+        "subject": subject,
+    }
+    _save_scheduled(scheduled)
+
+    when_fmt = dt.strftime("%d.%m.%Y %H:%M")
+    if ADMIN_EMAIL:
+        admin_subject = f"Vertrag geplant — {company} ({ref}) · {when_fmt} Uhr"
+        admin_text = f"""Vertrag für {company} ist geplant — noch nicht versendet.
+
+Lead: {payload.get('name', '')} · {company}
+E-Mail: {to_email}
+Referenz: {ref}
+Versand: {when_fmt} Uhr (Europe/Berlin)
+
+Der Vertrag geht automatisch zur geplanten Zeit raus. CRM wird danach auf „Vertrag versendet“ gesetzt.
+
+{company_footer_text()}
+"""
+        admin_html = f"""<div style="font-family:Georgia,serif;font-size:15px;line-height:1.6;color:#222">
+<p><strong>Vertrag geplant — { _safe(company) }</strong></p>
+<p>{ _safe(payload.get('name', '')) } · { _safe(to_email) } · Ref. { _safe(ref) }</p>
+<p style="color:#666">Versand: <strong>{ _safe(when_fmt) } Uhr</strong></p>
+</div>"""
+        try:
+            send_email(
+                ADMIN_EMAIL,
+                admin_subject,
+                admin_text,
+                admin_html,
+                reply_to=REPLY_EMAIL,
+                mail_kind="transactional",
+                entity_ref=f"schedule-{ref}",
+            )
+        except Exception:
+            pass
+
+    return {
+        "ok": True,
+        "scheduled": True,
+        "to": to_email,
+        "subject": subject,
+        "filename": filename,
+        "contract_type": contract_type,
+        "provision": calc,
+        "scheduled_for": dt.isoformat(timespec="seconds"),
+        "resend_id": resend_id,
+    }
+
+
+def finalize_due_scheduled_contracts() -> int:
+    """CRM + Admin-Bestätigung nach geplantem Versandzeitpunkt."""
+    from mailer import ADMIN_EMAIL
+
+    scheduled = _load_scheduled()
+    if not scheduled:
+        return 0
+
+    now = datetime.now(TZ)
+    finalized = 0
+    for ref, item in scheduled.items():
+        if item.get("crm_done"):
+            continue
+        raw = item.get("scheduled_for") or ""
+        try:
+            sf = datetime.fromisoformat(raw)
+        except ValueError:
+            continue
+        if sf.tzinfo is None:
+            sf = sf.replace(tzinfo=TZ)
+        if now < sf:
+            continue
+
+        from business_model.contract_auto import _crm_after_send, _mark_sent
+
+        calc = item.get("calc")
+        _crm_after_send(ref, calc)
+        _mark_sent(ref, {"scheduled": True, "resend_id": item.get("resend_id")})
+        item["crm_done"] = True
+        finalized += 1
+
+        if ADMIN_EMAIL:
+            company = item.get("company") or ref
+            subject = f"Vertrag versendet — {company} ({ref})"
+            text = f"""Der geplante Vertrag wurde versendet.
+
+Lead: {item.get('name', '')} · {company}
+E-Mail: {item.get('to', '')}
+Referenz: {ref}
+Versandzeit: {sf.strftime('%d.%m.%Y %H:%M')} Uhr
+
+{company_footer_text()}
+"""
+            html = f"""<div style="font-family:Georgia,serif;font-size:15px;line-height:1.6;color:#222">
+<p><strong>Vertrag versendet (geplant)</strong></p>
+<p>{_safe(item.get('name', ''))} · {_safe(company)}<br>{_safe(item.get('to', ''))}</p>
+<p style="color:#666">Ref. {_safe(ref)} · {_safe(sf.strftime('%d.%m.%Y %H:%M'))} Uhr</p>
+</div>"""
+            try:
+                send_email(
+                    ADMIN_EMAIL,
+                    subject,
+                    text,
+                    html,
+                    reply_to=REPLY_EMAIL,
+                    mail_kind="transactional",
+                    entity_ref=ref,
+                )
+            except Exception:
+                pass
+
+    _save_scheduled(scheduled)
+    return finalized
+
+
+def send_contract_draft_to_admin(
+    data: dict,
+    lead: dict,
+    *,
+    note: str = "",
+) -> dict:
+    """Vertragsexakt wie an den Lead — zur Freigabe nur an Admin, nicht an den Lead."""
+    from mailer import ADMIN_EMAIL
+
+    if not email_configured() or not ADMIN_EMAIL:
+        return {"ok": False, "error": "E-Mail nicht konfiguriert (Resend/SMTP + ADMIN_EMAIL)"}
+
+    lead = dict(lead or {})
+    payload = lead_payload_from_request({**data, "mark_sent": False}, lead)
+    to_email = (payload.get("email") or "").strip()
+    ref = payload.get("ref") or "Lead"
+    company = payload.get("company") or payload.get("firma") or payload.get("name") or "Lead"
+
+    html_contract, contract_type, calc = generate_contract_html(data, lead)
+    subject, text, html = build_contract_email(payload, contract_type, calc)
+
+    kind = "Partner" if contract_type == "partner" else "Bauherr"
+    filename = f"Kaplan-Solutions-Vermittlungsvertrag-{kind}-{ref}.html"
+    attachments = [contract_attachment(html_contract, filename)]
+    logo_att = logo_email_attachment()
+    if logo_att:
+        attachments.insert(0, logo_att)
+
+    admin_subject = f"[ENTWURF] {subject} — {company} ({ref})"
+    intro = (
+        f"Entwurf zur Freigabe — noch nicht an {to_email or 'den Lead'} gesendet.\n\n"
+        f"Lead: {company} · {payload.get('name', '')} · {ref}\n"
+        f"Geplant an: {to_email}\n"
+    )
+    if note:
+        intro += f"\nAnfrage / Notiz:\n{note.strip()}\n"
+    if calc:
+        intro += (
+            f"\nProvision (Plan): {calc.get('provision_net_fmt')} € netto "
+            f"bei {calc.get('netto_order_fmt')} € Auftragsvolumen.\n"
+        )
+    intro += "\n--- So würde die Kunden-Mail aussehen ---\n\n"
+
+    admin_text = intro + text
+    note_html = (
+        f'<table role="presentation" width="100%" cellspacing="0" cellpadding="0" '
+        f'style="margin:0 0 20px;background:#fff8e6;border:1px solid #e8dcc8">'
+        f'<tr><td style="padding:14px 18px;font-family:Arial,sans-serif;font-size:13px;'
+        f'line-height:1.55;color:#5c4a32">'
+        f"<strong>Entwurf — noch nicht versendet</strong><br>"
+        f"Lead: {_safe(company)} · {_safe(payload.get('name', ''))} · {_safe(ref)}<br>"
+        f"Geplant an: {_safe(to_email)}"
+    )
+    if note:
+        note_html += f"<br><br><strong>Anfrage:</strong><br>{_safe(note.strip())}"
+    if calc:
+        note_html += (
+            f"<br><br>Provision (Plan): {_safe(calc.get('provision_net_fmt', ''))} € netto "
+            f"bei {_safe(calc.get('netto_order_fmt', ''))} € Auftragsvolumen."
+        )
+    note_html += "</td></tr></table>"
+    customer_body_start = html.find('<tr><td style="padding:28px 36px 8px">')
+    customer_part = html[customer_body_start:] if customer_body_start > 0 else html
+    letterhead = email_letterhead_html()
+    admin_html = f"""<!DOCTYPE html>
+<html lang="de"><head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;background:#eceae6">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#eceae6">
+<tr><td align="center" style="padding:28px 16px 36px">
+<table role="presentation" width="600" cellspacing="0" cellpadding="0"
+  style="max-width:600px;width:100%;background:#ffffff;border:1px solid #ddd8cf">
+{letterhead}
+{note_html}
+{customer_part}
+</table></td></tr></table></body></html>"""
+
+    send_email(
+        ADMIN_EMAIL,
+        admin_subject,
+        admin_text,
+        admin_html,
+        reply_to=REPLY_EMAIL,
+        attachments=attachments,
+        mail_kind="transactional",
+        entity_ref=f"draft-{ref}",
+    )
+
+    return {
+        "ok": True,
+        "to": ADMIN_EMAIL,
+        "lead_email": to_email,
+        "subject": admin_subject,
         "filename": filename,
         "contract_type": contract_type,
         "provision": calc,
