@@ -31,6 +31,7 @@
     };
     let syncTimer = null;
     let outreachTimer = null;
+    let outreachLoading = false;
     let syncing = false;
 
     const $ = (sel, root = document) => root.querySelector(sel);
@@ -852,18 +853,58 @@
     }
 
     async function loadOutreach(opts = {}) {
-        const f = state.outreachFilters;
-        const q = new URLSearchParams({
-            campaign: f.campaign || 'all',
-            day: f.day || 'all',
-            limit: '2000',
-        });
-        const data = await api('/api/outreach/dashboard?' + q.toString(), opts);
-        if (!data.ok) throw new Error(data.error || 'Outreach-Daten nicht verfügbar');
-        state.outreach = data;
-        state.outreachLastAt = Date.now();
-        if (parseRoute().page === 'outreach') render();
-        return data;
+        if (outreachLoading) return;
+        outreachLoading = true;
+        const refreshBtn = $('#outreach-refresh');
+        const showFeedback = !opts.silent;
+        if (showFeedback) {
+            $('#loading-bar')?.classList.add('active');
+            if (refreshBtn) {
+                refreshBtn.disabled = true;
+                refreshBtn.textContent = 'Lädt…';
+            }
+        }
+        try {
+            const f = state.outreachFilters;
+            const q = new URLSearchParams({
+                campaign: f.campaign || 'all',
+                day: f.day || 'all',
+                limit: '2000',
+                _: String(Date.now()),
+            });
+            const data = await api('/api/outreach/dashboard?' + q.toString(), opts);
+            if (!data.ok) throw new Error(data.error || 'Outreach-Daten nicht verfügbar');
+            state.outreach = data;
+            state.outreachLastAt = Date.now();
+            if (parseRoute().page === 'outreach') render();
+            if (showFeedback) {
+                const camp = state.outreachFilters.campaign || 'projekt';
+                const p = data.campaigns?.[camp] || {};
+                showToast(
+                    `Aktualisiert · ${data.sends_total ?? 0} in Liste · ${p.queued ?? '—'} in Warteschlange`,
+                    'success'
+                );
+            }
+            return data;
+        } finally {
+            outreachLoading = false;
+            if (showFeedback) {
+                $('#loading-bar')?.classList.remove('active');
+                if (refreshBtn) {
+                    refreshBtn.disabled = false;
+                    refreshBtn.textContent = '↻ Aktualisieren';
+                }
+            }
+        }
+    }
+
+    async function refreshCurrentView() {
+        if (parseRoute().page === 'outreach') {
+            await loadOutreach();
+            return;
+        }
+        state.formDirty = false;
+        await refreshData({ forceRender: true });
     }
 
     function fmtOutreachTime(iso) {
@@ -922,7 +963,7 @@
             </select>
             <input type="date" id="outreach-day-picker" value="${state.outreachFilters.day !== 'all' ? esc(state.outreachFilters.day) : ''}" title="Tag wählen" />
             <button type="button" class="slds-button slds-button_neutral" id="outreach-refresh">↻ Aktualisieren</button>
-            <span class="sf-outreach-meta">${esc(srcLabel)} · ${esc(updated)} · Fenster ${win.active ? 'aktiv' : 'inaktiv'}</span>
+            <span class="sf-outreach-meta">${esc(srcLabel)} · Server ${esc(updated)}${state.outreachLastAt ? ' · Abgerufen ' + esc(new Date(state.outreachLastAt).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })) : ''} · Fenster ${win.active ? 'aktiv' : 'inaktiv'}</span>
         </div>`;
 
         const projBanner = proj.referenz ? `<div class="sf-outreach-project">
@@ -1075,9 +1116,12 @@
                 }
             };
         }
-        $('#outreach-refresh')?.addEventListener('click', () => {
-            loadOutreach().catch(e => showToast(e.message, 'warn'));
-        });
+        const outreachRefresh = $('#outreach-refresh');
+        if (outreachRefresh) {
+            outreachRefresh.onclick = () => {
+                refreshCurrentView().catch(e => showToast(e.message, 'warn'));
+            };
+        }
 
         // Path click → update stage
         $$('.sf-path li').forEach(li => {
@@ -1602,8 +1646,7 @@
     });
 
     $('#refresh-btn')?.addEventListener('click', () => {
-        state.formDirty = false;
-        refreshData({ forceRender: true }).catch(e => showToast(e.message, 'warn'));
+        refreshCurrentView().catch(e => showToast(e.message, 'warn'));
     });
     window.addEventListener('hashchange', render);
 
