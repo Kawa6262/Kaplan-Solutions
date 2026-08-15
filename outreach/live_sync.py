@@ -42,8 +42,9 @@ def push_to_cloud(*, force: bool = False) -> dict:
 
     base = os.getenv("COMPANY_WEBSITE", "https://kaplan-solutions.de").strip().rstrip("/")
     secret = os.getenv("CRON_SECRET", "").strip()
-    if not secret:
-        return {"ok": False, "error": "CRON_SECRET fehlt für Live-Sync"}
+    crm = os.getenv("ADMIN_CRM_SECRET", "").strip()
+    if not secret and not crm:
+        return {"ok": False, "error": "CRON_SECRET oder ADMIN_CRM_SECRET fehlt für Live-Sync"}
 
     payload = dashboard.gather_dashboard(
         campaign="all",
@@ -54,14 +55,18 @@ def push_to_cloud(*, force: bool = False) -> dict:
 
     url = f"{base}/api/outreach/push"
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "KaplanSolutions-OutreachLiveSync/1.0",
+    }
+    if secret:
+        headers["X-Cron-Secret"] = secret
+    if crm:
+        headers["X-Admin-Crm-Secret"] = crm
     req = urllib.request.Request(
         url,
         data=body,
-        headers={
-            "Content-Type": "application/json",
-            "X-Cron-Secret": secret,
-            "User-Agent": "KaplanSolutions-OutreachLiveSync/1.0",
-        },
+        headers=headers,
         method="POST",
     )
     try:

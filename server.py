@@ -1983,7 +1983,7 @@ def api_outreach_dashboard():
 @app.post("/api/outreach/push")
 def api_outreach_push():
     """Mac-Daemon → Cloud: Outreach-Snapshot speichern."""
-    if not _cron_auth_ok():
+    if not (_cron_auth_ok() or _crm_auth_ok()):
         abort(401)
     data = request.get_json(silent=True) or {}
     if not data.get("ok"):
