@@ -43,18 +43,34 @@ def _cfg() -> dict:
 
 def configured() -> bool:
     c = _cfg()
-    return bool(c["host"] and c["user"] and c["password"])
+    if c["host"] and c["user"] and c["password"]:
+        return True
+    try:
+        from crm import resend_inbox
+
+        return resend_inbox.configured()
+    except Exception:
+        return False
 
 
 def config_status() -> dict:
     c = _cfg()
-    return {
+    imap_ok = bool(c["host"] and c["user"] and c["password"])
+    status = {
         "configured": configured(),
+        "imap_configured": imap_ok,
         "host": c["host"],
         "user": c["user"],
         "folder": c["folder"],
         "password_set": bool(c["password"]),
     }
+    try:
+        from crm import resend_inbox
+
+        status["resend_inbound"] = resend_inbox.configured()
+    except Exception:
+        status["resend_inbound"] = False
+    return status
 
 
 def _conn() -> sqlite3.Connection:
@@ -161,10 +177,24 @@ def _guess_crm_ref(subject: str, body: str) -> str:
 
 
 def sync_inbox(limit: int = 60) -> dict:
-    if not configured():
-        return {"ok": False, "error": "IMAP nicht konfiguriert — IMAP_PASSWORD in .env setzen", **config_status()}
+    resend_result: dict | None = None
+    try:
+        from crm import resend_inbox
+
+        if resend_inbox.configured():
+            resend_result = resend_inbox.sync_resend_inbox(limit=limit)
+    except Exception as exc:
+        resend_result = {"ok": False, "error": str(exc)[:120]}
 
     c = _cfg()
+    imap_ok = bool(c["host"] and c["user"] and c["password"])
+    if not imap_ok:
+        if resend_result and resend_result.get("ok"):
+            _after_sync_hooks(limit)
+            return {**resend_result, **config_status(), "source": "resend"}
+        err = (resend_result or {}).get("error") or "Postfach nicht konfiguriert"
+        return {"ok": False, "error": err, **config_status()}
+
     db = _conn()
     new_count = 0
     total = 0
@@ -174,6 +204,14 @@ def sync_inbox(limit: int = 60) -> dict:
         imap.select(c["folder"], readonly=True)
     except Exception as exc:
         db.close()
+        if resend_result and resend_result.get("ok"):
+            _after_sync_hooks(limit)
+            return {
+                **resend_result,
+                **config_status(),
+                "source": "resend",
+                "imap_skipped": str(exc)[:80],
+            }
         return {"ok": False, "error": f"Postfach nicht erreichbar: {exc}", **config_status()}
 
     now = datetime.now(TZ).isoformat(timespec="seconds")
@@ -234,6 +272,14 @@ def sync_inbox(limit: int = 60) -> dict:
         total = db.execute("SELECT COUNT(*) FROM inbox_messages").fetchone()[0]
         db.close()
 
+    _after_sync_hooks(limit)
+    out = {"ok": True, "new": new_count, "total": total, **config_status(), "source": "imap"}
+    if resend_result and resend_result.get("ok"):
+        out["resend_new"] = resend_result.get("new", 0)
+    return out
+
+
+def _after_sync_hooks(limit: int) -> None:
     try:
         from outreach import storage as outreach_storage
 
@@ -244,8 +290,6 @@ def sync_inbox(limit: int = 60) -> dict:
             replies.check_replies(limit=limit)
     except Exception:
         pass
-
-    return {"ok": True, "new": new_count, "total": total, **config_status()}
 
 
 def list_messages(*, limit: int = 40, offset: int = 0, unread_only: bool = False) -> dict:

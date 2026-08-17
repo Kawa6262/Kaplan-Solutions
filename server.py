@@ -2111,6 +2111,17 @@ def api_crm_copilot_post():
     return jsonify(copilot.post_user_message(text))
 
 
+@app.post("/api/webhooks/resend-inbound")
+def webhook_resend_inbound():
+    """Resend email.received → CRM Posteingang."""
+    from crm import resend_inbox
+
+    if not resend_inbox.configured():
+        abort(503)
+    event = request.get_json(silent=True) or {}
+    return jsonify(resend_inbox.handle_webhook(event))
+
+
 @app.post("/api/cron/inbox-sync")
 def cron_inbox_sync():
     secret = request.headers.get("X-Cron-Secret", "") or request.args.get("secret", "")
