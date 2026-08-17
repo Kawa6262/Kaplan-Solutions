@@ -1047,7 +1047,7 @@
                     <div class="sf-chat-text">${formatChatText(m.text)}</div>
                     <div class="sf-chat-time">${esc((m.created_at || '').replace('T', ' ').slice(0, 16))}</div>
                 </div>`).join('')
-            : `<div class="sf-chat-bubble assistant"><div class="sf-chat-text">Schreib mir hier — z.&nbsp;B. <code>status</code>, <code>posteingang</code> oder „Was steht im Posteingang?"</div></div>`;
+            : `<div class="sf-chat-bubble assistant"><div class="sf-chat-text">Schreib mir — z.&nbsp;B. <code>status</code>, <code>posteingang</code> oder „Schick mir eine Test-Mail"</div></div>`;
         el.scrollTop = el.scrollHeight;
         updateNavBadges();
     }
@@ -1146,7 +1146,7 @@
     function renderInbox() {
         const ib = state.inbox;
         const cfg = ib?.password_set;
-        const err = !ib?.configured ? (ib?.error || 'IMAP_PASSWORD in .env auf dem Server eintragen (Strato Postfach-Passwort für kontakt@).') : '';
+        const err = !ib?.configured ? (ib?.error || 'Posteingang nicht konfiguriert — RESEND_API_KEY auf dem Server prüfen.') : '';
         const msgs = ib?.messages || [];
         return pageHeader('📥', 'inbox', 'Posteingang', `${ib?.unread || 0} ungelesen · ${ib?.total || 0} gesamt`) +
             (err ? `<div class="sf-banner-warn">${esc(err)}</div>` : '') +
@@ -1161,6 +1161,7 @@
                             <span class="sf-muted">${esc((m.received_at || '').replace('T', ' ').slice(0, 16))}</span>
                         </header>
                         <div class="sf-inbox-subj">${esc(m.subject || '(Kein Betreff)')}</div>
+                        ${m.analysis_summary ? `<div class="sf-inbox-analysis"><span class="sf-inbox-intent">${esc(m.analysis_intent || 'Analyse')}</span> ${esc(m.analysis_summary)}</div>` : ''}
                         ${m.crm_ref ? `<div class="sf-inbox-ref">${refBadge(m.crm_ref, { small: true })}</div>` : ''}
                         <div class="sf-inbox-body">${esc((m.body || '').slice(0, 400))}${(m.body || '').length > 400 ? '…' : ''}</div>
                         <div class="sf-inbox-actions">

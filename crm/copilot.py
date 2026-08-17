@@ -170,21 +170,16 @@ def _try_auto_reply(user_text: str) -> str | None:
             "Ich bin dein Kaplan Sales Assistent.\n\n"
             "Sofort-Befehle:\n"
             "• status — Zahlen & Überblick\n"
-            "• posteingang — Mails syncen\n"
-            "• hot leads — wichtige Kontakte\n\n"
+            "• posteingang — Mails syncen & anzeigen\n"
+            "• hot leads — wichtige Kontakte\n"
+            "• Schick mir eine Test-Mail — an deine Gmail\n\n"
             "Oder frei schreiben, z. B.:\n"
             "• Was steht im Posteingang?\n"
             "• Antwort an l.biskup@bki-gruppe.de: Vertrag erhalten\n"
             "• Wie läuft Duisburg Outreach?"
         )
     if t in ("posteingang", "inbox", "mails sync", "sync inbox", "posteingang sync"):
-        from crm.mail_inbox import sync_inbox
-
-        r = sync_inbox()
-        if not r.get("ok"):
-            return f"Posteingang: {r.get('error')}"
-        src = r.get("source") or r.get("resend_inbound") and "resend" or "imap"
-        return f"✓ Sync OK ({src}): {r.get('new', 0)} neu, {r.get('total', 0)} gesamt."
+        return _inbox_report(sync=True)
 
     if t in ("hot leads", "heisse leads", "heiss leads", "vertrag", "pipeline"):
         from sheet_client import crm_snapshot
@@ -217,25 +212,72 @@ def _try_auto_reply(user_text: str) -> str | None:
             return f"✓ Mail gesendet an {to_addr}"
         return f"Mail fehlgeschlagen: {r.get('error')}"
 
+    if _wants_test_mail(user_text):
+        return _send_test_mail()
+
     return None
+
+
+def _wants_test_mail(text: str) -> bool:
+    tl = text.lower()
+    return bool(
+        re.search(r"(test\s*mail|testmail|test\s*-?\s*mail)", tl)
+        and re.search(r"(schick|sende|send|schicken|mir)", tl)
+    )
+
+
+def _send_test_mail() -> str:
+    admin = os.getenv("ADMIN_EMAIL", "").strip()
+    if not admin:
+        return "ADMIN_EMAIL fehlt — kann keine Test-Mail senden."
+    try:
+        from mailer import email_configured, send_email
+
+        if not email_configured():
+            return "E-Mail-Versand ist nicht konfiguriert."
+        subj = "Kaplan Sales — Test-Mail vom Assistenten"
+        body = (
+            "Das ist eine Test-Mail von deinem Kaplan Sales Assistenten.\n\n"
+            "Eingehende Mails an kontakt@kaplan-solutions.de landen im CRM Posteingang "
+            "und werden automatisch an diese Gmail weitergeleitet."
+        )
+        send_email(admin, subj, body, f"<p>{body}</p>", mail_kind="transactional")
+        return f"✓ Test-Mail gesendet an {admin}. Schau in dein Postfach (ggf. Spam)."
+    except Exception as exc:
+        return f"Test-Mail fehlgeschlagen: {exc}"
+
+
+def _inbox_report(*, sync: bool = True) -> str:
+    from crm.mail_inbox import list_messages, sync_inbox
+
+    if sync:
+        r = sync_inbox()
+        if not r.get("ok"):
+            return f"Posteingang: {r.get('error')}"
+    m = list_messages(limit=8)
+    if not m.get("messages"):
+        return "Posteingang ist leer — noch keine Mails bei kontakt@kaplan-solutions.de."
+    lines = [f"📥 {m.get('unread', 0)} ungelesen / {m.get('total', 0)} gesamt", ""]
+    for msg in m.get("messages") or []:
+        lines.append(f"• {msg.get('from_email')}: {msg.get('subject') or '—'}")
+        if msg.get("analysis_summary"):
+            lines.append(f"  🤖 {msg.get('analysis_summary')}")
+        else:
+            preview = (msg.get("body") or "")[:100]
+            if preview:
+                lines.append(f"  {preview}…")
+    return "\n".join(lines)
 
 
 def _smart_fallback(user_text: str) -> str:
     """Antwort ohne OpenAI — trotzdem konkret."""
     tl = user_text.lower()
-    if any(w in tl for w in ("posteingang", "mail", "inbox", "nachricht")):
-        from crm.mail_inbox import list_messages
 
-        m = list_messages(limit=5)
-        if not m.get("messages"):
-            return "Posteingang ist leer. Schreib posteingang zum Syncen."
-        lines = [f"📥 {m.get('unread', 0)} ungelesen:", ""]
-        for msg in m.get("messages") or []:
-            lines.append(f"• {msg.get('from_email')}: {msg.get('subject')}")
-            preview = (msg.get("body") or "")[:120]
-            if preview:
-                lines.append(f"  {preview}…")
-        return "\n".join(lines)
+    if _wants_test_mail(user_text):
+        return _send_test_mail()
+
+    if any(w in tl for w in ("posteingang", "mail", "inbox", "nachricht", "postfach")):
+        return _inbox_report(sync=True)
     if any(w in tl for w in ("outreach", "duisburg", "versendet", "kampagne")):
         return _auto_status()
     if any(w in tl for w in ("lead", "kontakt", "vertrag", "bki", "atakor")):

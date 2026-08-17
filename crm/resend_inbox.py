@@ -108,7 +108,7 @@ def _store(
         db.close()
 
 
-def ingest_email_id(email_id: str) -> bool:
+def ingest_email_id(email_id: str, *, notify: bool = False) -> bool:
     """Resend Received Email in CRM-DB speichern."""
     email_id = (email_id or "").strip()
     if not email_id or not configured():
@@ -131,7 +131,7 @@ def ingest_email_id(email_id: str) -> bool:
     received = (detail.get("created_at") or datetime.now(TZ).isoformat())[:19]
     if "T" in received and "+" not in received and "Z" not in received:
         received = received.replace("T", " ")
-    return _store(
+    new = _store(
         message_id=msg_id,
         from_email=from_email,
         from_name=from_name,
@@ -139,6 +139,21 @@ def ingest_email_id(email_id: str) -> bool:
         body=body,
         received_at=received,
     )
+    if new and notify:
+        try:
+            from crm.inbox_analyzer import process_inbound
+
+            process_inbound(
+                message_id=msg_id,
+                from_email=from_email,
+                from_name=from_name,
+                subject=subject,
+                body=body,
+                notify=True,
+            )
+        except Exception as exc:
+            print(f"[resend-inbox] Analyse fehlgeschlagen: {exc}", flush=True)
+    return new
 
 
 def handle_webhook(event: dict) -> dict:
@@ -148,7 +163,7 @@ def handle_webhook(event: dict) -> dict:
     email_id = data.get("email_id") or data.get("id")
     if not email_id:
         return {"ok": False, "error": "email_id fehlt"}
-    new = ingest_email_id(email_id)
+    new = ingest_email_id(email_id, notify=True)
     return {"ok": True, "new": new, "email_id": email_id}
 
 

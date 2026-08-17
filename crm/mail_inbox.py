@@ -95,7 +95,37 @@ def _conn() -> sqlite3.Connection:
         CREATE INDEX IF NOT EXISTS idx_inbox_from ON inbox_messages(from_email);
         """
     )
+    for col, typ in (
+        ("analysis_summary", "TEXT"),
+        ("analysis_intent", "TEXT"),
+        ("analysis_priority", "TEXT"),
+    ):
+        try:
+            db.execute(f"ALTER TABLE inbox_messages ADD COLUMN {col} {typ}")
+        except sqlite3.OperationalError:
+            pass
     return db
+
+
+def save_analysis(message_id: str, analysis: dict) -> None:
+    db = _conn()
+    db.execute(
+        """
+        UPDATE inbox_messages SET
+            analysis_summary = ?,
+            analysis_intent = ?,
+            analysis_priority = ?
+        WHERE message_id = ?
+        """,
+        (
+            (analysis.get("summary") or "")[:2000],
+            analysis.get("intent") or "",
+            analysis.get("priority") or "normal",
+            message_id,
+        ),
+    )
+    db.commit()
+    db.close()
 
 
 def _decode(value: str | None) -> str:
@@ -280,6 +310,7 @@ def sync_inbox(limit: int = 60) -> dict:
 
 
 def _after_sync_hooks(limit: int) -> None:
+    _process_unanalyzed(limit=min(limit, 15))
     try:
         from outreach import storage as outreach_storage
 
@@ -292,12 +323,41 @@ def _after_sync_hooks(limit: int) -> None:
         pass
 
 
+def _process_unanalyzed(limit: int = 10) -> None:
+    db = _conn()
+    rows = db.execute(
+        """
+        SELECT message_id, from_email, from_name, subject, body
+        FROM inbox_messages
+        WHERE COALESCE(analysis_summary, '') = ''
+        ORDER BY received_at DESC LIMIT ?
+        """,
+        (limit,),
+    ).fetchall()
+    db.close()
+    for row in rows:
+        try:
+            from crm.inbox_analyzer import process_inbound
+
+            process_inbound(
+                message_id=row["message_id"],
+                from_email=row["from_email"],
+                from_name=row["from_name"] or "",
+                subject=row["subject"] or "",
+                body=row["body"] or "",
+                notify=False,
+            )
+        except Exception as exc:
+            print(f"[inbox] Analyse fehlgeschlagen ({row['message_id']}): {exc}", flush=True)
+
+
 def list_messages(*, limit: int = 40, offset: int = 0, unread_only: bool = False) -> dict:
     db = _conn()
     where = "WHERE is_read = 0" if unread_only else ""
     rows = db.execute(
         f"""
-        SELECT message_id, from_email, from_name, subject, body, received_at, is_read, crm_ref
+        SELECT message_id, from_email, from_name, subject, body, received_at, is_read, crm_ref,
+               analysis_summary, analysis_intent, analysis_priority
         FROM inbox_messages {where}
         ORDER BY received_at DESC LIMIT ? OFFSET ?
         """,

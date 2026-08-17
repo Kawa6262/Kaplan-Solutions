@@ -68,6 +68,14 @@ def _tools() -> list[dict]:
         {
             "type": "function",
             "function": {
+                "name": "send_test_email",
+                "description": "Test-Mail an ADMIN_EMAIL (Gmail) senden",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        },
+        {
+            "type": "function",
+            "function": {
                 "name": "list_hot_leads",
                 "description": "Leads mit Vertrag-Status oder hoher Priorität",
                 "parameters": {
@@ -90,8 +98,9 @@ def _run_tool(name: str, args: dict) -> str:
         r = sync_inbox()
         return json.dumps(r, ensure_ascii=False)
     if name == "list_inbox":
-        from crm.mail_inbox import list_messages
+        from crm.mail_inbox import list_messages, sync_inbox
 
+        sync_inbox()
         lim = int(args.get("limit") or 5)
         m = list_messages(limit=lim)
         items = [
@@ -100,6 +109,8 @@ def _run_tool(name: str, args: dict) -> str:
                 "subject": x.get("subject"),
                 "unread": not x.get("is_read"),
                 "preview": (x.get("body") or "")[:200],
+                "analysis": x.get("analysis_summary"),
+                "intent": x.get("analysis_intent"),
             }
             for x in m.get("messages") or []
         ]
@@ -113,6 +124,10 @@ def _run_tool(name: str, args: dict) -> str:
             body=args.get("body") or "",
         )
         return json.dumps(r, ensure_ascii=False)
+    if name == "send_test_email":
+        from crm.copilot import _send_test_mail
+
+        return _send_test_mail()
     if name == "list_hot_leads":
         from sheet_client import crm_snapshot
 
@@ -161,10 +176,10 @@ def reply(user_text: str, history: list[dict]) -> str | None:
         return None
 
     system = """Du bist der Kaplan Sales Assistent für Kaplan Solutions (B2B Bauvermittlung).
-Antworte auf Deutsch, konkret und handlungsorientiert — wie ein persönlicher Business-Assistent.
-Du kannst: Status abrufen, Posteingang lesen/syncen, E-Mails senden, Leads anzeigen.
-Bei Code-Änderungen oder komplexen Tasks: erkläre kurz was nötig ist und was du gerade tun konntest.
-Keine leeren Floskeln. Kurze Absätze, Bulletpoints wenn sinnvoll.
+Antworte auf Deutsch, konkret und handlungsorientiert — wie ChatGPT für Kaplan Solutions.
+Du kannst: Status, Posteingang (immer erst syncen), E-Mails senden, Test-Mail an Gmail, Leads anzeigen.
+Bei eingehenden Firmen-Mails: kurz zusammenfassen was zu tun ist.
+Wenn der Nutzer eine Test-Mail will: send_test_email nutzen — nicht sagen „Posteingang leer“.
 Projekt Duisburg: KS-2026-DU-01 (2 MFH, 14 WE)."""
 
     messages: list[dict[str, Any]] = [{"role": "system", "content": system}]

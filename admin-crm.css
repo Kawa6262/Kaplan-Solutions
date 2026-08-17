@@ -939,6 +939,24 @@ body {
 .sf-inbox-item.unread { border-left: 4px solid var(--sf-blue); }
 .sf-inbox-item header { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
 .sf-inbox-subj { font-weight: 600; margin-bottom: 8px; }
+.sf-inbox-analysis {
+  background: rgba(1, 118, 211, 0.08);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  margin-bottom: 8px;
+  color: var(--sf-text);
+}
+.sf-inbox-intent {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--sf-blue);
+  margin-right: 6px;
+}
 .sf-inbox-body { color: var(--sf-muted); font-size: 12px; line-height: 1.5; white-space: pre-wrap; margin-bottom: 10px; }
 .sf-inbox-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
