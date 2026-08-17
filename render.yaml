@@ -62,6 +62,19 @@ services:
         value: https://kaplan-solutions.de
 
   - type: cron
+    name: kaplan-contract-inbox
+    runtime: python
+    plan: free
+    schedule: "*/15 * * * *"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python scripts/render_cron_trigger.py contract-inbox
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.8"
+      - key: COMPANY_WEBSITE
+        value: https://kaplan-solutions.de
+
+  - type: cron
     name: kaplan-billing
     runtime: python
     plan: free

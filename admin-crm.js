@@ -78,6 +78,31 @@
             .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
 
+    function findLeadByRef(ref) {
+        if (!ref) return null;
+        const decoded = decodeURIComponent(String(ref));
+        const leads = state.data?.leads || [];
+        return leads.find(x => x.ref === decoded || x.ref === ref)
+            || leads.find(x => String(x.ref || '').toLowerCase() === decoded.toLowerCase());
+    }
+
+    function isMobileDevice() {
+        return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
+            || (navigator.maxTouchPoints > 1 && window.innerWidth < 900);
+    }
+
+    function downloadBlob(blob, filename) {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.rel = 'noopener';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 120000);
+    }
+
     function parseRoute() {
         const hash = location.hash.replace(/^#/, '') || '/home';
         const parts = hash.split('/').filter(Boolean);
@@ -617,7 +642,7 @@
                                 ${detailField('Notiz', 'notiz', l.notiz, 'textarea')}
                             </div>
                             <div class="sf-form-actions">
-                                <button type="button" class="slds-button slds-button_brand" id="contract-btn" title="Maßgeschneiderten Vermittlungsvertrag generieren">Vertrag generieren</button>
+                                <button type="button" class="slds-button slds-button_brand" id="contract-btn" title="PDF sofort erstellen und herunterladen">Vertrag jetzt erstellen (PDF)</button>
                                 <button type="button" class="slds-button slds-button_brand" id="contract-send-btn" title="Vertrag per E-Mail an den Lead senden">Vertrag per E-Mail senden</button>
                                 ${l.role_type === 'partner' && l.netto ? `<button type="button" class="slds-button slds-button_brand" id="invoice-btn" title="Rechnung generieren & versenden">Rechnung senden</button>` : ''}
                                 ${l.cold_lead ? `<button type="button" class="slds-button slds-button_neutral" id="activate-cold-btn">In Pipeline aktivieren</button>` : ''}
@@ -1751,8 +1776,11 @@
     }
 
     function openContractModal(ref, mode = 'open') {
-        const l = (state.data?.leads || []).find(x => x.ref === decodeURIComponent(ref));
-        if (!l) return;
+        const l = findLeadByRef(ref);
+        if (!l) {
+            showToast('Lead nicht gefunden — bitte Seite aktualisieren', 'warn');
+            return;
+        }
         const dialog = $('#contract-dialog');
         if (!dialog || typeof dialog.showModal !== 'function') {
             showToast('Dialog nicht unterstützt', 'warn');
@@ -1785,19 +1813,25 @@
             const bytes = new Uint8Array(bin.length);
             for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
             const blob = new Blob([bytes], { type: 'application/pdf' });
+            if (isMobileDevice()) {
+                downloadBlob(blob, filename);
+                showToast('PDF wird heruntergeladen — in Dateien / Downloads öffnen', 'success');
+                return;
+            }
             const url = URL.createObjectURL(blob);
             const opened = window.open(url, '_blank');
-            if (!opened) {
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = filename;
-                document.body.appendChild(a);
-                a.click();
-                a.remove();
-            }
+            if (!opened) downloadBlob(blob, filename);
             setTimeout(() => URL.revokeObjectURL(url), 120000);
-            showToast('PDF geöffnet — auf dem Handy direkt lesbar', 'success');
+            showToast(opened ? 'PDF geöffnet' : 'PDF heruntergeladen', 'success');
             return;
+        }
+        if (res.html) {
+            if (isMobileDevice()) {
+                const blob = new Blob([res.html], { type: 'text/html;charset=utf-8' });
+                downloadBlob(blob, filename.replace(/\.pdf$/i, '.html') || 'Vertrag.html');
+                showToast('Vertrag als HTML gespeichert — im Browser öffnen', 'success');
+                return;
+            }
         }
         openContractHtml(res.html, filename);
     }
@@ -1819,10 +1853,14 @@
     }
 
     async function quickGenerateContract(ref) {
-        const l = (state.data?.leads || []).find(x => x.ref === decodeURIComponent(ref));
-        if (!l) return;
+        const l = findLeadByRef(ref);
+        if (!l) {
+            showToast('Lead nicht gefunden — bitte Seite aktualisieren', 'warn');
+            return;
+        }
         const btn = $('#contract-btn');
-        if (btn) btn.disabled = true;
+        const prev = btn?.textContent;
+        if (btn) { btn.disabled = true; btn.textContent = 'Erstelle PDF…'; }
         try {
             const payload = buildContractPayloadFromLead(l, { mark_sent: false });
             const res = await api('/api/crm/contract/generate', {
@@ -1830,32 +1868,35 @@
                 body: JSON.stringify(payload),
             });
             if (!res.ok) throw new Error(res.error || 'Vertrag fehlgeschlagen');
+            if (res.crm_warning) showToast(res.crm_warning, 'warn');
             openContractFile(res);
         } catch (err) {
-            showToast(err.message, 'warn');
+            showToast(err.message || 'Vertrag konnte nicht erstellt werden', 'warn');
         } finally {
-            if (btn) btn.disabled = false;
+            if (btn) { btn.disabled = false; if (prev) btn.textContent = prev; }
         }
     }
 
     async function generateContractFromModal() {
         const btn = $('#contract-open-btn');
         const payload = collectContractPayload();
-        if (btn) btn.disabled = true;
+        const prev = btn?.textContent;
+        if (btn) { btn.disabled = true; btn.textContent = 'Erstelle PDF…'; }
         try {
             const res = await api('/api/crm/contract/generate', {
                 method: 'POST',
                 body: JSON.stringify(payload),
             });
             if (!res.ok) throw new Error(res.error || 'Vertrag fehlgeschlagen');
+            if (res.crm_warning) showToast(res.crm_warning, 'warn');
             openContractFile(res);
             $('#contract-dialog')?.close();
             await refreshData({ silent: true });
             render();
         } catch (err) {
-            showToast(err.message, 'warn');
+            showToast(err.message || 'Vertrag konnte nicht erstellt werden', 'warn');
         } finally {
-            if (btn) btn.disabled = false;
+            if (btn) { btn.disabled = false; if (prev) btn.textContent = prev; }
         }
     }
 
@@ -1883,7 +1924,8 @@
             });
             if (!res.ok) throw new Error(res.error || 'Versand fehlgeschlagen');
             const fmt = res.attachment_format === 'pdf' ? 'PDF' : 'HTML';
-            showToast(`Vertrag (${fmt}) gesendet an ${res.to}`, 'success');
+            showToast(`✓ Vertrag erfolgreich gesendet (${fmt}) an ${res.to}`, 'success');
+            showToast('Bestätigung wurde an deine Gmail geschickt', 'success');
             if (res.crm_warning) showToast(res.crm_warning, 'warn');
             $('#contract-dialog')?.close();
             await refreshData({ silent: true });

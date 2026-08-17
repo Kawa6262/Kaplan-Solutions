@@ -397,6 +397,54 @@ def send_contract_to_lead(data: dict, lead: dict | None = None) -> dict:
     }
 
 
+def notify_admin_contract_sent(
+    data: dict,
+    lead: dict | None,
+    result: dict,
+    *,
+    source: str = "manual",
+) -> None:
+    """Bestätigung an Admin nach manuellem Vertragsversand aus dem CRM."""
+    from mailer import ADMIN_EMAIL
+
+    if not email_configured() or not ADMIN_EMAIL:
+        return
+    lead = dict(lead or {})
+    payload = lead_payload_from_request(data, lead)
+    ref = payload.get("ref") or result.get("ref") or "—"
+    company = payload.get("company") or payload.get("firma") or payload.get("name") or "Lead"
+    to_email = result.get("to") or payload.get("email") or ""
+    fmt = result.get("attachment_format") or ("pdf" if str(result.get("filename", "")).endswith(".pdf") else "html")
+    subject = f"✓ Vertrag erfolgreich gesendet — {company} ({ref})"
+    text = f"""Der Vertrag wurde erfolgreich versendet.
+
+Empfänger: {payload.get('name', '')} · {company}
+E-Mail: {to_email}
+Referenz: {ref}
+Anhang: {result.get('filename', '')} ({fmt})
+Quelle: Kaplan Sales CRM ({source})
+
+{company_footer_text()}
+"""
+    html = f"""<div style="font-family:Georgia,serif;font-size:15px;line-height:1.6;color:#222">
+<p><strong>✓ Vertrag erfolgreich gesendet</strong></p>
+<p>{_safe(payload.get('name', ''))} · {_safe(company)}<br>{_safe(to_email)}</p>
+<p style="color:#666">Ref. {_safe(ref)} · {_safe(result.get('filename', ''))} ({_safe(fmt)})</p>
+</div>"""
+    try:
+        send_email(
+            ADMIN_EMAIL,
+            subject,
+            text,
+            html,
+            reply_to=REPLY_EMAIL,
+            mail_kind="transactional",
+            entity_ref=ref,
+        )
+    except Exception:
+        pass
+
+
 def schedule_contract_to_lead(
     data: dict,
     lead: dict | None = None,

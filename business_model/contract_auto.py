@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -227,8 +227,20 @@ def _enqueue(payload: dict, error: str) -> None:
     _log(f"In Warteschlange: {ref} ({error[:120]})")
 
 
+def _next_contract_send_time() -> datetime:
+    """Standard: nächster Werktag 8:00 Uhr (Berlin). Sofort mit AUTO_CONTRACT_IMMEDIATE=1."""
+    if os.getenv("AUTO_CONTRACT_IMMEDIATE", "").strip().lower() in ("1", "true", "yes"):
+        return datetime.now(TZ)
+    hour = int(os.getenv("AUTO_CONTRACT_SEND_HOUR", "8"))
+    now = datetime.now(TZ)
+    target = (now + timedelta(days=1)).replace(hour=hour, minute=0, second=0, microsecond=0)
+    while target.weekday() >= 5:
+        target += timedelta(days=1)
+    return target
+
+
 def auto_send_contract_after_inquiry(payload: dict) -> dict:
-    """Nach Bestätigungs-Mail: Vertrag am selben Tag an den Lead senden."""
+    """Nach Bestätigungs-Mail: Vertrag planen (Standard: nächster Tag 8 Uhr) oder sofort."""
     if not _enabled():
         return {"ok": False, "skipped": "AUTO_SEND_CONTRACT aus"}
 
@@ -246,13 +258,18 @@ def auto_send_contract_after_inquiry(payload: dict) -> dict:
         _enqueue(payload, "E-Mail nicht konfiguriert")
         return {"ok": False, "error": "E-Mail nicht konfiguriert", "queued": True}
 
-    from business_model.contract_send import send_contract_to_lead
+    from business_model.contract_send import schedule_contract_to_lead, send_contract_to_lead
 
     lead = inquiry_to_lead(payload)
     data = inquiry_to_contract_data(payload, lead)
+    send_at = _next_contract_send_time()
+    immediate = send_at <= datetime.now(TZ) + timedelta(seconds=30)
 
     try:
-        result = send_contract_to_lead(data, lead)
+        if immediate:
+            result = send_contract_to_lead(data, lead)
+        else:
+            result = schedule_contract_to_lead(data, lead, scheduled_for=send_at)
     except Exception as exc:
         _enqueue(payload, str(exc))
         return {"ok": False, "error": str(exc), "queued": True}
@@ -260,6 +277,12 @@ def auto_send_contract_after_inquiry(payload: dict) -> dict:
     if not result.get("ok"):
         _enqueue(payload, result.get("error", "Versand fehlgeschlagen"))
         return {**result, "queued": True}
+
+    if result.get("scheduled"):
+        _mark_sent(ref, {"to": result.get("to"), "scheduled_for": result.get("scheduled_for")})
+        when = send_at.strftime("%d.%m.%Y %H:%M")
+        _log(f"✓ Vertrag geplant → {result.get('to')} ({ref}) · {when} Uhr")
+        return {"ok": True, "ref": ref, "scheduled": True, **result}
 
     _mark_sent(ref, {"to": result.get("to"), "subject": result.get("subject")})
     calc = result.get("provision")
@@ -312,8 +335,16 @@ def process_contract_auto_queue(max_items: int = 10) -> int:
 
 
 def run_contract_inbox_jobs() -> dict:
-    """Posteingang prüfen + Auto-Queue + verpasste Inbox-Leads."""
+    """Posteingang prüfen + Auto-Queue + geplante Verträge."""
     from business_model import contract_inbox
+
+    scheduled_done = 0
+    try:
+        from business_model.contract_send import finalize_due_scheduled_contracts
+
+        scheduled_done = finalize_due_scheduled_contracts()
+    except Exception as exc:
+        _log(f"Geplante Verträge: {exc}")
 
     inbox = 0
     if contract_inbox.configured():
@@ -331,6 +362,7 @@ def run_contract_inbox_jobs() -> dict:
         "contract_returns": inbox,
         "inbox_resend": missed,
         "auto_retries": retry,
+        "scheduled_finalized": scheduled_done,
     }
 
 
