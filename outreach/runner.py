@@ -87,6 +87,13 @@ def run_cycle(last_run: float | None = None) -> float:
     bounced = bounce_sync.sync_bounces()
     answered = replies.check_replies()
     try:
+        from crm import mail_inbox
+
+        if mail_inbox.configured():
+            mail_inbox.sync_inbox(limit=40)
+    except Exception as exc:
+        _log(f"[crm] Posteingang-Sync: {exc}")
+    try:
         from business_model import contract_inbox
         contracts = contract_inbox.check_contract_returns()
     except Exception as exc:

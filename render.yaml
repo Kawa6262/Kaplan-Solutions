@@ -15,8 +15,9 @@ services:
       - key: COMPANY_WEBSITE
         value: https://kaplan-solutions.de
       # Diese Werte im Render-Dashboard setzen (Secret):
-      # RESEND_API_KEY, ADMIN_EMAIL, REPLY_EMAIL, CRON_SECRET
+      # RESEND_API_KEY, ADMIN_EMAIL, REPLY_EMAIL, CONTACT_EMAIL, CRON_SECRET
       # ADMIN_CRM_SECRET, SHEETS_WEBHOOK_URL, GOOGLE_PLACES_API_KEY
+      # IMAP_HOST, IMAP_PORT, IMAP_USER, IMAP_PASSWORD, IMAP_FOLDER
       # COMPANY_OPERATOR, COMPANY_STREET, COMPANY_ZIP, COMPANY_CITY, COMPANY_PHONE
 
   - type: cron
@@ -41,6 +42,19 @@ services:
     schedule: "*/5 6-16 * * 1-5"
     buildCommand: pip install -r requirements.txt
     startCommand: python scripts/render_cron_trigger.py outreach
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.8"
+      - key: COMPANY_WEBSITE
+        value: https://kaplan-solutions.de
+
+  - type: cron
+    name: kaplan-inbox-sync
+    runtime: python
+    plan: free
+    schedule: "*/10 * * * *"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python scripts/render_cron_trigger.py inbox-sync
     envVars:
       - key: PYTHON_VERSION
         value: "3.12.8"

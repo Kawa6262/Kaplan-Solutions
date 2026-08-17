@@ -25,6 +25,7 @@ JOBS = {
     "billing": "/api/cron/billing",
     "followups": "/api/cron/lead-followups",
     "contract-inbox": "/api/cron/contract-inbox",
+    "inbox-sync": "/api/cron/inbox-sync",
 }
 
 

@@ -2022,6 +2022,106 @@ def api_outreach_push():
     return jsonify({"ok": True, "sends": len(data.get("sends") or []), "updated_at": data.get("updated_at")})
 
 
+# ── Posteingang & Assistent (Kaplan Sales Mobile) ───────────────────────────
+
+@app.get("/api/crm/inbox")
+def api_crm_inbox():
+    if not _crm_auth_ok():
+        abort(401)
+    from crm import mail_inbox
+
+    if request.args.get("sync") in ("1", "true", "yes"):
+        mail_inbox.sync_inbox(limit=int(request.args.get("limit", 60)))
+    unread_only = request.args.get("unread") in ("1", "true")
+    result = mail_inbox.list_messages(
+        limit=min(int(request.args.get("limit", 40)), 100),
+        offset=max(0, int(request.args.get("offset", 0))),
+        unread_only=unread_only,
+    )
+    resp = jsonify(result)
+    r = app.make_response(resp)
+    r.headers["Cache-Control"] = "no-store"
+    return r
+
+
+@app.post("/api/crm/inbox/sync")
+def api_crm_inbox_sync():
+    if not _crm_auth_ok():
+        abort(401)
+    from crm import mail_inbox
+
+    return jsonify(mail_inbox.sync_inbox(limit=80))
+
+
+@app.post("/api/crm/inbox/read")
+def api_crm_inbox_read():
+    if not _crm_auth_ok():
+        abort(401)
+    data = request.get_json(silent=True) or {}
+    from crm import mail_inbox
+
+    mid = (data.get("message_id") or "").strip()
+    if not mid:
+        return jsonify({"ok": False, "error": "message_id fehlt"}), 400
+    return jsonify(mail_inbox.mark_read(mid, read=data.get("read", True)))
+
+
+@app.post("/api/crm/inbox/reply")
+def api_crm_inbox_reply():
+    if not _crm_auth_ok():
+        abort(401)
+    data = request.get_json(silent=True) or {}
+    from crm import mail_inbox
+
+    result = mail_inbox.send_reply(
+        to_email=data.get("to") or data.get("to_email") or "",
+        subject=data.get("subject") or "",
+        body=data.get("body") or data.get("text") or "",
+        reply_to_message_id=data.get("message_id"),
+    )
+    status = 200 if result.get("ok") else 400
+    return jsonify(result), status
+
+
+@app.get("/api/crm/copilot")
+def api_crm_copilot_get():
+    if not _crm_auth_ok():
+        abort(401)
+    from crm import copilot
+
+    since = (request.args.get("since") or "").strip() or None
+    result = copilot.list_messages(since_id=since)
+    resp = jsonify(result)
+    r = app.make_response(resp)
+    r.headers["Cache-Control"] = "no-store"
+    return r
+
+
+@app.post("/api/crm/copilot")
+def api_crm_copilot_post():
+    if not _crm_auth_ok():
+        abort(401)
+    data = request.get_json(silent=True) or {}
+    from crm import copilot
+
+    role = (data.get("role") or "user").strip().lower()
+    text = (data.get("text") or data.get("message") or "").strip()
+    if role == "assistant":
+        return jsonify(copilot.agent_reply(text))
+    return jsonify(copilot.post_user_message(text))
+
+
+@app.post("/api/cron/inbox-sync")
+def cron_inbox_sync():
+    secret = request.headers.get("X-Cron-Secret", "") or request.args.get("secret", "")
+    expected = os.getenv("CRON_SECRET", ADMIN_CRM_SECRET).strip()
+    if not expected or secret != expected:
+        abort(401)
+    from crm import mail_inbox
+
+    return jsonify(mail_inbox.sync_inbox(limit=80))
+
+
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "8080"))
     if not email_configured():

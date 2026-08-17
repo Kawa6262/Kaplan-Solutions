@@ -59,7 +59,10 @@ def _build_company() -> dict:
         "street": street or "[Straße und Hausnummer in .env: COMPANY_STREET]",
         "zip_city": zip_city,
         "country": os.getenv("COMPANY_COUNTRY", "Deutschland"),
-        "email": os.getenv("REPLY_EMAIL", "kontakt@kaplan-solutions.de").strip(),
+        "email": os.getenv(
+            "CONTACT_EMAIL",
+            os.getenv("REPLY_EMAIL", "kontakt@kaplan-solutions.de"),
+        ).strip(),
         "phone": os.getenv("COMPANY_PHONE", "+49 (0)30 123 456 789").strip(),
         "website": os.getenv("COMPANY_WEBSITE", "https://kaplan-solutions.de").strip(),
         "director": director,

@@ -28,6 +28,10 @@
         formDirty: false,
         staleData: false,
         undoLead: null,
+        inbox: null,
+        copilot: { messages: [], pending: 0 },
+        copilotPoll: null,
+        inboxPoll: null,
     };
     let syncTimer = null;
     let outreachTimer = null;
@@ -236,6 +240,14 @@
             }
             if (a.dataset.route === 'opportunities' && hot) {
                 a.insertAdjacentHTML('beforeend', `<span class="sf-badge hot">${hot}</span>`);
+            }
+            const unread = state.inbox?.unread || 0;
+            if (a.dataset.route === 'inbox' && unread) {
+                a.insertAdjacentHTML('beforeend', `<span class="sf-badge">${unread}</span>`);
+            }
+            const pending = state.copilot?.pending || 0;
+            if (a.dataset.route === 'assistant' && pending) {
+                a.insertAdjacentHTML('beforeend', `<span class="sf-badge hot">${pending}</span>`);
             }
         });
     }
@@ -1011,6 +1023,117 @@
         </div>`;
     }
 
+    async function loadInbox(sync) {
+        const q = sync ? '?sync=1' : '';
+        const data = await api('/api/crm/inbox' + q);
+        if (!data.ok) throw new Error(data.error || 'Posteingang nicht geladen');
+        state.inbox = data;
+        return data;
+    }
+
+    async function loadCopilot(sinceId) {
+        const q = sinceId ? `?since=${encodeURIComponent(sinceId)}` : '';
+        const data = await api('/api/crm/copilot' + q);
+        if (!data.ok) throw new Error(data.error || 'Assistent nicht geladen');
+        if (sinceId && data.messages?.length) {
+            state.copilot.messages = [...state.copilot.messages, ...data.messages];
+        } else if (!sinceId) {
+            state.copilot.messages = data.messages || [];
+        }
+        state.copilot.pending = data.pending_agent || 0;
+        return data;
+    }
+
+    function stopInboxPoll() {
+        if (state.inboxPoll) { clearInterval(state.inboxPoll); state.inboxPoll = null; }
+    }
+
+    function startInboxPoll() {
+        stopInboxPoll();
+        state.inboxPoll = setInterval(() => {
+            loadInbox(true).then(() => {
+                if (state.route.page === 'inbox') render();
+                updateNavBadges();
+            }).catch(() => {});
+        }, 60000);
+    }
+
+    function stopCopilotPoll() {
+        if (state.copilotPoll) { clearInterval(state.copilotPoll); state.copilotPoll = null; }
+    }
+
+    function startCopilotPoll() {
+        stopCopilotPoll();
+        const last = state.copilot.messages[state.copilot.messages.length - 1];
+        state.copilotPoll = setInterval(() => {
+            const since = state.copilot.messages[state.copilot.messages.length - 1]?.id;
+            loadCopilot(since).then(() => {
+                if (state.route.page === 'assistant') render();
+            }).catch(() => {});
+        }, 4000);
+    }
+
+    function renderInbox() {
+        const ib = state.inbox;
+        const cfg = ib?.password_set;
+        const err = !ib?.configured ? (ib?.error || 'IMAP_PASSWORD in .env auf dem Server eintragen (Strato Postfach-Passwort für kontakt@).') : '';
+        const msgs = ib?.messages || [];
+        return pageHeader('📥', 'inbox', 'Posteingang', `${ib?.unread || 0} ungelesen · ${ib?.total || 0} gesamt`) +
+            (err ? `<div class="sf-banner-warn">${esc(err)}</div>` : '') +
+            `<div class="sf-home-actions">
+                <button type="button" class="slds-button slds-button_brand" id="inbox-sync-btn">↻ Sync</button>
+            </div>
+            <div class="sf-inbox-list">
+                ${msgs.length ? msgs.map(m => `
+                    <article class="sf-inbox-item ${m.is_read ? '' : 'unread'}" data-mid="${esc(m.message_id)}">
+                        <header>
+                            <strong>${esc(m.from_name || m.from_email)}</strong>
+                            <span class="sf-muted">${esc((m.received_at || '').replace('T', ' ').slice(0, 16))}</span>
+                        </header>
+                        <div class="sf-inbox-subj">${esc(m.subject || '(Kein Betreff)')}</div>
+                        ${m.crm_ref ? `<div class="sf-inbox-ref">${refBadge(m.crm_ref, { small: true })}</div>` : ''}
+                        <div class="sf-inbox-body">${esc((m.body || '').slice(0, 400))}${(m.body || '').length > 400 ? '…' : ''}</div>
+                        <div class="sf-inbox-actions">
+                            <button type="button" class="slds-button slds-button_brand sf-inbox-reply" data-to="${esc(m.from_email)}" data-subj="${esc(m.subject || '')}" data-mid="${esc(m.message_id)}">Antworten</button>
+                            <a class="slds-button" href="mailto:${esc(m.from_email)}">Mail-App</a>
+                        </div>
+                    </article>`).join('') : `<div class="sf-empty">${cfg ? 'Keine Mails — Sync drücken' : 'IMAP zuerst einrichten'}</div>`}
+            </div>
+            <dialog id="inbox-reply-dialog" class="sf-modal">
+                <form id="inbox-reply-form">
+                    <header class="sf-modal-header"><h2>Antwort senden</h2>
+                        <button type="button" class="sf-modal-close" data-close>×</button></header>
+                    <div class="sf-modal-body">
+                        <label>An <input id="inbox-reply-to" readonly /></label>
+                        <label>Betreff <input id="inbox-reply-subj" /></label>
+                        <label>Nachricht<textarea id="inbox-reply-body" rows="6" required></textarea></label>
+                        <input type="hidden" id="inbox-reply-mid" />
+                    </div>
+                    <footer class="sf-modal-footer">
+                        <button type="submit" class="slds-button slds-button_brand">Senden</button>
+                    </footer>
+                </form>
+            </dialog>`;
+    }
+
+    function renderAssistant() {
+        const msgs = state.copilot.messages || [];
+        return pageHeader('🤖', 'assistant', 'Assistent', 'Direkt mit Cursor / KI — Befehle vom Handy') +
+            `<div class="sf-chat-wrap">
+                <div class="sf-chat-messages" id="copilot-messages">
+                    ${msgs.length ? msgs.map(m => `
+                        <div class="sf-chat-bubble ${m.role === 'user' ? 'user' : 'assistant'}">
+                            <div class="sf-chat-text">${esc(m.text).replace(/\n/g, '<br>')}</div>
+                            <div class="sf-chat-time">${esc((m.created_at || '').replace('T', ' ').slice(0, 16))}</div>
+                        </div>`).join('') : `<div class="sf-chat-bubble assistant"><div class="sf-chat-text">Schreib mir hier — z.&nbsp;B. <code>status</code>, <code>posteingang</code> oder „Antwort an l.biskup@bki-gruppe.de: …"</div></div>`}
+                </div>
+                <form id="copilot-form" class="sf-chat-input">
+                    <textarea id="copilot-input" rows="2" placeholder="Befehl oder Nachricht…" required></textarea>
+                    <button type="submit" class="slds-button slds-button_brand">Senden</button>
+                </form>
+            </div>`;
+    }
+
     function renderSearch(q) {
         const ql = q.trim();
         const leads = (state.data?.leads || []).filter(l => leadMatchesQuery(l, ql));
@@ -1058,6 +1181,8 @@
         else if (page === 'tasks') html = renderTasks();
         else if (page === 'calendar') html = renderCalendar();
         else if (page === 'outreach') html = renderOutreach();
+        else if (page === 'inbox') html = renderInbox();
+        else if (page === 'assistant') html = renderAssistant();
         else html = renderHome();
 
         $('#sf-main').innerHTML = html;
@@ -1070,6 +1195,18 @@
             }
         } else {
             stopOutreachSync();
+        }
+        if (page === 'inbox') {
+            startInboxPoll();
+            if (!state.inbox) loadInbox(true).catch(e => showToast(e.message, 'warn'));
+        } else {
+            stopInboxPoll();
+        }
+        if (page === 'assistant') {
+            startCopilotPoll();
+            if (!state.copilot.messages.length) loadCopilot().catch(e => showToast(e.message, 'warn'));
+        } else {
+            stopCopilotPoll();
         }
         $('#view-new-leads')?.addEventListener('click', () => {
             state.pendingNewLeads = [];
@@ -1121,6 +1258,75 @@
         }
         $('#outreach-refresh')?.addEventListener('click', () => {
             refreshCurrentView().catch(e => showToast(e.message, 'warn'));
+        });
+
+        $('#inbox-sync-btn')?.addEventListener('click', async () => {
+            try {
+                await loadInbox(true);
+                showToast('Posteingang aktualisiert', 'ok');
+                render();
+                updateNavBadges();
+            } catch (e) {
+                showToast(e.message, 'warn');
+            }
+        });
+        $$('.sf-inbox-reply').forEach(btn => {
+            btn.onclick = () => {
+                const dlg = $('#inbox-reply-dialog');
+                if (!dlg) return;
+                $('#inbox-reply-to').value = btn.dataset.to || '';
+                let subj = btn.dataset.subj || '';
+                if (subj && !/^re:/i.test(subj)) subj = 'Re: ' + subj;
+                $('#inbox-reply-subj').value = subj;
+                $('#inbox-reply-mid').value = btn.dataset.mid || '';
+                $('#inbox-reply-body').value = '';
+                dlg.showModal();
+            };
+        });
+        $('#inbox-reply-form')?.addEventListener('submit', async (ev) => {
+            ev.preventDefault();
+            try {
+                const res = await api('/api/crm/inbox/reply', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        to: $('#inbox-reply-to').value,
+                        subject: $('#inbox-reply-subj').value,
+                        body: $('#inbox-reply-body').value,
+                        message_id: $('#inbox-reply-mid').value,
+                    }),
+                });
+                if (!res.ok) throw new Error(res.error || 'Senden fehlgeschlagen');
+                $('#inbox-reply-dialog')?.close();
+                showToast('Antwort gesendet', 'ok');
+                await loadInbox(false);
+                render();
+            } catch (e) {
+                showToast(e.message, 'warn');
+            }
+        });
+
+        $('#copilot-form')?.addEventListener('submit', async (ev) => {
+            ev.preventDefault();
+            const input = $('#copilot-input');
+            const text = (input?.value || '').trim();
+            if (!text) return;
+            try {
+                input.disabled = true;
+                const res = await api('/api/crm/copilot', {
+                    method: 'POST',
+                    body: JSON.stringify({ text }),
+                });
+                if (!res.ok) throw new Error(res.error || 'Senden fehlgeschlagen');
+                input.value = '';
+                await loadCopilot();
+                render();
+                $('#copilot-messages')?.scrollTo(0, $('#copilot-messages').scrollHeight);
+            } catch (e) {
+                showToast(e.message, 'warn');
+            } finally {
+                if (input) input.disabled = false;
+                input?.focus();
+            }
         });
 
         $('#home-bauherr-contract')?.addEventListener('click', () => openContractModalManual('bauherr'));
