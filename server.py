@@ -1620,28 +1620,52 @@ def cron_contract_inbox():
     return jsonify(run_contract_inbox_jobs())
 
 
-@app.post("/api/crm/contract/generate")
-def api_crm_contract_generate():
-    """Maßgeschneiderten Vermittlungsvertrag für einen Lead generieren."""
-    if not _crm_auth_ok():
-        abort(401)
-    data = request.get_json(silent=True) or {}
+def _contract_lead_from_data(data: dict) -> tuple[dict, dict | None]:
+    """Lead aus CRM oder manuellen Feldern (Auftraggeber ohne CRM-Eintrag)."""
     ref = (data.get("ref") or "").strip()
-    lead: dict = {}
     if ref:
         lead, err = _crm_lead_by_ref(ref)
         if err:
-            status = 404 if err.get("error") == "Lead nicht gefunden" else 502
-            return jsonify(err), status
+            return {}, err
+        return lead, None
+    email = (data.get("email") or "").strip()
+    if not email or "@" not in email:
+        return {}, {"ok": False, "error": "CRM-Ref oder Empfänger-E-Mail fehlt"}
+    ctype = (data.get("type") or "bauherr").strip().lower()
+    lead = {
+        "ref": (data.get("project_ref") or "MANUAL").strip(),
+        "name": (data.get("name") or "").strip(),
+        "email": email,
+        "firma": (data.get("firma") or data.get("company") or "").strip(),
+        "company": (data.get("firma") or data.get("company") or data.get("name") or "").strip(),
+        "telefon": (data.get("telefon") or "").strip(),
+        "stadt": (data.get("region") or data.get("stadt") or "").strip(),
+        "role_type": "bauherr" if ctype == "bauherr" else "partner",
+    }
+    return lead, None
 
-    from business_model.contract_send import generate_contract_html, resolve_contract_type
+
+@app.post("/api/crm/contract/generate")
+def api_crm_contract_generate():
+    """Maßgeschneiderten Vermittlungsvertrag (PDF) für einen Lead generieren."""
+    if not _crm_auth_ok():
+        abort(401)
+    data = request.get_json(silent=True) or {}
+    lead, err = _contract_lead_from_data(data)
+    if err:
+        status = 404 if err.get("error") == "Lead nicht gefunden" else 400
+        return jsonify(err), status
+
+    from business_model.contract_send import build_contract_attachments, generate_contract_html
 
     html_out, contract_type, calc = generate_contract_html(data, lead)
-    ref = ref or lead.get("ref", "")
-    filename = f"Kaplan-Solutions-Vermittlungsvertrag-{'Partner' if contract_type == 'partner' else 'Bauherr'}"
-    if ref:
-        filename += f"-{ref}"
-    filename += ".html"
+    ref = (data.get("ref") or lead.get("ref") or "").strip()
+    _attachments, filename, pdf_engine = build_contract_attachments(html_out, contract_type, ref or "Lead")
+    pdf_b64 = ""
+    for att in _attachments:
+        if att.get("filename", "").endswith(".pdf"):
+            pdf_b64 = att.get("content", "")
+            break
 
     if ref:
         crm_err = _apply_contract_crm_updates(ref, data, calc)
@@ -1654,23 +1678,22 @@ def api_crm_contract_generate():
         "contract_type": contract_type,
         "filename": filename,
         "html": html_out,
+        "pdf_base64": pdf_b64,
+        "attachment_format": "pdf" if pdf_b64 else "html",
+        "pdf_engine": pdf_engine,
         "provision": calc,
     })
 
 
 @app.post("/api/crm/contract/send")
 def api_crm_contract_send():
-    """Maßgeschneiderten Vermittlungsvertrag per E-Mail an den Lead senden."""
+    """Maßgeschneiderten Vermittlungsvertrag (PDF) per E-Mail senden."""
     if not _crm_auth_ok():
         abort(401)
     data = request.get_json(silent=True) or {}
-    ref = (data.get("ref") or "").strip()
-    if not ref:
-        return jsonify({"ok": False, "error": "ref fehlt"}), 400
-
-    lead, err = _crm_lead_by_ref(ref)
+    lead, err = _contract_lead_from_data(data)
     if err:
-        status = 404 if err.get("error") == "Lead nicht gefunden" else 502
+        status = 404 if err.get("error") == "Lead nicht gefunden" else 400
         return jsonify(err), status
 
     from business_model.contract_send import generate_contract_html, send_contract_to_lead
@@ -1684,12 +1707,14 @@ def api_crm_contract_send():
         status = 400 if "E-Mail" in str(result.get("error", "")) else 502
         return jsonify(result), status
 
-    _, _, calc = generate_contract_html(data, lead)
-    send_updates = dict(data)
-    send_updates["mark_sent"] = True
-    crm_err = _apply_contract_crm_updates(ref, send_updates, calc)
-    if crm_err:
-        result["crm_warning"] = crm_err.get("error", "CRM-Update fehlgeschlagen")
+    ref = (data.get("ref") or lead.get("ref") or "").strip()
+    if ref:
+        send_updates = dict(data)
+        send_updates["mark_sent"] = True
+        _, _, calc = generate_contract_html(data, lead)
+        crm_err = _apply_contract_crm_updates(ref, send_updates, calc)
+        if crm_err:
+            result["crm_warning"] = crm_err.get("error", "CRM-Update fehlgeschlagen")
 
     return jsonify(result)
 

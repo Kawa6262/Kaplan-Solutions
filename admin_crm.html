@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="Kaplan Sales" />
     <title>Kaplan Sales — Salesforce CRM</title>
-    <link rel="stylesheet" href="/admin-crm.css?v=7" />
+    <link rel="stylesheet" href="/admin-crm.css?v=8" />
 </head>
 <body>
     <!-- Login (Salesforce-style) -->
@@ -100,6 +100,17 @@
             </header>
             <div class="sf-modal-body">
                 <input type="hidden" id="contract-ref" />
+                <div class="sf-contract-recipient">
+                    <label>Empfänger Name *
+                        <input id="contract-recipient-name" placeholder="z. B. Lea Biskup" autocomplete="name" />
+                    </label>
+                    <label>E-Mail Empfänger *
+                        <input id="contract-recipient-email" type="email" inputmode="email" placeholder="name@firma.de" autocomplete="email" />
+                    </label>
+                    <label>Firma
+                        <input id="contract-recipient-firma" placeholder="BKI Beteiligungs GmbH" autocomplete="organization" />
+                    </label>
+                </div>
                 <label>Vertragstyp
                     <select id="contract-type">
                         <option value="partner">Partner (Auftragnehmer)</option>
@@ -139,6 +150,6 @@
 
     <div id="toast-root" class="sf-toast-root" aria-live="polite"></div>
 
-    <script src="/admin-crm.js?v=11"></script>
+    <script src="/admin-crm.js?v=12"></script>
 </body>
 </html>

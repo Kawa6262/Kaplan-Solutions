@@ -399,6 +399,9 @@
 
         return pageHeader('🏠', 'home', 'Home', `Kaplan Sales · ${state.data?.updated || ''}`) +
         (renderNewLeadsBanner() || '') + `
+        <div class="sf-home-actions">
+            <button type="button" class="slds-button slds-button_brand" id="home-bauherr-contract">📄 Auftraggeber-Vertrag (PDF)</button>
+        </div>
         <div class="sf-home">
             <div class="sf-kpi-row">
                 <div class="sf-kpi"><strong>${s.total || 0}</strong><span>Leads gesamt</span></div>
@@ -1116,12 +1119,11 @@
                 }
             };
         }
-        const outreachRefresh = $('#outreach-refresh');
-        if (outreachRefresh) {
-            outreachRefresh.onclick = () => {
-                refreshCurrentView().catch(e => showToast(e.message, 'warn'));
-            };
-        }
+        $('#outreach-refresh')?.addEventListener('click', () => {
+            refreshCurrentView().catch(e => showToast(e.message, 'warn'));
+        });
+
+        $('#home-bauherr-contract')?.addEventListener('click', () => openContractModalManual('bauherr'));
 
         // Path click → update stage
         $$('.sf-path li').forEach(li => {
@@ -1422,17 +1424,20 @@
     }
 
     function buildContractPayloadFromLead(l, overrides = {}) {
+        const name = overrides.name || l.name || $('#contract-recipient-name')?.value?.trim() || '';
+        const email = overrides.email || l.email || $('#contract-recipient-email')?.value?.trim() || '';
+        const firma = overrides.firma || l.company || l.firma || $('#contract-recipient-firma')?.value?.trim() || '';
         return {
-            ref: l.ref,
-            type: l.role_type === 'bauherr' ? 'bauherr' : 'partner',
+            ref: l.ref || overrides.ref || '',
+            type: l.role_type === 'bauherr' ? 'bauherr' : (overrides.type || 'partner'),
             netto_eur: parseNettoInput(l.netto || l.budget || '635000'),
             project_ref: l.projekt_ref || 'KS-2026-DU-01',
             project_name: l.projekt || l.branche || '',
             region: l.stadt || '',
             ag_firma: l.ag_firma || '',
-            name: l.name,
-            firma: l.company || l.name,
-            email: l.email,
+            name,
+            firma,
+            email,
             telefon: l.telefon,
             mark_sent: false,
             ...overrides,
@@ -1441,8 +1446,11 @@
 
     function collectContractPayload() {
         const l = state.contractLead || {};
+        const name = $('#contract-recipient-name')?.value?.trim() || l.name || '';
+        const email = $('#contract-recipient-email')?.value?.trim() || l.email || '';
+        const firma = $('#contract-recipient-firma')?.value?.trim() || l.company || l.firma || '';
         return buildContractPayloadFromLead(l, {
-            ref: $('#contract-ref')?.value,
+            ref: $('#contract-ref')?.value?.trim(),
             type: $('#contract-type')?.value,
             netto_eur: parseNettoInput($('#contract-netto')?.value),
             project_ref: $('#contract-project-ref')?.value?.trim(),
@@ -1450,7 +1458,39 @@
             region: $('#contract-region')?.value?.trim(),
             ag_firma: $('#contract-ag-firma')?.value?.trim(),
             mark_sent: $('#contract-mark-sent')?.checked,
+            name,
+            email,
+            firma,
         });
+    }
+
+    function fillContractRecipientFields(l = {}) {
+        $('#contract-recipient-name').value = l.name || '';
+        $('#contract-recipient-email').value = l.email || '';
+        $('#contract-recipient-firma').value = l.company || l.firma || '';
+    }
+
+    function openContractModalManual(type = 'bauherr') {
+        const dialog = $('#contract-dialog');
+        if (!dialog || typeof dialog.showModal !== 'function') {
+            showToast('Dialog nicht unterstützt', 'warn');
+            return;
+        }
+        state.contractLead = {};
+        state.contractModalMode = 'send';
+        $('#contract-ref').value = '';
+        $('#contract-title').textContent = type === 'bauherr' ? 'Auftraggeber-Vertrag senden' : 'Partner-Vertrag senden';
+        $('#contract-type').value = type;
+        $('#contract-netto').value = type === 'partner' ? '635000' : '0';
+        $('#contract-project-ref').value = 'KS-2026-DU-01';
+        $('#contract-project-name').value = 'Modernisierung zwei MFH Duisburg (14 WE)';
+        $('#contract-region').value = 'Duisburg';
+        $('#contract-ag-firma').value = '';
+        $('#contract-mark-sent').checked = false;
+        fillContractRecipientFields({});
+        toggleContractPartnerFields();
+        updateContractProvisionPreview();
+        dialog.showModal();
     }
 
     function openContractModal(ref, mode = 'open') {
@@ -1472,12 +1512,37 @@
         $('#contract-region').value = l.stadt || 'Duisburg';
         $('#contract-ag-firma').value = l.ag_firma || '';
         $('#contract-mark-sent').checked = true;
+        fillContractRecipientFields(l);
         toggleContractPartnerFields();
         updateContractProvisionPreview();
         dialog.showModal();
         if (mode === 'send') {
             setTimeout(() => $('#contract-send-modal-btn')?.focus(), 100);
         }
+    }
+
+    function openContractFile(res) {
+        const filename = res.filename || 'Vertrag.pdf';
+        if (res.pdf_base64) {
+            const bin = atob(res.pdf_base64);
+            const bytes = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+            const blob = new Blob([bytes], { type: 'application/pdf' });
+            const url = URL.createObjectURL(blob);
+            const opened = window.open(url, '_blank');
+            if (!opened) {
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+            }
+            setTimeout(() => URL.revokeObjectURL(url), 120000);
+            showToast('PDF geöffnet — auf dem Handy direkt lesbar', 'success');
+            return;
+        }
+        openContractHtml(res.html, filename);
     }
 
     function toggleContractPartnerFields() {
@@ -1508,7 +1573,7 @@
                 body: JSON.stringify(payload),
             });
             if (!res.ok) throw new Error(res.error || 'Vertrag fehlgeschlagen');
-            openContractHtml(res.html, res.filename);
+            openContractFile(res);
         } catch (err) {
             showToast(err.message, 'warn');
         } finally {
@@ -1526,7 +1591,7 @@
                 body: JSON.stringify(payload),
             });
             if (!res.ok) throw new Error(res.error || 'Vertrag fehlgeschlagen');
-            openContractHtml(res.html, res.filename);
+            openContractFile(res);
             $('#contract-dialog')?.close();
             await refreshData({ silent: true });
             render();
@@ -1541,9 +1606,10 @@
         const l = state.contractLead;
         const btn = $('#contract-send-modal-btn');
         const payload = collectContractPayload();
-        const to = l?.email;
+        const to = payload.email;
         if (!to || !to.includes('@')) {
-            showToast('Keine gültige E-Mail beim Lead hinterlegt', 'warn');
+            showToast('Bitte gültige Empfänger-E-Mail eintragen', 'warn');
+            $('#contract-recipient-email')?.focus();
             return;
         }
         if (payload.type === 'partner' && parseNettoInput($('#contract-netto')?.value) <= 0) {
@@ -1559,7 +1625,8 @@
                 body: JSON.stringify({ ...payload, mark_sent: true }),
             });
             if (!res.ok) throw new Error(res.error || 'Versand fehlgeschlagen');
-            showToast('Vertrag gesendet an ' + res.to, 'success');
+            const fmt = res.attachment_format === 'pdf' ? 'PDF' : 'HTML';
+            showToast(`Vertrag (${fmt}) gesendet an ${res.to}`, 'success');
             if (res.crm_warning) showToast(res.crm_warning, 'warn');
             $('#contract-dialog')?.close();
             await refreshData({ silent: true });

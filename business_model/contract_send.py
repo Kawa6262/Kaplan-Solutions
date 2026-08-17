@@ -233,7 +233,7 @@ def build_contract_email(
     if contract_type == "bauherr":
         subject = f"Vermittlungsvertrag{ref_tail}"
         headline = "Ihr Vermittlungsvertrag"
-        attachment_label = "Vermittlungsvertrag Bauherr (HTML)"
+        attachment_label = "Vermittlungsvertrag Bauherr (PDF)"
         highlight_html = (
             f'<table role="presentation" width="100%" cellspacing="0" cellpadding="0" '
             f'style="margin:0 0 20px;background:#faf8f3;border:1px solid {GOLD};'
@@ -248,9 +248,10 @@ def build_contract_email(
             f"</td></tr></table>"
         )
         paragraphs = [
-            "anbei erhalten Sie unseren Vermittlungsrahmenvertrag für Ihr Projekt.",
+            "anbei erhalten Sie unseren Vermittlungsrahmenvertrag für Ihr Projekt als PDF.",
             (
-                "Bitte lesen Sie den Vertrag im Anhang, unterschreiben Sie ihn und senden "
+                "Bitte öffnen Sie die PDF-Datei im Anhang (auch auf dem Smartphone), "
+                "unterschreiben Sie den Vertrag und senden "
                 f"uns das Dokument per E-Mail zurück an {REPLY_EMAIL}. "
                 "Mit Ihrer Unterschrift bestätigen Sie die vertraglichen Rahmenbedingungen — "
                 "erst danach beginnen wir mit der Vermittlung passender Unternehmen."
@@ -259,7 +260,7 @@ def build_contract_email(
     else:
         subject = f"Vermittlungsvertrag Partner{ref_tail}"
         headline = "Vermittlungsvertrag Partner"
-        attachment_label = f"Vermittlungsvertrag — {company} (HTML)"
+        attachment_label = f"Vermittlungsvertrag — {company} (PDF)"
         paragraphs = [
             f"anbei sende ich Ihnen den Vermittlungsvertrag für {company}.",
             (
@@ -317,11 +318,44 @@ def build_contract_email(
     return subject, text, html
 
 
-def contract_attachment(html: str, filename: str) -> dict:
+def contract_attachment(content: str | bytes, filename: str, *, binary: bool = False) -> dict:
+    if binary:
+        raw = content if isinstance(content, bytes) else content.encode("utf-8")
+    else:
+        raw = content.encode("utf-8") if isinstance(content, str) else content
     return {
         "filename": filename,
-        "content": base64.b64encode(html.encode("utf-8")).decode("ascii"),
+        "content": base64.b64encode(raw).decode("ascii"),
     }
+
+
+def build_contract_attachments(
+    html_contract: str,
+    contract_type: str,
+    ref: str,
+) -> tuple[list[dict], str, str]:
+    """PDF-Anhang (Handy-tauglich), sonst HTML-Fallback."""
+    from business_model.contract_pdf import html_to_pdf_bytes, pdf_filename_for
+
+    pdf_bytes, engine = html_to_pdf_bytes(html_contract)
+    if pdf_bytes:
+        filename = pdf_filename_for(contract_type, ref)
+        return [contract_attachment(pdf_bytes, filename, binary=True)], filename, engine
+    kind = "Partner" if contract_type == "partner" else "Bauherr"
+    filename = f"Kaplan-Solutions-Vermittlungsvertrag-{kind}-{ref}.html"
+    return [contract_attachment(html_contract, filename)], filename, ""
+
+
+def _attach_contract_files(
+    html_contract: str,
+    contract_type: str,
+    ref: str,
+) -> tuple[list[dict], str, str]:
+    attachments, filename, engine = build_contract_attachments(html_contract, contract_type, ref)
+    logo_att = logo_email_attachment()
+    if logo_att:
+        attachments.insert(0, logo_att)
+    return attachments, filename, engine
 
 
 def send_contract_to_lead(data: dict, lead: dict | None = None) -> dict:
@@ -338,12 +372,7 @@ def send_contract_to_lead(data: dict, lead: dict | None = None) -> dict:
     html_contract, contract_type, calc = generate_contract_html(data, lead)
     subject, text, html = build_contract_email(payload, contract_type, calc)
 
-    kind = "Partner" if contract_type == "partner" else "Bauherr"
-    filename = f"Kaplan-Solutions-Vermittlungsvertrag-{kind}-{ref}.html"
-    attachments = [contract_attachment(html_contract, filename)]
-    logo_att = logo_email_attachment()
-    if logo_att:
-        attachments.insert(0, logo_att)
+    attachments, filename, pdf_engine = _attach_contract_files(html_contract, contract_type, ref)
 
     send_email(
         to_email,
@@ -363,6 +392,8 @@ def send_contract_to_lead(data: dict, lead: dict | None = None) -> dict:
         "filename": filename,
         "contract_type": contract_type,
         "provision": calc,
+        "attachment_format": "pdf" if filename.endswith(".pdf") else "html",
+        "pdf_engine": pdf_engine,
     }
 
 
@@ -416,12 +447,7 @@ def schedule_contract_to_lead(
     html_contract, contract_type, calc = generate_contract_html(data, lead)
     subject, text, html = build_contract_email(payload, contract_type, calc)
 
-    kind = "Partner" if contract_type == "partner" else "Bauherr"
-    filename = f"Kaplan-Solutions-Vermittlungsvertrag-{kind}-{ref}.html"
-    attachments = [contract_attachment(html_contract, filename)]
-    logo_att = logo_email_attachment()
-    if logo_att:
-        attachments.insert(0, logo_att)
+    attachments, filename, _pdf_engine = _attach_contract_files(html_contract, contract_type, ref)
 
     scheduled_at = dt.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%dT%H:%M:%SZ")
     try:
@@ -585,18 +611,16 @@ def send_contract_draft_to_admin(
     html_contract, contract_type, calc = generate_contract_html(data, lead)
     subject, text, html = build_contract_email(payload, contract_type, calc)
 
-    kind = "Partner" if contract_type == "partner" else "Bauherr"
-    filename = f"Kaplan-Solutions-Vermittlungsvertrag-{kind}-{ref}.html"
-    attachments = [contract_attachment(html_contract, filename)]
-    logo_att = logo_email_attachment()
-    if logo_att:
-        attachments.insert(0, logo_att)
+    attachments, filename, pdf_engine = _attach_contract_files(html_contract, contract_type, ref)
 
     admin_subject = f"[ENTWURF] {subject} — {company} ({ref})"
+    fmt_note = "PDF" if filename.endswith(".pdf") else "HTML"
     intro = (
         f"Entwurf zur Freigabe — noch nicht an {to_email or 'den Lead'} gesendet.\n\n"
         f"Lead: {company} · {payload.get('name', '')} · {ref}\n"
         f"Geplant an: {to_email}\n"
+        f"Anhang: {filename} ({fmt_note}"
+        f"{', ' + pdf_engine if pdf_engine else ''})\n"
     )
     if note:
         intro += f"\nAnfrage / Notiz:\n{note.strip()}\n"
