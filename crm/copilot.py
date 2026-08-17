@@ -220,10 +220,9 @@ def _try_auto_reply(user_text: str) -> str | None:
 
 def _wants_test_mail(text: str) -> bool:
     tl = text.lower()
-    return bool(
-        re.search(r"(test\s*mail|testmail|test\s*-?\s*mail)", tl)
-        and re.search(r"(schick|sende|send|schicken|mir)", tl)
-    )
+    if re.search(r"(test\s*mail|testmail|test\s*-?\s*mail|testmail)", tl):
+        return bool(re.search(r"(schick|sende|send|schicken|mir|mal|eine|bitte|kannst|könntest)", tl))
+    return bool(re.search(r"(schick|sende).{0,30}(mail|e-mail|email)", tl))
 
 
 def _send_test_mail() -> str:
@@ -315,18 +314,30 @@ def post_user_message(text: str) -> dict:
         return user_msg
 
     reply_text = _try_auto_reply(text)
+    ai_note = ""
 
     if not reply_text:
         try:
             from crm import copilot_ai
 
             if copilot_ai.configured():
-                reply_text = copilot_ai.reply(text, _chat_history())
+                ai_reply = copilot_ai.reply(text, _chat_history())
+                if ai_reply:
+                    reply_text = ai_reply
+                elif copilot_ai.quota_exhausted():
+                    ai_note = (
+                        "\n\n(Hinweis: OpenAI-Guthaben ist leer — unter "
+                        "platform.openai.com → Billing Zahlungsmethode/Guthaben laden. "
+                        "Bis dahin nutze ich die Basis-Antworten.)"
+                    )
         except Exception:
             reply_text = None
 
     if not reply_text:
         reply_text = _smart_fallback(text)
+
+    if ai_note and ai_note not in reply_text:
+        reply_text = reply_text + ai_note
 
     clear_pending(user_msg["id"])
     add_message(role="assistant", text=reply_text)

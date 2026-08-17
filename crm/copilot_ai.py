@@ -10,10 +10,15 @@ import urllib.request
 from typing import Any
 
 MODEL = os.getenv("COPILOT_MODEL", "gpt-4o-mini").strip()
+_last_quota_exhausted = False
 
 
 def configured() -> bool:
     return bool(os.getenv("OPENAI_API_KEY", "").strip())
+
+
+def quota_exhausted() -> bool:
+    return _last_quota_exhausted
 
 
 def _api_key() -> str:
@@ -172,6 +177,8 @@ def _openai_request(body: dict) -> dict:
 
 
 def reply(user_text: str, history: list[dict]) -> str | None:
+    global _last_quota_exhausted
+    _last_quota_exhausted = False
     if not configured():
         return None
 
@@ -228,8 +235,20 @@ Projekt Duisburg: KS-2026-DU-01 (2 MFH, 14 WE)."""
                 return re.sub(r"\*\*(.+?)\*\*", r"\1", text)
             return None
     except urllib.error.HTTPError as exc:
-        err = exc.read().decode(errors="replace")[:200]
-        return f"KI vorübergehend nicht erreichbar ({exc.code}). Probiere: status, posteingang, oder hot leads."
+        raw = exc.read().decode(errors="replace")
+        try:
+            detail = json.loads(raw).get("error") or {}
+        except json.JSONDecodeError:
+            detail = {}
+        code = detail.get("code") or ""
+        if exc.code == 429 and code == "insufficient_quota":
+            _last_quota_exhausted = True
+            return None  # → Smart-Fallback ohne irreführende „429“-Meldung
+        if exc.code in (401, 403):
+            return None
+        print(f"[copilot-ai] OpenAI {exc.code}: {raw[:300]}", flush=True)
+        return None
     except Exception as exc:
-        return f"KI-Fehler: {str(exc)[:120]}. Nutze Befehle: status · posteingang · hot leads"
+        print(f"[copilot-ai] {exc}", flush=True)
+        return None
     return None
