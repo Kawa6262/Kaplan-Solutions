@@ -985,9 +985,14 @@ body {
     display: flex;
     gap: 8px;
     padding: 12px;
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
     border-top: 1px solid var(--sf-border-light);
     background: #fff;
     align-items: flex-end;
+    flex-shrink: 0;
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
 }
 .sf-chat-input textarea {
     flex: 1;
@@ -997,8 +1002,15 @@ body {
     padding: 10px 12px;
     font-family: inherit;
     font-size: 16px;
+    min-height: 44px;
+    -webkit-text-size-adjust: 100%;
+}
+.sf-chat-input textarea:focus {
+    outline: 2px solid var(--sf-blue);
+    outline-offset: 1px;
 }
 @media (max-width: 768px) {
-    .sf-chat-wrap { height: calc(100dvh - var(--sf-header-height) - 80px); }
-    .sf-nav.open + .sf-body .sf-chat-wrap { height: calc(100dvh - 140px); }
+    .sf-chat-wrap { height: calc(100dvh - var(--sf-header-height) - 72px); }
+    .sf-nav.open + .sf-body .sf-chat-wrap { height: calc(100dvh - 132px); }
+    .sf-chat-messages { -webkit-overflow-scrolling: touch; }
 }

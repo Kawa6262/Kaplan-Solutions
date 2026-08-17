@@ -1,4 +1,4 @@
-"""Assistent-Chat in Kaplan Sales — Befehle & Antworten (Handy ↔ Cursor)."""
+"""Assistent-Chat in Kaplan Sales — intelligente Befehle vom Handy."""
 
 from __future__ import annotations
 
@@ -10,9 +10,6 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
-
-from company_config import company_footer_text
-from lead_followup.config import REPLY_EMAIL
 
 ROOT = Path(__file__).resolve().parent.parent
 DB_PATH = ROOT / "data" / "crm_comms.db"
@@ -99,74 +96,68 @@ def add_message(*, role: str, text: str, meta: dict | None = None, pending_agent
     return {"ok": True, "id": msg_id, "role": role, "text": text}
 
 
-def clear_pending(user_message_id: str) -> None:
+def clear_pending(user_message_id: str | None = None) -> None:
     db = _conn()
-    db.execute(
-        "UPDATE copilot_messages SET pending_agent = 0 WHERE id = ?",
-        (user_message_id,),
-    )
+    if user_message_id:
+        db.execute("UPDATE copilot_messages SET pending_agent = 0 WHERE id = ?", (user_message_id,))
+    else:
+        db.execute("UPDATE copilot_messages SET pending_agent = 0 WHERE pending_agent = 1")
     db.commit()
     db.close()
 
 
-def _notify_admin(text: str) -> None:
-    admin = os.getenv("ADMIN_EMAIL", "").strip()
-    if not admin:
-        return
-    try:
-        from mailer import email_configured, send_email
-
-        if not email_configured():
-            return
-        subject = "Kaplan Sales — neuer Befehl"
-        body = f"""Neue Nachricht im Assistenten (Kaplan Sales):
-
-{text}
-
----
-Antworten: Cursor öffnen → Assistent liest data/crm_comms.db
-Oder direkt in Kaplan Sales unter „Assistent" warten.
-
-{company_footer_text()}
-"""
-        send_email(admin, subject, body, f"<pre style='font-family:monospace'>{text}</pre>", mail_kind="transactional")
-    except Exception:
-        pass
+def _chat_history(limit: int = 12) -> list[dict]:
+    db = _conn()
+    rows = db.execute(
+        "SELECT role, text FROM copilot_messages ORDER BY created_at DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    db.close()
+    return [dict(r) for r in reversed(rows)]
 
 
 def _auto_status() -> str:
-    lines = ["📊 **Kurzstatus**", ""]
+    lines = ["📊 Kurzstatus", ""]
     try:
         from outreach import storage, config
 
         storage.init_db()
         s = storage.stats_summary()
-        lines.append(f"Outreach gesamt: {s.get('sent', 0)} versendet, {s.get('queued', 0)} in Queue")
+        lines.append(f"• Outreach: {s.get('sent', 0)} versendet, {s.get('queued', 0)} in Warteschlange")
         if config.PROJEKT_ENABLED:
             ps = storage.campaign_stats().get(config.CAMPAIGN_PROJEKT, {})
             lines.append(
-                f"Duisburg {config.CAMPAIGN_PROJEKT}: {ps.get('sent', 0)} versendet, "
-                f"{ps.get('queued', 0)} Warteschlange"
+                f"• Duisburg {config.CAMPAIGN_PROJEKT}: {ps.get('sent', 0)} versendet, "
+                f"{ps.get('queued', 0)} wartend"
             )
     except Exception as exc:
-        lines.append(f"Outreach: ({exc})")
+        lines.append(f"• Outreach: ({exc})")
     try:
         from sheet_client import crm_snapshot
 
         snap = crm_snapshot()
         leads = snap.get("leads") or []
-        hot = sum(1 for l in leads if "Vertrag" in (l.get("stage") or ""))
-        lines.append(f"CRM: {len(leads)} Leads, {hot} mit Vertrag-Status")
+        hot = [l for l in leads if "Vertrag" in (l.get("stage") or "")]
+        lines.append(f"• CRM: {len(leads)} Leads, {len(hot)} mit Vertrag-Status")
+        if hot[:3]:
+            lines.append("  Top Vertrag:")
+            for l in hot[:3]:
+                lines.append(f"  – {l.get('ref')} {l.get('name') or l.get('company')} ({l.get('stage')})")
+    except Exception:
+        lines.append("• CRM: Sheet nicht erreichbar")
+    try:
+        from crm.mail_inbox import config_status, list_messages as list_mail
+
+        cs = config_status()
+        if cs.get("configured"):
+            m = list_mail(limit=3)
+            lines.append(f"• Posteingang: {m.get('unread', 0)} ungelesen / {m.get('total', 0)} gesamt")
+            for msg in m.get("messages") or []:
+                lines.append(f"  – {msg.get('from_email')}: {(msg.get('subject') or '')[:40]}")
+        else:
+            lines.append("• Posteingang: nicht konfiguriert")
     except Exception:
         pass
-    from crm.mail_inbox import config_status, list_messages as list_mail
-
-    cs = config_status()
-    if cs.get("configured"):
-        m = list_mail(limit=5)
-        lines.append(f"Posteingang: {m.get('unread', 0)} ungelesen / {m.get('total', 0)} gesamt")
-    else:
-        lines.append("Posteingang: IMAP_PASSWORD in .env fehlt noch")
     return "\n".join(lines)
 
 
@@ -174,24 +165,42 @@ def _try_auto_reply(user_text: str) -> str | None:
     t = user_text.strip().lower()
     if t in ("status", "stand", "übersicht", "uebersicht", "?"):
         return _auto_status()
-    if t in ("help", "hilfe", "befehle"):
+    if t in ("help", "hilfe", "befehle", "help"):
         return (
-            "**Befehle (sofort):**\n"
-            "• `status` — Outreach & CRM\n"
-            "• `posteingang` — Mails syncen\n\n"
-            "**Alles andere** — ich bearbeite es in Cursor und antworte hier.\n"
-            "Beispiele:\n"
-            "• Antwort an l.biskup@bki-gruppe.de: Vertrag erhalten, danke\n"
-            "• Atakor nachfassen\n"
-            "• Was ist im Posteingang?"
+            "Ich bin dein Kaplan Sales Assistent.\n\n"
+            "Sofort-Befehle:\n"
+            "• status — Zahlen & Überblick\n"
+            "• posteingang — Mails syncen\n"
+            "• hot leads — wichtige Kontakte\n\n"
+            "Oder frei schreiben, z. B.:\n"
+            "• Was steht im Posteingang?\n"
+            "• Antwort an l.biskup@bki-gruppe.de: Vertrag erhalten\n"
+            "• Wie läuft Duisburg Outreach?"
         )
-    if t in ("posteingang", "inbox", "mails sync", "sync inbox"):
+    if t in ("posteingang", "inbox", "mails sync", "sync inbox", "posteingang sync"):
         from crm.mail_inbox import sync_inbox
 
         r = sync_inbox()
         if not r.get("ok"):
             return f"Posteingang: {r.get('error')}"
-        return f"✓ {r.get('new', 0)} neue Mail(s), {r.get('total', 0)} gesamt im Posteingang."
+        src = r.get("source") or r.get("resend_inbound") and "resend" or "imap"
+        return f"✓ Sync OK ({src}): {r.get('new', 0)} neu, {r.get('total', 0)} gesamt."
+
+    if t in ("hot leads", "heisse leads", "heiss leads", "vertrag", "pipeline"):
+        from sheet_client import crm_snapshot
+
+        snap = crm_snapshot()
+        leads = snap.get("leads") or []
+        hot = [l for l in leads if "Vertrag" in (l.get("stage") or "")]
+        if not hot:
+            return "Keine Leads mit Vertrag-Status gefunden."
+        lines = ["🔥 Vertrag / heiße Leads:", ""]
+        for l in hot[:10]:
+            lines.append(
+                f"• {l.get('ref')} — {l.get('name') or l.get('company')} "
+                f"({l.get('stage')}) {l.get('email') or ''}"
+            )
+        return "\n".join(lines)
 
     m = re.match(
         r"^(?:antwort|reply|mail)\s+(?:an\s+)?([^\s:@]+@[^\s:@]+)\s*[:]\s*(.+)$",
@@ -211,33 +220,85 @@ def _try_auto_reply(user_text: str) -> str | None:
     return None
 
 
+def _smart_fallback(user_text: str) -> str:
+    """Antwort ohne OpenAI — trotzdem konkret."""
+    tl = user_text.lower()
+    if any(w in tl for w in ("posteingang", "mail", "inbox", "nachricht")):
+        from crm.mail_inbox import list_messages
+
+        m = list_messages(limit=5)
+        if not m.get("messages"):
+            return "Posteingang ist leer. Schreib posteingang zum Syncen."
+        lines = [f"📥 {m.get('unread', 0)} ungelesen:", ""]
+        for msg in m.get("messages") or []:
+            lines.append(f"• {msg.get('from_email')}: {msg.get('subject')}")
+            preview = (msg.get("body") or "")[:120]
+            if preview:
+                lines.append(f"  {preview}…")
+        return "\n".join(lines)
+    if any(w in tl for w in ("outreach", "duisburg", "versendet", "kampagne")):
+        return _auto_status()
+    if any(w in tl for w in ("lead", "kontakt", "vertrag", "bki", "atakor")):
+        from sheet_client import crm_snapshot
+
+        snap = crm_snapshot()
+        q = user_text.lower()
+        hits = [
+            l
+            for l in (snap.get("leads") or [])
+            if q in (l.get("name") or "").lower()
+            or q in (l.get("company") or "").lower()
+            or q in (l.get("email") or "").lower()
+            or q in (l.get("ref") or "").lower()
+        ]
+        if hits:
+            l = hits[0]
+            return (
+                f"{l.get('ref')} — {l.get('name') or l.get('company')}\n"
+                f"Stage: {l.get('stage')}\n"
+                f"E-Mail: {l.get('email') or '—'}\n"
+                f"Projekt: {l.get('project') or '—'}"
+            )
+        return _auto_status()
+    return (
+        f"Verstanden: „{user_text[:200]}“\n\n"
+        f"{_auto_status()}\n\n"
+        "Tipp: status · posteingang · hot leads — oder konkret fragen."
+    )
+
+
 def post_user_message(text: str) -> dict:
-    """Nachricht vom Handy — Auto-Antwort oder Warteschlange für Cursor."""
     user_msg = add_message(role="user", text=text, pending_agent=True)
     if not user_msg.get("ok"):
         return user_msg
 
-    auto = _try_auto_reply(text)
-    if auto:
-        clear_pending(user_msg["id"])
-        add_message(role="assistant", text=auto)
-        return {"ok": True, "id": user_msg["id"], "auto_replied": True, "reply": auto}
+    reply_text = _try_auto_reply(text)
 
-    _notify_admin(text)
-    add_message(
-        role="assistant",
-        text="✓ Empfangen — ich melde mich gleich hier mit der Antwort.",
-        meta={"ack_for": user_msg["id"]},
-    )
-    return {"ok": True, "id": user_msg["id"], "auto_replied": False, "pending": True}
+    if not reply_text:
+        try:
+            from crm import copilot_ai
+
+            if copilot_ai.configured():
+                reply_text = copilot_ai.reply(text, _chat_history())
+        except Exception:
+            reply_text = None
+
+    if not reply_text:
+        reply_text = _smart_fallback(text)
+
+    clear_pending(user_msg["id"])
+    add_message(role="assistant", text=reply_text)
+    return {
+        "ok": True,
+        "id": user_msg["id"],
+        "auto_replied": True,
+        "reply": reply_text,
+        "pending": False,
+    }
 
 
 def agent_reply(text: str, *, clear_all_pending: bool = True) -> dict:
-    """Antwort vom Cursor-Assistenten (API oder Script)."""
     result = add_message(role="assistant", text=text)
     if clear_all_pending:
-        db = _conn()
-        db.execute("UPDATE copilot_messages SET pending_agent = 0 WHERE pending_agent = 1")
-        db.commit()
-        db.close()
+        clear_pending()
     return result

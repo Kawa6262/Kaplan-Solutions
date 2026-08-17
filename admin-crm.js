@@ -31,6 +31,8 @@
         inbox: null,
         copilot: { messages: [], pending: 0 },
         copilotPoll: null,
+        copilotInputFocused: false,
+        copilotSending: false,
         inboxPoll: null,
     };
     let syncTimer = null;
@@ -1031,6 +1033,73 @@
         return data;
     }
 
+    function formatChatText(text) {
+        return esc(text || '').replace(/\n/g, '<br>');
+    }
+
+    function refreshCopilotMessages() {
+        const el = document.getElementById('copilot-messages');
+        if (!el) return;
+        const msgs = state.copilot.messages || [];
+        el.innerHTML = msgs.length
+            ? msgs.map(m => `
+                <div class="sf-chat-bubble ${m.role === 'user' ? 'user' : 'assistant'}">
+                    <div class="sf-chat-text">${formatChatText(m.text)}</div>
+                    <div class="sf-chat-time">${esc((m.created_at || '').replace('T', ' ').slice(0, 16))}</div>
+                </div>`).join('')
+            : `<div class="sf-chat-bubble assistant"><div class="sf-chat-text">Schreib mir hier — z.&nbsp;B. <code>status</code>, <code>posteingang</code> oder „Was steht im Posteingang?"</div></div>`;
+        el.scrollTop = el.scrollHeight;
+        updateNavBadges();
+    }
+
+    function bindCopilotInputOnce() {
+        if (state._copilotBound) return;
+        state._copilotBound = true;
+        document.addEventListener('focusin', (ev) => {
+            if (ev.target?.id === 'copilot-input') state.copilotInputFocused = true;
+        });
+        document.addEventListener('focusout', (ev) => {
+            if (ev.target?.id === 'copilot-input') {
+                setTimeout(() => {
+                    if (document.activeElement?.id !== 'copilot-input') {
+                        state.copilotInputFocused = false;
+                    }
+                }, 120);
+            }
+        });
+        document.addEventListener('submit', async (ev) => {
+            if (ev.target?.id !== 'copilot-form') return;
+            ev.preventDefault();
+            if (state.copilotSending) return;
+            const input = document.getElementById('copilot-input');
+            const text = (input?.value || '').trim();
+            if (!text) return;
+            state.copilotSending = true;
+            const sendBtn = ev.target.querySelector('button[type="submit"]');
+            if (input) input.disabled = true;
+            if (sendBtn) sendBtn.disabled = true;
+            try {
+                const res = await api('/api/crm/copilot', {
+                    method: 'POST',
+                    body: JSON.stringify({ text }),
+                });
+                if (!res.ok) throw new Error(res.error || 'Senden fehlgeschlagen');
+                if (input) input.value = '';
+                await loadCopilot();
+                refreshCopilotMessages();
+            } catch (e) {
+                showToast(e.message, 'warn');
+            } finally {
+                state.copilotSending = false;
+                if (input) {
+                    input.disabled = false;
+                    input.focus();
+                }
+                if (sendBtn) sendBtn.disabled = false;
+            }
+        });
+    }
+
     async function loadCopilot(sinceId) {
         const q = sinceId ? `?since=${encodeURIComponent(sinceId)}` : '';
         const data = await api('/api/crm/copilot' + q);
@@ -1064,13 +1133,14 @@
 
     function startCopilotPoll() {
         stopCopilotPoll();
-        const last = state.copilot.messages[state.copilot.messages.length - 1];
         state.copilotPoll = setInterval(() => {
+            if (state.copilotInputFocused || state.copilotSending) return;
+            if (state.route.page !== 'assistant') return;
             const since = state.copilot.messages[state.copilot.messages.length - 1]?.id;
-            loadCopilot(since).then(() => {
-                if (state.route.page === 'assistant') render();
+            loadCopilot(since).then((data) => {
+                if (data.messages?.length) refreshCopilotMessages();
             }).catch(() => {});
-        }, 4000);
+        }, 12000);
     }
 
     function renderInbox() {
@@ -1117,21 +1187,18 @@
     }
 
     function renderAssistant() {
-        const msgs = state.copilot.messages || [];
-        return pageHeader('🤖', 'assistant', 'Assistent', 'Direkt mit Cursor / KI — Befehle vom Handy') +
+        return pageHeader('🤖', 'assistant', 'Assistent', 'Dein Kaplan Sales Assistent — Befehle & Fragen vom Handy') +
             `<div class="sf-chat-wrap">
-                <div class="sf-chat-messages" id="copilot-messages">
-                    ${msgs.length ? msgs.map(m => `
-                        <div class="sf-chat-bubble ${m.role === 'user' ? 'user' : 'assistant'}">
-                            <div class="sf-chat-text">${esc(m.text).replace(/\n/g, '<br>')}</div>
-                            <div class="sf-chat-time">${esc((m.created_at || '').replace('T', ' ').slice(0, 16))}</div>
-                        </div>`).join('') : `<div class="sf-chat-bubble assistant"><div class="sf-chat-text">Schreib mir hier — z.&nbsp;B. <code>status</code>, <code>posteingang</code> oder „Antwort an l.biskup@bki-gruppe.de: …"</div></div>`}
-                </div>
+                <div class="sf-chat-messages" id="copilot-messages"></div>
                 <form id="copilot-form" class="sf-chat-input">
-                    <textarea id="copilot-input" rows="2" placeholder="Befehl oder Nachricht…" required></textarea>
+                    <textarea id="copilot-input" rows="2" placeholder="Frage oder Befehl…" autocomplete="off" autocorrect="on" enterkeyhint="send"></textarea>
                     <button type="submit" class="slds-button slds-button_brand">Senden</button>
                 </form>
             </div>`;
+    }
+
+    function mountAssistantChat() {
+        refreshCopilotMessages();
     }
 
     function renderSearch(q) {
@@ -1204,7 +1271,12 @@
         }
         if (page === 'assistant') {
             startCopilotPoll();
-            if (!state.copilot.messages.length) loadCopilot().catch(e => showToast(e.message, 'warn'));
+            bindCopilotInputOnce();
+            if (!state.copilot.messages.length) {
+                loadCopilot().then(() => mountAssistantChat()).catch(e => showToast(e.message, 'warn'));
+            } else {
+                mountAssistantChat();
+            }
         } else {
             stopCopilotPoll();
         }
@@ -1305,29 +1377,7 @@
             }
         });
 
-        $('#copilot-form')?.addEventListener('submit', async (ev) => {
-            ev.preventDefault();
-            const input = $('#copilot-input');
-            const text = (input?.value || '').trim();
-            if (!text) return;
-            try {
-                input.disabled = true;
-                const res = await api('/api/crm/copilot', {
-                    method: 'POST',
-                    body: JSON.stringify({ text }),
-                });
-                if (!res.ok) throw new Error(res.error || 'Senden fehlgeschlagen');
-                input.value = '';
-                await loadCopilot();
-                render();
-                $('#copilot-messages')?.scrollTo(0, $('#copilot-messages').scrollHeight);
-            } catch (e) {
-                showToast(e.message, 'warn');
-            } finally {
-                if (input) input.disabled = false;
-                input?.focus();
-            }
-        });
+        bindCopilotInputOnce();
 
         $('#home-bauherr-contract')?.addEventListener('click', () => openContractModalManual('bauherr'));
 
