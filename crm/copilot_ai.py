@@ -1,4 +1,4 @@
-"""OpenAI-Assistent für Kaplan Sales (Chat vom Handy)."""
+"""KI-Assistent für Kaplan Sales — Google Gemini (kostenlos) oder OpenAI."""
 
 from __future__ import annotations
 
@@ -9,20 +9,43 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-MODEL = os.getenv("COPILOT_MODEL", "gpt-4o-mini").strip()
+OPENAI_MODEL = os.getenv("COPILOT_MODEL", "gpt-4o-mini").strip()
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash").strip()
 _last_quota_exhausted = False
+
+_SYSTEM = """Du bist der Kaplan Sales Assistent für Kaplan Solutions (B2B Bauvermittlung).
+Antworte auf Deutsch, konkret und handlungsorientiert.
+Du kannst: Status, Posteingang (immer erst syncen), E-Mails senden, Test-Mail an Gmail, Leads anzeigen.
+Bei eingehenden Firmen-Mails: kurz zusammenfassen was zu tun ist.
+Wenn der Nutzer eine Test-Mail will: send_test_email nutzen — nicht sagen „Posteingang leer“.
+Projekt Duisburg: KS-2026-DU-01 (2 MFH, 14 WE)."""
+
+
+def _provider() -> str:
+    explicit = os.getenv("COPILOT_PROVIDER", "").strip().lower()
+    if explicit in ("gemini", "openai"):
+        if explicit == "gemini" and os.getenv("GEMINI_API_KEY", "").strip():
+            return "gemini"
+        if explicit == "openai" and os.getenv("OPENAI_API_KEY", "").strip():
+            return "openai"
+    if os.getenv("GEMINI_API_KEY", "").strip():
+        return "gemini"
+    if os.getenv("OPENAI_API_KEY", "").strip():
+        return "openai"
+    return ""
 
 
 def configured() -> bool:
-    return bool(os.getenv("OPENAI_API_KEY", "").strip())
+    return bool(_provider())
+
+
+def provider_name() -> str:
+    p = _provider()
+    return {"gemini": "Gemini", "openai": "OpenAI"}.get(p, "")
 
 
 def quota_exhausted() -> bool:
     return _last_quota_exhausted
-
-
-def _api_key() -> str:
-    return os.getenv("OPENAI_API_KEY", "").strip()
 
 
 def _tools() -> list[dict]:
@@ -90,6 +113,20 @@ def _tools() -> list[dict]:
             },
         },
     ]
+
+
+def _tools_gemini() -> list[dict]:
+    decls = []
+    for tool in _tools():
+        fn = tool["function"]
+        decls.append(
+            {
+                "name": fn["name"],
+                "description": fn["description"],
+                "parameters": fn.get("parameters") or {"type": "object", "properties": {}},
+            }
+        )
+    return [{"functionDeclarations": decls}]
 
 
 def _run_tool(name: str, args: dict) -> str:
@@ -162,34 +199,179 @@ def _run_tool(name: str, args: dict) -> str:
     return json.dumps({"ok": False, "error": f"Unbekanntes Tool: {name}"})
 
 
-def _openai_request(body: dict) -> dict:
-    req = urllib.request.Request(
-        "https://api.openai.com/v1/chat/completions",
-        data=json.dumps(body).encode(),
-        headers={
-            "Authorization": f"Bearer {_api_key()}",
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
+def complete_json(*, system: str, user: str, max_tokens: int = 500) -> dict | None:
+    """JSON-Antwort für Mail-Analyse o.ä."""
+    if not configured():
+        return None
+    raw = _complete_text(system=system, user=user, json_mode=True, max_tokens=max_tokens)
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        m = re.search(r"\{[\s\S]*\}", raw)
+        if m:
+            try:
+                return json.loads(m.group(0))
+            except json.JSONDecodeError:
+                pass
+    return None
+
+
+def _complete_text(*, system: str, user: str, json_mode: bool = False, max_tokens: int = 1200) -> str | None:
+    p = _provider()
+    if p == "gemini":
+        return _gemini_text(system, user, json_mode=json_mode, max_tokens=max_tokens)
+    if p == "openai":
+        return _openai_text(system, user, json_mode=json_mode, max_tokens=max_tokens)
+    return None
+
+
+def _http_json(url: str, body: dict, headers: dict | None = None) -> dict:
+    hdrs = {"Content-Type": "application/json", **(headers or {})}
+    req = urllib.request.Request(url, data=json.dumps(body).encode(), headers=hdrs, method="POST")
     with urllib.request.urlopen(req, timeout=90) as resp:
         return json.loads(resp.read())
 
 
-def reply(user_text: str, history: list[dict]) -> str | None:
+def _gemini_request(body: dict) -> dict:
+    key = os.getenv("GEMINI_API_KEY", "").strip()
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={key}"
+    return _http_json(url, body)
+
+
+def _openai_request(body: dict) -> dict:
+    key = os.getenv("OPENAI_API_KEY", "").strip()
+    return _http_json(
+        "https://api.openai.com/v1/chat/completions",
+        body,
+        headers={"Authorization": f"Bearer {key}"},
+    )
+
+
+def _gemini_text(system: str, user: str, *, json_mode: bool = False, max_tokens: int = 1200) -> str | None:
+    gen: dict[str, Any] = {"temperature": 0.2 if json_mode else 0.4, "maxOutputTokens": max_tokens}
+    if json_mode:
+        gen["responseMimeType"] = "application/json"
+    body = {
+        "systemInstruction": {"parts": [{"text": system}]},
+        "contents": [{"role": "user", "parts": [{"text": user}]}],
+        "generationConfig": gen,
+    }
+    try:
+        data = _gemini_request(body)
+        parts = (((data.get("candidates") or [{}])[0].get("content") or {}).get("parts") or [])
+        for part in parts:
+            if part.get("text"):
+                return part["text"].strip()
+    except urllib.error.HTTPError as exc:
+        _handle_ai_error("gemini", exc)
+    except Exception as exc:
+        print(f"[copilot-ai] Gemini: {exc}", flush=True)
+    return None
+
+
+def _openai_text(system: str, user: str, *, json_mode: bool = False, max_tokens: int = 1200) -> str | None:
+    body: dict[str, Any] = {
+        "model": OPENAI_MODEL,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        "temperature": 0.2 if json_mode else 0.4,
+        "max_tokens": max_tokens,
+    }
+    if json_mode:
+        body["response_format"] = {"type": "json_object"}
+    try:
+        data = _openai_request(body)
+        return (((data.get("choices") or [{}])[0].get("message") or {}).get("content") or "").strip() or None
+    except urllib.error.HTTPError as exc:
+        _handle_ai_error("openai", exc)
+    except Exception as exc:
+        print(f"[copilot-ai] OpenAI: {exc}", flush=True)
+    return None
+
+
+def _handle_ai_error(provider: str, exc: urllib.error.HTTPError) -> None:
     global _last_quota_exhausted
-    _last_quota_exhausted = False
-    if not configured():
+    raw = exc.read().decode(errors="replace")
+    print(f"[copilot-ai] {provider} {exc.code}: {raw[:300]}", flush=True)
+    if exc.code == 429:
+        _last_quota_exhausted = True
+
+
+def _history_to_gemini(history: list[dict]) -> list[dict]:
+    contents: list[dict] = []
+    for h in history[-10:]:
+        role = h.get("role")
+        text = (h.get("text") or "").strip()
+        if not text or role not in ("user", "assistant"):
+            continue
+        contents.append(
+            {
+                "role": "user" if role == "user" else "model",
+                "parts": [{"text": text}],
+            }
+        )
+    return contents
+
+
+def _reply_gemini(user_text: str, history: list[dict]) -> str | None:
+    contents = _history_to_gemini(history)
+    contents.append({"role": "user", "parts": [{"text": user_text}]})
+
+    body: dict[str, Any] = {
+        "systemInstruction": {"parts": [{"text": _SYSTEM}]},
+        "contents": contents,
+        "tools": _tools_gemini(),
+        "generationConfig": {"temperature": 0.4, "maxOutputTokens": 1200},
+    }
+
+    for _ in range(4):
+        try:
+            data = _gemini_request(body)
+        except urllib.error.HTTPError as exc:
+            _handle_ai_error("gemini", exc)
+            return None
+        except Exception as exc:
+            print(f"[copilot-ai] Gemini: {exc}", flush=True)
+            return None
+
+        candidate = (data.get("candidates") or [{}])[0]
+        parts = (candidate.get("content") or {}).get("parts") or []
+        fn_calls = [p.get("functionCall") for p in parts if p.get("functionCall")]
+        if fn_calls:
+            for fc in fn_calls:
+                name = fc.get("name") or ""
+                args = fc.get("args") or {}
+                if not isinstance(args, dict):
+                    args = {}
+                result = _run_tool(name, args)
+                contents.append({"role": "model", "parts": [{"functionCall": fc}]})
+                try:
+                    parsed = json.loads(result)
+                except json.JSONDecodeError:
+                    parsed = {"result": result}
+                contents.append(
+                    {
+                        "role": "function",
+                        "parts": [{"functionResponse": {"name": name, "response": parsed}}],
+                    }
+                )
+            body["contents"] = contents
+            continue
+
+        for part in parts:
+            text = (part.get("text") or "").strip()
+            if text:
+                return re.sub(r"\*\*(.+?)\*\*", r"\1", text)
         return None
+    return None
 
-    system = """Du bist der Kaplan Sales Assistent für Kaplan Solutions (B2B Bauvermittlung).
-Antworte auf Deutsch, konkret und handlungsorientiert — wie ChatGPT für Kaplan Solutions.
-Du kannst: Status, Posteingang (immer erst syncen), E-Mails senden, Test-Mail an Gmail, Leads anzeigen.
-Bei eingehenden Firmen-Mails: kurz zusammenfassen was zu tun ist.
-Wenn der Nutzer eine Test-Mail will: send_test_email nutzen — nicht sagen „Posteingang leer“.
-Projekt Duisburg: KS-2026-DU-01 (2 MFH, 14 WE)."""
 
-    messages: list[dict[str, Any]] = [{"role": "system", "content": system}]
+def _reply_openai(user_text: str, history: list[dict]) -> str | None:
+    messages: list[dict[str, Any]] = [{"role": "system", "content": _SYSTEM}]
     for h in history[-10:]:
         role = h.get("role")
         if role in ("user", "assistant"):
@@ -197,7 +379,7 @@ Projekt Duisburg: KS-2026-DU-01 (2 MFH, 14 WE)."""
     messages.append({"role": "user", "content": user_text})
 
     body = {
-        "model": MODEL,
+        "model": OPENAI_MODEL,
         "messages": messages,
         "tools": _tools(),
         "tool_choice": "auto",
@@ -205,50 +387,45 @@ Projekt Duisburg: KS-2026-DU-01 (2 MFH, 14 WE)."""
         "max_tokens": 1200,
     }
 
-    try:
-        for _ in range(4):
-            data = _openai_request(body)
-            choice = (data.get("choices") or [{}])[0]
-            msg = choice.get("message") or {}
-            tool_calls = msg.get("tool_calls") or []
-            if tool_calls:
-                messages.append(msg)
-                for tc in tool_calls:
-                    fn = tc.get("function") or {}
-                    name = fn.get("name") or ""
-                    try:
-                        args = json.loads(fn.get("arguments") or "{}")
-                    except json.JSONDecodeError:
-                        args = {}
-                    result = _run_tool(name, args)
-                    messages.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": tc.get("id"),
-                            "content": result,
-                        }
-                    )
-                body["messages"] = messages
-                continue
-            text = (msg.get("content") or "").strip()
-            if text:
-                return re.sub(r"\*\*(.+?)\*\*", r"\1", text)
-            return None
-    except urllib.error.HTTPError as exc:
-        raw = exc.read().decode(errors="replace")
+    for _ in range(4):
         try:
-            detail = json.loads(raw).get("error") or {}
-        except json.JSONDecodeError:
-            detail = {}
-        code = detail.get("code") or ""
-        if exc.code == 429 and code == "insufficient_quota":
-            _last_quota_exhausted = True
-            return None  # → Smart-Fallback ohne irreführende „429“-Meldung
-        if exc.code in (401, 403):
+            data = _openai_request(body)
+        except urllib.error.HTTPError as exc:
+            _handle_ai_error("openai", exc)
             return None
-        print(f"[copilot-ai] OpenAI {exc.code}: {raw[:300]}", flush=True)
+        except Exception as exc:
+            print(f"[copilot-ai] OpenAI: {exc}", flush=True)
+            return None
+
+        choice = (data.get("choices") or [{}])[0]
+        msg = choice.get("message") or {}
+        tool_calls = msg.get("tool_calls") or []
+        if tool_calls:
+            messages.append(msg)
+            for tc in tool_calls:
+                fn = tc.get("function") or {}
+                name = fn.get("name") or ""
+                try:
+                    args = json.loads(fn.get("arguments") or "{}")
+                except json.JSONDecodeError:
+                    args = {}
+                result = _run_tool(name, args)
+                messages.append({"role": "tool", "tool_call_id": tc.get("id"), "content": result})
+            body["messages"] = messages
+            continue
+        text = (msg.get("content") or "").strip()
+        if text:
+            return re.sub(r"\*\*(.+?)\*\*", r"\1", text)
         return None
-    except Exception as exc:
-        print(f"[copilot-ai] {exc}", flush=True)
-        return None
+    return None
+
+
+def reply(user_text: str, history: list[dict]) -> str | None:
+    global _last_quota_exhausted
+    _last_quota_exhausted = False
+    p = _provider()
+    if p == "gemini":
+        return _reply_gemini(user_text, history)
+    if p == "openai":
+        return _reply_openai(user_text, history)
     return None

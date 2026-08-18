@@ -325,10 +325,10 @@ def post_user_message(text: str) -> dict:
                 if ai_reply:
                     reply_text = ai_reply
                 elif copilot_ai.quota_exhausted():
+                    pname = copilot_ai.provider_name() or "KI"
                     ai_note = (
-                        "\n\n(Hinweis: OpenAI-Guthaben ist leer — unter "
-                        "platform.openai.com → Billing Zahlungsmethode/Guthaben laden. "
-                        "Bis dahin nutze ich die Basis-Antworten.)"
+                        f"\n\n(Hinweis: {pname}-Limit erreicht — später erneut versuchen. "
+                        "Bis dahin nutze ich die Basis-Antworten: status · posteingang · hot leads.)"
                     )
         except Exception:
             reply_text = None

@@ -60,19 +60,11 @@ Text:
 {body[:3500]}"""
 
     try:
-        req_body = {
-            "model": os.getenv("COPILOT_MODEL", "gpt-4o-mini"),
-            "messages": [
-                {"role": "system", "content": "Du bist CRM-Analyst. Nur gültiges JSON."},
-                {"role": "user", "content": prompt},
-            ],
-            "temperature": 0.2,
-            "max_tokens": 500,
-            "response_format": {"type": "json_object"},
-        }
-        data = copilot_ai._openai_request(req_body)
-        raw = ((data.get("choices") or [{}])[0].get("message") or {}).get("content") or "{}"
-        return json.loads(raw)
+        return copilot_ai.complete_json(
+            system="Du bist CRM-Analyst. Nur gültiges JSON, keine Markdown-Fences.",
+            user=prompt,
+            max_tokens=500,
+        )
     except Exception:
         return None
 
