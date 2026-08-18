@@ -48,15 +48,10 @@ def _provider() -> str:
     has_gemini = bool(_gemini_key())
     has_openai = bool(os.getenv("OPENAI_API_KEY", "").strip())
 
-    if explicit == "gemini" and has_gemini:
-        return "gemini"
-    if explicit == "openai" and has_openai:
-        return "openai"
-    if not explicit or explicit == "auto":
-        if has_gemini:
-            return "gemini"
-        if has_openai:
-            return "openai"
+    if explicit == "gemini":
+        return "gemini" if has_gemini else ""
+    if explicit == "openai":
+        return "openai" if has_openai else ""
     if has_gemini:
         return "gemini"
     if has_openai:
