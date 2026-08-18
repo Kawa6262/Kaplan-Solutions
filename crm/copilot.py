@@ -269,17 +269,33 @@ def _inbox_report(*, sync: bool = True) -> str:
 
 
 def _smart_fallback(user_text: str) -> str:
-    """Antwort ohne OpenAI — trotzdem konkret."""
-    tl = user_text.lower()
+    """Antwort ohne KI — nur kurze Befehle, keine langen Fragen abfangen."""
+    tl = user_text.strip().lower()
+    short = len(tl) < 70
 
     if _wants_test_mail(user_text):
         return _send_test_mail()
 
-    if any(w in tl for w in ("posteingang", "mail", "inbox", "nachricht", "postfach")):
-        return _inbox_report(sync=True)
-    if any(w in tl for w in ("outreach", "duisburg", "versendet", "kampagne")):
+    if short and tl in ("status", "stand", "übersicht", "uebersicht", "?"):
         return _auto_status()
-    if any(w in tl for w in ("lead", "kontakt", "vertrag", "bki", "atakor")):
+    if short and any(w in tl for w in ("posteingang", "inbox", "postfach")) and "?" not in tl[20:]:
+        return _inbox_report(sync=True)
+    if short and tl.startswith("hot"):
+        from sheet_client import crm_snapshot
+
+        snap = crm_snapshot()
+        leads = snap.get("leads") or []
+        hot = [l for l in leads if "Vertrag" in (l.get("stage") or "")]
+        if not hot:
+            return "Keine Leads mit Vertrag-Status gefunden."
+        lines = ["🔥 Vertrag / heiße Leads:", ""]
+        for l in hot[:10]:
+            lines.append(
+                f"• {l.get('ref')} — {l.get('name') or l.get('company')} "
+                f"({l.get('stage')}) {l.get('email') or ''}"
+            )
+        return "\n".join(lines)
+    if short and any(w in tl for w in ("lead", "kontakt", "vertrag", "bki", "atakor")):
         from sheet_client import crm_snapshot
 
         snap = crm_snapshot()
@@ -301,6 +317,18 @@ def _smart_fallback(user_text: str) -> str:
                 f"Projekt: {l.get('project') or '—'}"
             )
         return _auto_status()
+    try:
+        from crm import copilot_ai
+
+        if not copilot_ai.configured():
+            return (
+                "KI-Assistent ist auf dem Server noch nicht konfiguriert.\n\n"
+                "Render → Environment → GEMINI_API_KEY + COPILOT_PROVIDER=gemini setzen.\n\n"
+                f"{_auto_status()}\n\n"
+                "Kurzbefehle: status · posteingang · hot leads"
+            )
+    except Exception:
+        pass
     return (
         f"Verstanden: „{user_text[:200]}“\n\n"
         f"{_auto_status()}\n\n"

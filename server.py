@@ -2144,6 +2144,15 @@ def api_crm_copilot_get():
 
     since = (request.args.get("since") or "").strip() or None
     result = copilot.list_messages(since_id=since)
+    try:
+        from crm import copilot_ai
+
+        result["ai"] = {
+            "configured": copilot_ai.configured(),
+            "provider": copilot_ai.provider_name(),
+        }
+    except Exception:
+        pass
     resp = jsonify(result)
     r = app.make_response(resp)
     r.headers["Cache-Control"] = "no-store"
