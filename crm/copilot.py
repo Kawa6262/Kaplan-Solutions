@@ -364,9 +364,20 @@ def post_user_message(text: str) -> dict:
             reply_text = None
 
     if not reply_text:
-        reply_text = _smart_fallback(text)
+        try:
+            from crm import copilot_ai
 
-    if ai_note and ai_note not in reply_text:
+            if copilot_ai.configured() and copilot_ai.last_error():
+                reply_text = (
+                    f"⚠️ KI ({copilot_ai.provider_name()}): {copilot_ai.last_error()}\n\n"
+                    f"{_smart_fallback(text)}"
+                )
+            else:
+                reply_text = _smart_fallback(text)
+        except Exception:
+            reply_text = _smart_fallback(text)
+
+    if ai_note and reply_text and ai_note not in reply_text:
         reply_text = reply_text + ai_note
 
     clear_pending(user_msg["id"])
