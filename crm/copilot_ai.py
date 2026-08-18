@@ -15,7 +15,7 @@ GEMINI_MODEL_FALLBACKS = [
     m.strip()
     for m in os.getenv(
         "GEMINI_MODEL_FALLBACKS",
-        "gemini-2.0-flash,gemini-1.5-flash-latest,gemini-1.5-flash,gemini-2.5-flash-preview-05-20",
+        "gemini-2.0-flash,gemini-1.5-flash-002,gemini-1.5-flash-latest,gemini-1.5-flash",
     ).split(",")
     if m.strip()
 ]
@@ -88,6 +88,8 @@ def diagnostics() -> dict:
         "last_error": _last_error,
     }
     if p == "gemini":
+        discovered = _discover_gemini_model()
+        out["discovered_model"] = discovered
         text = _gemini_text("Du antwortest nur mit einem Wort.", "Sage ok.", max_tokens=16, use_tools=False)
         out["ping_ok"] = bool(text)
         out["ping_reply"] = (text or "")[:80]
@@ -285,9 +287,51 @@ def _http_json(url: str, body: dict, headers: dict | None = None) -> dict:
         return json.loads(resp.read())
 
 
+_cached_gemini_model = ""
+
+
+def _http_get_json(url: str) -> dict:
+    req = urllib.request.Request(url, method="GET")
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return json.loads(resp.read())
+
+
+def _discover_gemini_model() -> str:
+    """Erstes verfügbares Flash-Modell von der Google API."""
+    global _cached_gemini_model
+    if _cached_gemini_model:
+        return _cached_gemini_model
+    key = _gemini_key()
+    if not key:
+        return GEMINI_MODEL
+    try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models?key={key}"
+        data = _http_get_json(url)
+        picks: list[str] = []
+        for item in data.get("models") or []:
+            name = (item.get("name") or "").replace("models/", "")
+            methods = item.get("supportedGenerationMethods") or []
+            if "generateContent" not in methods or not name:
+                continue
+            if "flash" in name.lower():
+                picks.append(name)
+        for pref in ("2.5", "2.0", "1.5"):
+            for name in picks:
+                if pref in name:
+                    _cached_gemini_model = name
+                    return name
+        if picks:
+            _cached_gemini_model = picks[0]
+            return picks[0]
+    except Exception as exc:
+        print(f"[copilot-ai] Gemini model discovery: {exc}", flush=True)
+    return GEMINI_MODEL
+
+
 def _gemini_models_to_try() -> list[str]:
     models: list[str] = []
-    for m in [GEMINI_MODEL, *GEMINI_MODEL_FALLBACKS]:
+    discovered = _discover_gemini_model()
+    for m in [discovered, GEMINI_MODEL, *GEMINI_MODEL_FALLBACKS]:
         if m and m not in models:
             models.append(m)
     return models
@@ -450,6 +494,12 @@ def _reply_gemini(user_text: str, history: list[dict]) -> str | None:
     for _ in range(4):
         try:
             data = _gemini_request_resilient(body)
+        except RuntimeError:
+            if body.get("tools"):
+                text = _gemini_text(_SYSTEM, user_text, max_tokens=1200, use_tools=False)
+                if text:
+                    return re.sub(r"\*\*(.+?)\*\*", r"\1", text)
+            return None
         except urllib.error.HTTPError as exc:
             if body.get("tools") and exc.code in (400, 404, 501):
                 text = _gemini_text(_SYSTEM, user_text, max_tokens=1200, use_tools=False)
