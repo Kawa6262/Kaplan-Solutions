@@ -356,8 +356,10 @@ def post_user_message(text: str) -> dict:
                     pname = copilot_ai.provider_name() or "KI"
                     ai_note = (
                         f"\n\n(Hinweis: {pname}-Limit erreicht — später erneut versuchen. "
-                        "Bis dahin nutze ich die Basis-Antworten: status · posteingang · hot leads.)"
+                        "Bis dahin: status · posteingang · hot leads.)"
                     )
+                elif copilot_ai.last_error():
+                    ai_note = f"\n\n(KI-Hinweis: {copilot_ai.last_error()[:200]})"
         except Exception:
             reply_text = None
 

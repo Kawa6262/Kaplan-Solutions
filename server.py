@@ -2136,6 +2136,15 @@ def api_crm_inbox_reply():
     return jsonify(result), status
 
 
+@app.get("/api/crm/ai/status")
+def api_crm_ai_status():
+    if not _crm_auth_ok():
+        abort(401)
+    from crm import copilot_ai
+
+    return jsonify(copilot_ai.diagnostics())
+
+
 @app.get("/api/crm/copilot")
 def api_crm_copilot_get():
     if not _crm_auth_ok():
