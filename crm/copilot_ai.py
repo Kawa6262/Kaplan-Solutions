@@ -10,12 +10,12 @@ import urllib.request
 from typing import Any
 
 OPENAI_MODEL = os.getenv("COPILOT_MODEL", "gpt-4o-mini").strip()
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash").strip()
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash").strip()
 GEMINI_MODEL_FALLBACKS = [
     m.strip()
     for m in os.getenv(
         "GEMINI_MODEL_FALLBACKS",
-        "gemini-1.5-flash,gemini-2.0-flash,gemini-1.5-flash-8b",
+        "gemini-2.0-flash,gemini-1.5-flash-latest,gemini-1.5-flash,gemini-2.5-flash-preview-05-20",
     ).split(",")
     if m.strip()
 ]
@@ -300,21 +300,38 @@ def _gemini_request(body: dict, *, model: str | None = None) -> dict:
     return _http_json(url, body)
 
 
+def _parse_api_error(raw: str) -> str:
+    try:
+        detail = json.loads(raw)
+        err = detail.get("error") or {}
+        if isinstance(err, dict):
+            return (err.get("message") or err.get("status") or raw[:200]).strip()
+        return raw[:200]
+    except json.JSONDecodeError:
+        return raw[:200].strip()
+
+
+def _read_http_error(exc: urllib.error.HTTPError) -> str:
+    try:
+        return exc.read().decode(errors="replace")
+    except Exception:
+        return str(exc)
+
+
 def _gemini_request_resilient(body: dict) -> dict:
-    last_exc: Exception | None = None
+    last_msg = ""
     for model in _gemini_models_to_try():
         try:
             return _gemini_request(body, model=model)
         except urllib.error.HTTPError as exc:
-            last_exc = exc
-            if exc.code in (404, 400):
-                raw = exc.read().decode(errors="replace")
-                print(f"[copilot-ai] Gemini model {model} {exc.code}: {raw[:200]}", flush=True)
+            raw = _read_http_error(exc)
+            last_msg = _parse_api_error(raw) or f"HTTP {exc.code}"
+            _set_error(f"Gemini ({model}): {last_msg}")
+            print(f"[copilot-ai] Gemini {model} {exc.code}: {raw[:250]}", flush=True)
+            if exc.code in (400, 403, 404):
                 continue
-            raise
-    if last_exc:
-        raise last_exc
-    raise RuntimeError("Kein Gemini-Modell verfügbar")
+            raise RuntimeError(last_msg) from exc
+    raise RuntimeError(last_msg or "Kein Gemini-Modell verfügbar")
 
 
 def _extract_gemini_text(data: dict) -> str:
@@ -364,6 +381,9 @@ def _gemini_text(
         data = _gemini_request_resilient(body)
         text = _extract_gemini_text(data)
         return text or None
+    except RuntimeError as exc:
+        _set_error(str(exc)[:400])
+        print(f"[copilot-ai] Gemini: {exc}", flush=True)
     except urllib.error.HTTPError as exc:
         _handle_ai_error("gemini", exc)
     except Exception as exc:
@@ -395,14 +415,11 @@ def _openai_text(system: str, user: str, *, json_mode: bool = False, max_tokens:
     return None
 
 
-def _handle_ai_error(provider: str, exc: urllib.error.HTTPError) -> None:
+def _handle_ai_error(provider: str, exc: urllib.error.HTTPError, raw: str = "") -> None:
     global _last_quota_exhausted
-    raw = exc.read().decode(errors="replace")
-    try:
-        detail = json.loads(raw)
-        msg = (detail.get("error") or {}).get("message") or raw[:200]
-    except json.JSONDecodeError:
-        msg = raw[:200]
+    if not raw:
+        raw = _read_http_error(exc)
+    msg = _parse_api_error(raw) or f"HTTP {exc.code}"
     _set_error(f"{provider}: {msg}")
     print(f"[copilot-ai] {provider} {exc.code}: {raw[:300]}", flush=True)
     if exc.code == 429:
