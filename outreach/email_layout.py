@@ -293,6 +293,28 @@ def reply_hint_html() -> str:
     )
 
 
+def website_lead_required_text(form_url: str) -> str:
+    """Pflicht-Hinweis: Anfrage nur über Website = Lead im CRM."""
+    site = public_site_url().rstrip("/")
+    return (
+        f"Wichtig: Damit wir Sie als Lead erfassen und Sie von uns hören, "
+        f"stellen Sie bitte verbindlich eine Anfrage über unsere Website:\n"
+        f"{form_url or site + '/#contact'}\n"
+        f"Nur über kaplan-solutions.de können wir Sie im System anlegen und persönlich zurückmelden."
+    )
+
+
+def website_lead_required_html(form_url: str) -> str:
+    site = public_site_url().rstrip("/")
+    return highlight_box(
+        f'<strong style="color:{TEXT};">Wichtig — Anfrage über kaplan-solutions.de</strong><br>'
+        f"Damit wir Sie als Lead erfassen und Sie von uns hören, stellen Sie bitte "
+        f'eine kurze Anfrage auf unserer Website '
+        f'(<a href="{safe(form_url)}" style="color:{GOLD};text-decoration:none;">{safe(site)}</a>). '
+        f"Nur so können wir Sie im System anlegen und persönlich zurückmelden."
+    )
+
+
 def cta_sub_link(url: str, label: str) -> str:
     return (
         f'<p style="margin:18px 0 0;font-size:12px;color:#999999;text-align:center;line-height:1.6;">'

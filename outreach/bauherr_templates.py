@@ -11,6 +11,8 @@ from outreach.email_layout import (
     reply_hint_html,
     safe,
     text_footer,
+    website_lead_required_html,
+    website_lead_required_text,
     wrap_outreach_email,
 )
 from outreach.urls import bauherr_form_url
@@ -51,6 +53,8 @@ Kaplan Solutions vermittelt Bauherren und Projektverantwortliche kostenlos an ge
 Haben Sie ein anstehendes Bau- oder Sanierungsprojekt?
 → Kostenlose Anfrage (2 Min.): {form_url}
 
+{website_lead_required_text(form_url)}
+
 Oder antworten Sie mit „Interesse" — wir melden uns persönlich.
 
 Mit freundlichen Grüßen
@@ -69,7 +73,7 @@ Kaplan Solutions
         "Kaplan Solutions vermittelt Bauherren und Projektverantwortliche "
         f'<strong style="color:{TEXT};">kostenlos</strong> an geprüfte Bauunternehmen, '
         "Handwerksbetriebe und Generalunternehmer im DACH-Raum.",
-    ) + highlight + reply_hint_html()
+    ) + highlight + website_lead_required_html(form_url) + reply_hint_html()
 
     html = wrap_outreach_email(
         headline=f"Bauvermittlung — {company}",

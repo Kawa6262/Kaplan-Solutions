@@ -18,6 +18,8 @@ from outreach.email_layout import (
     highlight_box,
     safe,
     text_footer,
+    website_lead_required_html,
+    website_lead_required_text,
     wrap_outreach_email,
 )
 from outreach.projekt import AKTUELL, Ausschreibung
@@ -168,6 +170,8 @@ Stellen Sie bitte eine kurze Anfrage über unsere Website:
 
 {form_url}
 
+{website_lead_required_text(form_url)}
+
 {anfrage_hinweis}
 
 Kaplan Solutions vermittelt Bauleistungen zwischen Auftraggebern und ausführenden Betrieben. Für Sie entstehen keine Listengebühren und keine Kosten für die Anfrage. Eine Vergütung fällt ausschließlich im Erfolgsfall an, wenn der Bauvertrag zustande kommt.
@@ -206,7 +210,7 @@ Kaplan Solutions
         "Passt das zu Ihrer Kapazität und Ihrem Leistungsspektrum? "
         "Stellen Sie bitte eine kurze Anfrage über unsere Website — "
         "wir melden uns zeitnah persönlich bei Ihnen.",
-    ) + highlight_box(
+    ) + website_lead_required_html(form_url) + highlight_box(
         f'<strong style="color:{TEXT};">Bitte in der Beschreibung vermerken:</strong><br>'
         f'„Projekt {safe(region)} / Vermittlung“<br>'
         "<span style='font-size:14px;'>So ordnen wir Ihre Anfrage dem Bauvorhaben zu.</span>"

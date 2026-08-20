@@ -34,6 +34,7 @@
         copilotInputFocused: false,
         copilotSending: false,
         inboxPoll: null,
+        inboxReplyOpen: false,
     };
     let syncTimer = null;
     let outreachTimer = null;
@@ -141,7 +142,8 @@
     function isUserEditing() {
         const ae = document.activeElement;
         if (state.formDirty) return true;
-        if (ae?.closest('#lead-details-form, #activity-dialog, #ref-filter, #global-search')) return true;
+        if (state.inboxReplyOpen) return true;
+        if (ae?.closest('#lead-details-form, #activity-dialog, #ref-filter, #global-search, #inbox-reply-dialog')) return true;
         return false;
     }
 
@@ -1146,7 +1148,9 @@
         stopInboxPoll();
         state.inboxPoll = setInterval(() => {
             loadInbox(true).then(() => {
-                if (state.route.page === 'inbox') render();
+                if (state.route.page === 'inbox' && !state.inboxReplyOpen) {
+                    renderInboxContent();
+                }
                 updateNavBadges();
             }).catch(() => {});
         }, 60000);
@@ -1168,48 +1172,90 @@
         }, 12000);
     }
 
-    function renderInbox() {
+    function inboxListHtml() {
         const ib = state.inbox;
         const cfg = ib?.password_set;
-        const err = !ib?.configured ? (ib?.error || 'Posteingang nicht konfiguriert — RESEND_API_KEY auf dem Server prüfen.') : '';
         const msgs = ib?.messages || [];
+        if (!msgs.length) {
+            return `<div class="sf-empty">${cfg ? 'Keine Mails — Sync drücken' : 'IMAP zuerst einrichten'}</div>`;
+        }
+        return msgs.map(m => `
+            <article class="sf-inbox-item ${m.is_read ? '' : 'unread'}" data-mid="${esc(m.message_id)}">
+                <header>
+                    <strong>${esc(m.from_name || m.from_email)}</strong>
+                    <span class="sf-muted">${esc((m.received_at || '').replace('T', ' ').slice(0, 16))}</span>
+                </header>
+                <div class="sf-inbox-subj">${esc(m.subject || '(Kein Betreff)')}</div>
+                ${m.analysis_summary ? `<div class="sf-inbox-analysis"><span class="sf-inbox-intent">${esc(m.analysis_intent || 'Analyse')}</span> ${esc(m.analysis_summary)}</div>` : ''}
+                ${m.crm_ref ? `<div class="sf-inbox-ref">${refBadge(m.crm_ref, { small: true })}</div>` : ''}
+                <div class="sf-inbox-body">${esc((m.body || '').slice(0, 400))}${(m.body || '').length > 400 ? '…' : ''}</div>
+                <div class="sf-inbox-actions">
+                    <button type="button" class="slds-button slds-button_brand sf-inbox-reply" data-to="${esc(m.from_email)}" data-subj="${esc(m.subject || '')}" data-mid="${esc(m.message_id)}">Antworten</button>
+                    <a class="slds-button" href="mailto:${esc(m.from_email)}">Mail-App</a>
+                </div>
+            </article>`).join('');
+    }
+
+    function renderInboxContent() {
+        const list = $('.sf-inbox-list');
+        if (list) list.innerHTML = inboxListHtml();
+        const ib = state.inbox;
+        const meta = $('.sf-page-meta');
+        if (meta && ib) meta.textContent = `${ib.unread || 0} ungelesen · ${ib.total || 0} gesamt`;
+    }
+
+    function renderInbox() {
+        const ib = state.inbox;
+        const err = !ib?.configured ? (ib?.error || 'Posteingang nicht konfiguriert — RESEND_API_KEY auf dem Server prüfen.') : '';
         return pageHeader('📥', 'inbox', 'Posteingang', `${ib?.unread || 0} ungelesen · ${ib?.total || 0} gesamt`) +
             (err ? `<div class="sf-banner-warn">${esc(err)}</div>` : '') +
             `<div class="sf-home-actions">
                 <button type="button" class="slds-button slds-button_brand" id="inbox-sync-btn">↻ Sync</button>
             </div>
-            <div class="sf-inbox-list">
-                ${msgs.length ? msgs.map(m => `
-                    <article class="sf-inbox-item ${m.is_read ? '' : 'unread'}" data-mid="${esc(m.message_id)}">
-                        <header>
-                            <strong>${esc(m.from_name || m.from_email)}</strong>
-                            <span class="sf-muted">${esc((m.received_at || '').replace('T', ' ').slice(0, 16))}</span>
-                        </header>
-                        <div class="sf-inbox-subj">${esc(m.subject || '(Kein Betreff)')}</div>
-                        ${m.analysis_summary ? `<div class="sf-inbox-analysis"><span class="sf-inbox-intent">${esc(m.analysis_intent || 'Analyse')}</span> ${esc(m.analysis_summary)}</div>` : ''}
-                        ${m.crm_ref ? `<div class="sf-inbox-ref">${refBadge(m.crm_ref, { small: true })}</div>` : ''}
-                        <div class="sf-inbox-body">${esc((m.body || '').slice(0, 400))}${(m.body || '').length > 400 ? '…' : ''}</div>
-                        <div class="sf-inbox-actions">
-                            <button type="button" class="slds-button slds-button_brand sf-inbox-reply" data-to="${esc(m.from_email)}" data-subj="${esc(m.subject || '')}" data-mid="${esc(m.message_id)}">Antworten</button>
-                            <a class="slds-button" href="mailto:${esc(m.from_email)}">Mail-App</a>
-                        </div>
-                    </article>`).join('') : `<div class="sf-empty">${cfg ? 'Keine Mails — Sync drücken' : 'IMAP zuerst einrichten'}</div>`}
-            </div>
-            <dialog id="inbox-reply-dialog" class="sf-modal">
-                <form id="inbox-reply-form">
-                    <header class="sf-modal-header"><h2>Antwort senden</h2>
-                        <button type="button" class="sf-modal-close" data-close>×</button></header>
-                    <div class="sf-modal-body">
-                        <label>An <input id="inbox-reply-to" readonly /></label>
-                        <label>Betreff <input id="inbox-reply-subj" /></label>
-                        <label>Nachricht<textarea id="inbox-reply-body" rows="6" required></textarea></label>
-                        <input type="hidden" id="inbox-reply-mid" />
-                    </div>
-                    <footer class="sf-modal-footer">
-                        <button type="submit" class="slds-button slds-button_brand">Senden</button>
-                    </footer>
-                </form>
-            </dialog>`;
+            <div class="sf-inbox-list">${inboxListHtml()}</div>`;
+    }
+
+    function bindInboxReplyOnce() {
+        if (state._inboxReplyBound) return;
+        state._inboxReplyBound = true;
+        const dlg = $('#inbox-reply-dialog');
+        dlg?.addEventListener('close', () => { state.inboxReplyOpen = false; });
+        dlg?.addEventListener('cancel', () => { state.inboxReplyOpen = false; });
+        document.addEventListener('click', (ev) => {
+            const btn = ev.target.closest?.('.sf-inbox-reply');
+            if (!btn || !dlg) return;
+            $('#inbox-reply-to').value = btn.dataset.to || '';
+            let subj = btn.dataset.subj || '';
+            if (subj && !/^re:/i.test(subj)) subj = 'Re: ' + subj;
+            $('#inbox-reply-subj').value = subj;
+            $('#inbox-reply-mid').value = btn.dataset.mid || '';
+            if (!state.inboxReplyOpen) $('#inbox-reply-body').value = '';
+            state.inboxReplyOpen = true;
+            dlg.showModal();
+            setTimeout(() => $('#inbox-reply-body')?.focus(), 50);
+        });
+        $('#inbox-reply-form')?.addEventListener('submit', async (ev) => {
+            ev.preventDefault();
+            try {
+                const res = await api('/api/crm/inbox/reply', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        to: $('#inbox-reply-to').value,
+                        subject: $('#inbox-reply-subj').value,
+                        body: $('#inbox-reply-body').value,
+                        message_id: $('#inbox-reply-mid').value,
+                    }),
+                });
+                if (!res.ok) throw new Error(res.error || 'Senden fehlgeschlagen');
+                dlg?.close();
+                state.inboxReplyOpen = false;
+                showToast('Antwort gesendet', 'ok');
+                await loadInbox(false);
+                renderInboxContent();
+            } catch (e) {
+                showToast(e.message, 'warn');
+            }
+        });
     }
 
     function renderAssistant() {
@@ -1362,48 +1408,15 @@
             try {
                 await loadInbox(true);
                 showToast('Posteingang aktualisiert', 'ok');
-                render();
+                if (state.inboxReplyOpen) renderInboxContent();
+                else render();
                 updateNavBadges();
             } catch (e) {
                 showToast(e.message, 'warn');
             }
         });
-        $$('.sf-inbox-reply').forEach(btn => {
-            btn.onclick = () => {
-                const dlg = $('#inbox-reply-dialog');
-                if (!dlg) return;
-                $('#inbox-reply-to').value = btn.dataset.to || '';
-                let subj = btn.dataset.subj || '';
-                if (subj && !/^re:/i.test(subj)) subj = 'Re: ' + subj;
-                $('#inbox-reply-subj').value = subj;
-                $('#inbox-reply-mid').value = btn.dataset.mid || '';
-                $('#inbox-reply-body').value = '';
-                dlg.showModal();
-            };
-        });
-        $('#inbox-reply-form')?.addEventListener('submit', async (ev) => {
-            ev.preventDefault();
-            try {
-                const res = await api('/api/crm/inbox/reply', {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        to: $('#inbox-reply-to').value,
-                        subject: $('#inbox-reply-subj').value,
-                        body: $('#inbox-reply-body').value,
-                        message_id: $('#inbox-reply-mid').value,
-                    }),
-                });
-                if (!res.ok) throw new Error(res.error || 'Senden fehlgeschlagen');
-                $('#inbox-reply-dialog')?.close();
-                showToast('Antwort gesendet', 'ok');
-                await loadInbox(false);
-                render();
-            } catch (e) {
-                showToast(e.message, 'warn');
-            }
-        });
 
-        bindCopilotInputOnce();
+        bindInboxReplyOnce();
 
         $('#home-bauherr-contract')?.addEventListener('click', () => openContractModalManual('bauherr'));
 
@@ -2094,6 +2107,7 @@
     });
 
     if (secret()) {
+        bindInboxReplyOnce();
         loadData().then(() => {
             showApp();
             startAutoSync();

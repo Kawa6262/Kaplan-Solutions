@@ -12,6 +12,8 @@ from outreach.email_layout import (
     cta_sub_link,
     safe,
     text_footer,
+    website_lead_required_html,
+    website_lead_required_text,
     wrap_outreach_email,
 )
 from outreach.urls import partner_form_url, referral_bauherr_url
@@ -57,6 +59,8 @@ Kaplan Solutions vermittelt Bauherren kostenlos an geprüfte Bauunternehmen im D
 Sie möchten selbst Aufträge über unser Netzwerk? Partner werden:
 → {partner_url}
 
+{website_lead_required_text(partner_url)}
+
 Für Bauherren und für Sie als Empfehlungspartner entstehen keine Gebühren.
 
 Mit freundlichen Grüßen
@@ -71,7 +75,7 @@ Kaplan Solutions
         f"({REGION_LABEL}, deutschlandweit). Wenn Mandanten oder Kunden ein passendes Bauunternehmen suchen, "
         "leiten Sie sie gern an uns weiter — wir übernehmen Vorauswahl und Erstkontakt.",
         f'Für Sie als Empfehlungspartner entstehen <strong style="color:{TEXT};">keine Gebühren</strong>.',
-    )
+    ) + website_lead_required_html(partner_url)
 
     html = wrap_outreach_email(
         headline=f"Bauherren-Vermittlung — {company}",

@@ -10,12 +10,12 @@ import urllib.request
 from typing import Any
 
 OPENAI_MODEL = os.getenv("COPILOT_MODEL", "gpt-4o-mini").strip()
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash").strip()
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip()
 GEMINI_MODEL_FALLBACKS = [
     m.strip()
     for m in os.getenv(
         "GEMINI_MODEL_FALLBACKS",
-        "gemini-2.0-flash,gemini-1.5-flash-002,gemini-1.5-flash-latest,gemini-1.5-flash",
+        "gemini-2.5-flash,gemini-2.0-flash,gemini-2.0-flash-lite",
     ).split(",")
     if m.strip()
 ]
@@ -90,9 +90,12 @@ def diagnostics() -> dict:
     if p == "gemini":
         discovered = _discover_gemini_model()
         out["discovered_model"] = discovered
-        text = _gemini_text("Du antwortest nur mit einem Wort.", "Sage ok.", max_tokens=16, use_tools=False)
+        out["model"] = discovered or GEMINI_MODEL
+        text = _gemini_text("Du antwortest nur mit einem Wort.", "Sage ok.", max_tokens=32, use_tools=False)
         out["ping_ok"] = bool(text)
         out["ping_reply"] = (text or "")[:80]
+        if not text and _last_error:
+            out["last_error"] = _last_error
     return out
 
 
@@ -313,9 +316,13 @@ def _discover_gemini_model() -> str:
             methods = item.get("supportedGenerationMethods") or []
             if "generateContent" not in methods or not name:
                 continue
-            if "flash" in name.lower():
-                picks.append(name)
-        for pref in ("2.5", "2.0", "1.5"):
+            low = name.lower()
+            if "flash" not in low:
+                continue
+            if any(x in low for x in ("preview", "-exp", "experimental", "thinking")):
+                continue
+            picks.append(name)
+        for pref in ("2.5-flash", "2.0-flash", "2.0-flash-lite"):
             for name in picks:
                 if pref in name:
                     _cached_gemini_model = name
@@ -363,10 +370,13 @@ def _read_http_error(exc: urllib.error.HTTPError) -> str:
 
 
 def _gemini_request_resilient(body: dict) -> dict:
+    global _cached_gemini_model
     last_msg = ""
     for model in _gemini_models_to_try():
         try:
-            return _gemini_request(body, model=model)
+            data = _gemini_request(body, model=model)
+            _cached_gemini_model = model
+            return data
         except urllib.error.HTTPError as exc:
             raw = _read_http_error(exc)
             last_msg = _parse_api_error(raw) or f"HTTP {exc.code}"
@@ -488,6 +498,7 @@ def _reply_gemini(user_text: str, history: list[dict]) -> str | None:
         "systemInstruction": {"parts": [{"text": _SYSTEM}]},
         "contents": contents,
         "tools": _tools_gemini(),
+        "toolConfig": {"functionCallingConfig": {"mode": "AUTO"}},
         "generationConfig": {"temperature": 0.4, "maxOutputTokens": 1200},
     }
 

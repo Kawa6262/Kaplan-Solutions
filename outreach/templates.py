@@ -12,6 +12,8 @@ from outreach.email_layout import (
     reply_hint_html,
     safe,
     text_footer,
+    website_lead_required_html,
+    website_lead_required_text,
     wrap_outreach_email,
 )
 from outreach.urls import partner_form_url
@@ -56,6 +58,8 @@ Interesse an einer unverbindlichen Partnerschaft?
 → Partner werden (ca. 2 Minuten): {form_url}
 Das Formular ist bereits auf „Ich suche Aufträge" voreingestellt.
 
+{website_lead_required_text(form_url)}
+
 Noch einfacher: Antworten Sie auf diese E-Mail mit „Interesse" — wir melden uns persönlich.
 
 Mit freundlichen Grüßen
@@ -71,7 +75,7 @@ Kaplan Solutions
         f"Vergütung nur bei erfolgreicher Vermittlung.",
         f'Bei Interesse: <strong style="color:{TEXT};">Partner werden in 2 Minuten</strong> — '
         "Formular ist voreingestellt.",
-    ) + reply_hint_html()
+    ) + website_lead_required_html(form_url) + reply_hint_html()
 
     html = wrap_outreach_email(
         headline=f"Partnernetzwerk Bau — {company}",

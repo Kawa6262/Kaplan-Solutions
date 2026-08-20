@@ -150,8 +150,25 @@
         </form>
     </dialog>
 
+    <!-- Posteingang: Antwort-Dialog außerhalb von #sf-main — bleibt beim Hintergrund-Refresh offen -->
+    <dialog id="inbox-reply-dialog" class="sf-modal">
+        <form id="inbox-reply-form">
+            <header class="sf-modal-header"><h2>Antwort senden</h2>
+                <button type="button" class="sf-modal-close" data-close>×</button></header>
+            <div class="sf-modal-body">
+                <label>An <input id="inbox-reply-to" readonly /></label>
+                <label>Betreff <input id="inbox-reply-subj" /></label>
+                <label>Nachricht<textarea id="inbox-reply-body" rows="6" required></textarea></label>
+                <input type="hidden" id="inbox-reply-mid" />
+            </div>
+            <footer class="sf-modal-footer">
+                <button type="submit" class="slds-button slds-button_brand">Senden</button>
+            </footer>
+        </form>
+    </dialog>
+
     <div id="toast-root" class="sf-toast-root" aria-live="polite"></div>
 
-    <script src="/admin-crm.js?v=16"></script>
+    <script src="/admin-crm.js?v=17"></script>
 </body>
 </html>
