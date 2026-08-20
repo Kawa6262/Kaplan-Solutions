@@ -1,4 +1,4 @@
-"""Assistent-Chat in Kaplan Sales — intelligente Befehle vom Handy."""
+"""Assistent-Chat in Kaplan Sales — regelbasiert (0 €) + optional KI."""
 
 from __future__ import annotations
 
@@ -117,110 +117,14 @@ def _chat_history(limit: int = 12) -> list[dict]:
 
 
 def _auto_status() -> str:
-    lines = ["📊 Kurzstatus", ""]
-    try:
-        from outreach import storage, config
+    from crm import copilot_rules
 
-        storage.init_db()
-        s = storage.stats_summary()
-        lines.append(f"• Outreach: {s.get('sent', 0)} versendet, {s.get('queued', 0)} in Warteschlange")
-        if config.PROJEKT_ENABLED:
-            ps = storage.campaign_stats().get(config.CAMPAIGN_PROJEKT, {})
-            lines.append(
-                f"• Duisburg {config.CAMPAIGN_PROJEKT}: {ps.get('sent', 0)} versendet, "
-                f"{ps.get('queued', 0)} wartend"
-            )
-    except Exception as exc:
-        lines.append(f"• Outreach: ({exc})")
-    try:
-        from sheet_client import crm_snapshot
-
-        snap = crm_snapshot()
-        leads = snap.get("leads") or []
-        hot = [l for l in leads if "Vertrag" in (l.get("stage") or "")]
-        lines.append(f"• CRM: {len(leads)} Leads, {len(hot)} mit Vertrag-Status")
-        if hot[:3]:
-            lines.append("  Top Vertrag:")
-            for l in hot[:3]:
-                lines.append(f"  – {l.get('ref')} {l.get('name') or l.get('company')} ({l.get('stage')})")
-    except Exception:
-        lines.append("• CRM: Sheet nicht erreichbar")
-    try:
-        from crm.mail_inbox import config_status, list_messages as list_mail
-
-        cs = config_status()
-        if cs.get("configured"):
-            m = list_mail(limit=3)
-            lines.append(f"• Posteingang: {m.get('unread', 0)} ungelesen / {m.get('total', 0)} gesamt")
-            for msg in m.get("messages") or []:
-                lines.append(f"  – {msg.get('from_email')}: {(msg.get('subject') or '')[:40]}")
-        else:
-            lines.append("• Posteingang: nicht konfiguriert")
-    except Exception:
-        pass
-    return "\n".join(lines)
-
-
-def _try_auto_reply(user_text: str) -> str | None:
-    t = user_text.strip().lower()
-    if t in ("status", "stand", "übersicht", "uebersicht", "?"):
-        return _auto_status()
-    if t in ("help", "hilfe", "befehle", "help"):
-        return (
-            "Ich bin dein Kaplan Sales Assistent.\n\n"
-            "Sofort-Befehle:\n"
-            "• status — Zahlen & Überblick\n"
-            "• posteingang — Mails syncen & anzeigen\n"
-            "• hot leads — wichtige Kontakte\n"
-            "• Schick mir eine Test-Mail — an deine Gmail\n\n"
-            "Oder frei schreiben, z. B.:\n"
-            "• Was steht im Posteingang?\n"
-            "• Antwort an l.biskup@bki-gruppe.de: Vertrag erhalten\n"
-            "• Wie läuft Duisburg Outreach?"
-        )
-    if t in ("posteingang", "inbox", "mails sync", "sync inbox", "posteingang sync"):
-        return _inbox_report(sync=True)
-
-    if t in ("hot leads", "heisse leads", "heiss leads", "vertrag", "pipeline"):
-        from sheet_client import crm_snapshot
-
-        snap = crm_snapshot()
-        leads = snap.get("leads") or []
-        hot = [l for l in leads if "Vertrag" in (l.get("stage") or "")]
-        if not hot:
-            return "Keine Leads mit Vertrag-Status gefunden."
-        lines = ["🔥 Vertrag / heiße Leads:", ""]
-        for l in hot[:10]:
-            lines.append(
-                f"• {l.get('ref')} — {l.get('name') or l.get('company')} "
-                f"({l.get('stage')}) {l.get('email') or ''}"
-            )
-        return "\n".join(lines)
-
-    m = re.match(
-        r"^(?:antwort|reply|mail)\s+(?:an\s+)?([^\s:@]+@[^\s:@]+)\s*[:]\s*(.+)$",
-        user_text.strip(),
-        re.IGNORECASE | re.DOTALL,
-    )
-    if m:
-        from crm.mail_inbox import send_reply
-
-        to_addr = m.group(1).strip().lower()
-        body = m.group(2).strip()
-        r = send_reply(to_email=to_addr, subject="Kaplan Solutions", body=body)
-        if r.get("ok"):
-            return f"✓ Mail gesendet an {to_addr}"
-        return f"Mail fehlgeschlagen: {r.get('error')}"
-
-    if _wants_test_mail(user_text):
-        return _send_test_mail()
-
-    return None
+    return copilot_rules._cmd_status("status", copilot_rules._snapshot()) or "Status nicht verfügbar."
 
 
 def _wants_test_mail(text: str) -> bool:
     tl = text.lower()
-    if re.search(r"(test\s*mail|testmail|test\s*-?\s*mail|testmail)", tl):
+    if re.search(r"(test\s*mail|testmail|test\s*-?\s*mail)", tl):
         return bool(re.search(r"(schick|sende|send|schicken|mir|mal|eine|bitte|kannst|könntest)", tl))
     return bool(re.search(r"(schick|sende).{0,30}(mail|e-mail|email)", tl))
 
@@ -238,7 +142,7 @@ def _send_test_mail() -> str:
         body = (
             "Das ist eine Test-Mail von deinem Kaplan Sales Assistenten.\n\n"
             "Eingehende Mails an kontakt@kaplan-solutions.de landen im CRM Posteingang "
-            "und werden automatisch an diese Gmail weitergeleitet."
+            "und werden automatisch an deine Gmail weitergeleitet."
         )
         send_email(admin, subj, body, f"<p>{body}</p>", mail_kind="transactional")
         return f"✓ Test-Mail gesendet an {admin}. Schau in dein Postfach (ggf. Spam)."
@@ -247,104 +151,21 @@ def _send_test_mail() -> str:
 
 
 def _inbox_report(*, sync: bool = True) -> str:
-    from crm.mail_inbox import list_messages, sync_inbox
+    from crm import copilot_rules
 
-    if sync:
-        r = sync_inbox()
-        if not r.get("ok"):
-            return f"Posteingang: {r.get('error')}"
-    m = list_messages(limit=8)
-    if not m.get("messages"):
-        return "Posteingang ist leer — noch keine Mails bei kontakt@kaplan-solutions.de."
-    lines = [f"📥 {m.get('unread', 0)} ungelesen / {m.get('total', 0)} gesamt", ""]
-    for msg in m.get("messages") or []:
-        lines.append(f"• {msg.get('from_email')}: {msg.get('subject') or '—'}")
-        if msg.get("analysis_summary"):
-            lines.append(f"  🤖 {msg.get('analysis_summary')}")
-        else:
-            preview = (msg.get("body") or "")[:100]
-            if preview:
-                lines.append(f"  {preview}…")
-    return "\n".join(lines)
-
-
-def _smart_fallback(user_text: str) -> str:
-    """Antwort ohne KI — nur kurze Befehle, keine langen Fragen abfangen."""
-    tl = user_text.strip().lower()
-    short = len(tl) < 70
-
-    if _wants_test_mail(user_text):
-        return _send_test_mail()
-
-    if short and tl in ("status", "stand", "übersicht", "uebersicht", "?"):
-        return _auto_status()
-    if short and any(w in tl for w in ("posteingang", "inbox", "postfach")) and "?" not in tl[20:]:
-        return _inbox_report(sync=True)
-    if short and tl.startswith("hot"):
-        from sheet_client import crm_snapshot
-
-        snap = crm_snapshot()
-        leads = snap.get("leads") or []
-        hot = [l for l in leads if "Vertrag" in (l.get("stage") or "")]
-        if not hot:
-            return "Keine Leads mit Vertrag-Status gefunden."
-        lines = ["🔥 Vertrag / heiße Leads:", ""]
-        for l in hot[:10]:
-            lines.append(
-                f"• {l.get('ref')} — {l.get('name') or l.get('company')} "
-                f"({l.get('stage')}) {l.get('email') or ''}"
-            )
-        return "\n".join(lines)
-    if short and any(w in tl for w in ("lead", "kontakt", "vertrag", "bki", "atakor")):
-        from sheet_client import crm_snapshot
-
-        snap = crm_snapshot()
-        q = user_text.lower()
-        hits = [
-            l
-            for l in (snap.get("leads") or [])
-            if q in (l.get("name") or "").lower()
-            or q in (l.get("company") or "").lower()
-            or q in (l.get("email") or "").lower()
-            or q in (l.get("ref") or "").lower()
-        ]
-        if hits:
-            l = hits[0]
-            return (
-                f"{l.get('ref')} — {l.get('name') or l.get('company')}\n"
-                f"Stage: {l.get('stage')}\n"
-                f"E-Mail: {l.get('email') or '—'}\n"
-                f"Projekt: {l.get('project') or '—'}"
-            )
-        return _auto_status()
-    try:
-        from crm import copilot_ai
-
-        if not copilot_ai.configured():
-            return (
-                "KI-Assistent ist auf dem Server noch nicht konfiguriert.\n\n"
-                "Render → Environment → GEMINI_API_KEY + COPILOT_PROVIDER=gemini setzen.\n\n"
-                f"{_auto_status()}\n\n"
-                "Kurzbefehle: status · posteingang · hot leads"
-            )
-    except Exception:
-        pass
-    return (
-        f"Verstanden: „{user_text[:200]}“\n\n"
-        f"{_auto_status()}\n\n"
-        "Tipp: status · posteingang · hot leads — oder konkret fragen."
-    )
+    return copilot_rules._cmd_inbox("posteingang", copilot_rules._snapshot()) or "Posteingang nicht verfügbar."
 
 
 def post_user_message(text: str) -> dict:
+    from crm import copilot_rules
+
     user_msg = add_message(role="user", text=text, pending_agent=True)
     if not user_msg.get("ok"):
         return user_msg
 
-    reply_text = _try_auto_reply(text)
-    ai_note = ""
+    reply_text = copilot_rules.handle(text)
 
-    if not reply_text:
+    if copilot_rules.ai_enabled() and reply_text and reply_text.startswith("Das habe ich nicht eindeutig"):
         try:
             from crm import copilot_ai
 
@@ -352,33 +173,10 @@ def post_user_message(text: str) -> dict:
                 ai_reply = copilot_ai.reply(text, _chat_history())
                 if ai_reply:
                     reply_text = ai_reply
-                elif copilot_ai.quota_exhausted():
-                    pname = copilot_ai.provider_name() or "KI"
-                    ai_note = (
-                        f"\n\n(Hinweis: {pname}-Limit erreicht — später erneut versuchen. "
-                        "Bis dahin: status · posteingang · hot leads.)"
-                    )
                 elif copilot_ai.last_error():
-                    ai_note = f"\n\n(KI-Hinweis: {copilot_ai.last_error()[:200]})"
+                    reply_text = f"{reply_text}\n\n(KI optional: {copilot_ai.last_error()[:150]})"
         except Exception:
-            reply_text = None
-
-    if not reply_text:
-        try:
-            from crm import copilot_ai
-
-            if copilot_ai.configured() and copilot_ai.last_error():
-                reply_text = (
-                    f"⚠️ KI ({copilot_ai.provider_name()}): {copilot_ai.last_error()}\n\n"
-                    f"{_smart_fallback(text)}"
-                )
-            else:
-                reply_text = _smart_fallback(text)
-        except Exception:
-            reply_text = _smart_fallback(text)
-
-    if ai_note and reply_text and ai_note not in reply_text:
-        reply_text = reply_text + ai_note
+            pass
 
     clear_pending(user_msg["id"])
     add_message(role="assistant", text=reply_text)
@@ -388,6 +186,7 @@ def post_user_message(text: str) -> dict:
         "auto_replied": True,
         "reply": reply_text,
         "pending": False,
+        "mode": "ai" if copilot_rules.ai_enabled() else "rules",
     }
 
 
