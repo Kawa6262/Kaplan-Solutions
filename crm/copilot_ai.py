@@ -15,7 +15,7 @@ GEMINI_MODEL_FALLBACKS = [
     m.strip()
     for m in os.getenv(
         "GEMINI_MODEL_FALLBACKS",
-        "gemini-2.5-flash,gemini-2.0-flash,gemini-2.0-flash-lite",
+        "gemini-2.5-flash,gemini-2.0-flash,gemini-3.5-flash-lite",
     ).split(",")
     if m.strip()
 ]
@@ -300,13 +300,36 @@ def _http_get_json(url: str) -> dict:
 
 
 def _discover_gemini_model() -> str:
-    """Erstes verfügbares Flash-Modell von der Google API."""
+    """Verfügbares Flash-Modell — per Mini-Ping gegen generateContent verifiziert."""
     global _cached_gemini_model
     if _cached_gemini_model:
         return _cached_gemini_model
     key = _gemini_key()
     if not key:
         return GEMINI_MODEL
+
+    ping_body: dict[str, Any] = {
+        "contents": [{"role": "user", "parts": [{"text": "Sage ok."}]}],
+        "generationConfig": {"maxOutputTokens": 16, "temperature": 0},
+    }
+
+    def _try_model(name: str) -> bool:
+        try:
+            data = _gemini_request(ping_body, model=name)
+            if _extract_gemini_text(data):
+                _cached_gemini_model = name
+                return True
+        except urllib.error.HTTPError as exc:
+            raw = _read_http_error(exc)
+            print(f"[copilot-ai] Gemini ping {name} {exc.code}: {raw[:120]}", flush=True)
+        except Exception as exc:
+            print(f"[copilot-ai] Gemini ping {name}: {exc}", flush=True)
+        return False
+
+    for candidate in [GEMINI_MODEL, *GEMINI_MODEL_FALLBACKS]:
+        if candidate and _try_model(candidate):
+            return candidate
+
     try:
         url = f"https://generativelanguage.googleapis.com/v1beta/models?key={key}"
         data = _http_get_json(url)
@@ -319,17 +342,22 @@ def _discover_gemini_model() -> str:
             low = name.lower()
             if "flash" not in low:
                 continue
-            if any(x in low for x in ("preview", "-exp", "experimental", "thinking")):
+            if any(x in low for x in ("preview", "-exp", "experimental", "thinking", "lite-001")):
+                continue
+            if "flash-lite" in low and "3.5" not in low:
                 continue
             picks.append(name)
-        for pref in ("2.5-flash", "2.0-flash", "2.0-flash-lite"):
+        order: list[str] = []
+        for pref in ("2.5-flash", "3.5-flash-lite", "2.0-flash", "3.5-flash", "flash-lite"):
             for name in picks:
-                if pref in name:
-                    _cached_gemini_model = name
-                    return name
-        if picks:
-            _cached_gemini_model = picks[0]
-            return picks[0]
+                if pref in name and name not in order:
+                    order.append(name)
+        for name in picks:
+            if name not in order:
+                order.append(name)
+        for name in order:
+            if _try_model(name):
+                return name
     except Exception as exc:
         print(f"[copilot-ai] Gemini model discovery: {exc}", flush=True)
     return GEMINI_MODEL
@@ -369,14 +397,26 @@ def _read_http_error(exc: urllib.error.HTTPError) -> str:
         return str(exc)
 
 
-def _gemini_request_resilient(body: dict) -> dict:
+def _gemini_response_ok(data: dict, *, allow_tools: bool = False) -> bool:
+    candidate = (data.get("candidates") or [{}])[0]
+    parts = (candidate.get("content") or {}).get("parts") or []
+    if allow_tools and any(p.get("functionCall") for p in parts):
+        return True
+    return bool(_extract_gemini_text(data))
+
+
+def _gemini_request_resilient(body: dict, *, allow_tools: bool = False) -> dict:
     global _cached_gemini_model
     last_msg = ""
     for model in _gemini_models_to_try():
         try:
             data = _gemini_request(body, model=model)
-            _cached_gemini_model = model
-            return data
+            if _gemini_response_ok(data, allow_tools=allow_tools):
+                _cached_gemini_model = model
+                return data
+            last_msg = f"Gemini ({model}): leere Antwort"
+            _set_error(last_msg)
+            print(f"[copilot-ai] {last_msg}", flush=True)
         except urllib.error.HTTPError as exc:
             raw = _read_http_error(exc)
             last_msg = _parse_api_error(raw) or f"HTTP {exc.code}"
@@ -432,7 +472,7 @@ def _gemini_text(
     if use_tools:
         body["tools"] = _tools_gemini()
     try:
-        data = _gemini_request_resilient(body)
+        data = _gemini_request_resilient(body, allow_tools=use_tools)
         text = _extract_gemini_text(data)
         return text or None
     except RuntimeError as exc:
@@ -504,7 +544,7 @@ def _reply_gemini(user_text: str, history: list[dict]) -> str | None:
 
     for _ in range(4):
         try:
-            data = _gemini_request_resilient(body)
+            data = _gemini_request_resilient(body, allow_tools=True)
         except RuntimeError:
             if body.get("tools"):
                 text = _gemini_text(_SYSTEM, user_text, max_tokens=1200, use_tools=False)

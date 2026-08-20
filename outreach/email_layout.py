@@ -294,24 +294,21 @@ def reply_hint_html() -> str:
 
 
 def website_lead_required_text(form_url: str) -> str:
-    """Pflicht-Hinweis: Anfrage nur über Website = Lead im CRM."""
-    site = public_site_url().rstrip("/")
+    """Hinweis: Anfrage über die Website (mit Link)."""
+    url = (form_url or f"{public_site_url().rstrip('/')}/#contact").strip()
     return (
-        f"Wichtig: Damit wir Sie als Lead erfassen und Sie von uns hören, "
-        f"stellen Sie bitte verbindlich eine Anfrage über unsere Website:\n"
-        f"{form_url or site + '/#contact'}\n"
-        f"Nur über kaplan-solutions.de können wir Sie im System anlegen und persönlich zurückmelden."
+        f"Bitte stellen Sie Ihre Anfrage über unsere Website — wir melden uns zeitnah persönlich:\n"
+        f"{url}"
     )
 
 
 def website_lead_required_html(form_url: str) -> str:
-    site = public_site_url().rstrip("/")
+    url = (form_url or f"{public_site_url().rstrip('/')}/#contact").strip()
     return highlight_box(
-        f'<strong style="color:{TEXT};">Wichtig — Anfrage über kaplan-solutions.de</strong><br>'
-        f"Damit wir Sie als Lead erfassen und Sie von uns hören, stellen Sie bitte "
-        f'eine kurze Anfrage auf unserer Website '
-        f'(<a href="{safe(form_url)}" style="color:{GOLD};text-decoration:none;">{safe(site)}</a>). '
-        f"Nur so können wir Sie im System anlegen und persönlich zurückmelden."
+        f'<strong style="color:{TEXT};">Anfrage über unsere Website</strong><br>'
+        f"Bitte stellen Sie Ihre Anfrage bequem online — wir melden uns zeitnah persönlich bei Ihnen.<br>"
+        f'<a href="{safe(url)}" style="color:{GOLD};text-decoration:none;font-weight:600;">'
+        f"{safe(url)}</a>"
     )
 
 
